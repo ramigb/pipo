@@ -1,0 +1,9 @@
+import { expect, test } from "bun:test";
+import { build } from "./{{name}}.fn";
+
+test("build keeps the payload and adds a timestamp", async () => {
+  const sample = await Bun.file(`${import.meta.dir}/fixtures/sample.json`).json();
+  const out = build(sample);
+  expect(out.source).toBe("sample");
+  expect(typeof out.at).toBe("string");
+});

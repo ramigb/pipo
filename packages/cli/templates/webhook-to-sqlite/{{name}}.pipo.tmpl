@@ -1,0 +1,66 @@
+# Run: {{token_env}}=dev-token pipo run {{name}}.pipo
+#   curl -X POST localhost:{{port}}/in/{{name}}{{path}} -H 'X-Pipo-Token: dev-token' \
+#        -H 'content-type: application/json' -d @fixtures/sample.json
+pipo: 1
+name: {{name}}
+description: Receive JSON on a webhook and store it in SQLite.
+
+fn: ./{{name}}.fn.ts
+
+secrets:
+  token: env:{{token_env}}
+
+errors:
+  retry: 2
+  backoff: exponential
+  delay: 500ms
+  then: dead_letter
+
+input:
+  via: http
+  with:
+    path: {{path}}
+    method: POST
+    listen: {{port}}
+    auth:
+      header: X-Pipo-Token
+      equals: "${secrets.token}"
+  format: json
+  schema: ./schemas/input.schema.json
+  validate:
+    - exists(data)
+  on_invalid:
+    respond: 422
+    message: "Rejected: rule '${error.rule}' failed"
+
+nodes:
+  tidy:
+    from: input
+    transform: fn.tidy
+
+output:
+  from: tidy
+  to: sqlite
+  with:
+    path: ./data/{{name}}.db
+    table: {{table}}
+    create: true
+    mode: upsert
+    key: id
+    columns:
+      id: "${meta.packet_id}"
+      payload: "${json(data)}"
+      received_at: "${meta.received_at}"
+  on_error:
+    retry: 5
+    backoff: exponential
+    max_delay: 1m
+    then: dead_letter
+
+delivered:
+  check: record_exists
+  with:
+    where: { id: "${meta.packet_id}" }
+  within: 10s
+  on_fail:
+    then: dead_letter

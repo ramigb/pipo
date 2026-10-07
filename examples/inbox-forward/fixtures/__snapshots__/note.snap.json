@@ -1,0 +1,34 @@
+{
+  "fixture": "note",
+  "outcome": "delivered",
+  "units": [
+    {
+      "unit": "note",
+      "branch": "",
+      "outcome": "delivered",
+      "path": ["shape", "output"],
+      "data": {
+        "file": "note.txt",
+        "text": "hello\n"
+      },
+      "write": {
+        "key": "note",
+        "to": "http",
+        "with": {
+          "method": "POST",
+          "url": "***",
+          "headers": {
+            "content-type": "application/json"
+          },
+          "body": {
+            "file": "note.txt",
+            "text": "hello\n"
+          },
+          "success": ["200-299"]
+        }
+      }
+    }
+  ],
+  "taps": [],
+  "calls": []
+}

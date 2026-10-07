@@ -1,0 +1,13 @@
+{
+  "fixture": "no-subject",
+  "outcome": "rejected",
+  "units": [],
+  "taps": [],
+  "calls": [],
+  "error": {
+    "step": "input",
+    "code": "input.invalid",
+    "message": "Rejected: rule 'type(data.subject) == \"string\" && len(trim(data.subject)) > 0' failed; send {subject, body}",
+    "rule": "type(data.subject) == \"string\" && len(trim(data.subject)) > 0"
+  }
+}

@@ -1,0 +1,139 @@
+{"ts":"2026-10-03T12:07:56.841Z","run":null,"cycle":null,"src":"user","type":"control","action":"start"}
+{"ts":"2026-10-03T12:07:56.960Z","run":"r1","cycle":null,"src":"runner","type":"run.start","timebox_s":43200,"resumed":false}
+{"ts":"2026-10-03T12:07:56.987Z","run":"r1","cycle":1,"src":"runner","type":"cycle.start","mode":"build","model":"opus","effort":"high","timeout_s":5400}
+{"ts":"2026-10-03T12:17:14.739Z","run":"r1","cycle":1,"src":"orchestrator","type":"note","text":"decided §14.3 (schedule catch-up): skip missed ticks, cron in UTC, every from runner start — spec D14, please review"}
+{"ts":"2026-10-03T12:17:14.789Z","run":"r1","cycle":1,"src":"orchestrator","type":"milestone","text":"M0: done-check scripts (coverage remaining 62, stress 5/5)"}
+{"ts":"2026-10-03T12:17:37.569Z","run":"r1","cycle":1,"src":"orchestrator","type":"round","n":2}
+{"ts":"2026-10-03T12:25:02.573Z","run":"r1","cycle":1,"src":"orchestrator","type":"note","text":"decided §14.3 (file/http output details: formats, csv header, sidecar keys, http defaults) — spec D15, please review"}
+{"ts":"2026-10-03T12:25:11.131Z","run":"r1","cycle":1,"src":"orchestrator","type":"round","n":3}
+{"ts":"2026-10-03T12:31:10.774Z","run":"r1","cycle":1,"src":"orchestrator","type":"note","text":"decided §14 tap idempotency: key <packet_id>:<node>, taps at-least-once — spec D16, please review"}
+{"ts":"2026-10-03T12:31:34.901Z","run":"r1","cycle":1,"src":"runner","type":"cycle.end","exit":"ok","duration_s":1418,"cost_usd":2.9519581000000015,"turns":6}
+{"ts":"2026-10-03T12:31:34.926Z","run":"r1","cycle":1,"src":"runner","type":"wait","reason":"between_cycles","seconds":15}
+{"ts":"2026-10-03T12:31:49.966Z","run":"r1","cycle":2,"src":"runner","type":"cycle.start","mode":"build","model":"opus","effort":"high","timeout_s":5400}
+{"ts":"2026-10-03T13:28:36.020Z","run":"r1","cycle":2,"src":"orchestrator","type":"note","text":"decided §14.3: watch persists snapshot in journal, replays downtime changes exactly once (D19) — please review; also D17 (http input), D18 (check fields)"}
+{"ts":"2026-10-03T13:28:47.950Z","run":"r1","cycle":2,"src":"runner","type":"cycle.end","exit":"ok","duration_s":3418,"cost_usd":5.685795349999999,"turns":9}
+{"ts":"2026-10-03T13:28:47.966Z","run":"r1","cycle":2,"src":"runner","type":"wait","reason":"between_cycles","seconds":15}
+{"ts":"2026-10-03T13:29:02.998Z","run":"r1","cycle":3,"src":"runner","type":"cycle.start","mode":"build","model":"opus","effort":"high","timeout_s":5400}
+{"ts":"2026-10-03T13:50:53.299Z","run":"r1","cycle":3,"src":"orchestrator","type":"milestone","text":"M1: connectors — schedule/watch/system inputs, http extras, taps, file/http outputs, delivery checks, runnable examples (push/external with M3)"}
+{"ts":"2026-10-03T13:51:00.497Z","run":"r1","cycle":3,"src":"orchestrator","type":"round","n":2}
+{"ts":"2026-10-03T14:41:12.790Z","run":"r1","cycle":3,"src":"runner","type":"cycle.end","exit":"ok","duration_s":4330,"cost_usd":4.791767200000001,"turns":5}
+{"ts":"2026-10-03T14:41:12.817Z","run":"r1","cycle":3,"src":"runner","type":"wait","reason":"between_cycles","seconds":15}
+{"ts":"2026-10-03T14:41:27.850Z","run":"r1","cycle":4,"src":"runner","type":"cycle.start","mode":"build","model":"opus","effort":"high","timeout_s":5400}
+{"ts":"2026-10-03T15:00:10.394Z","run":"r1","cycle":4,"src":"orchestrator","type":"note","text":"stress.ts got a 45s startup watchdog for Bun module-load hangs (no assertion change) — please review"}
+{"ts":"2026-10-03T15:00:10.443Z","run":"r1","cycle":4,"src":"orchestrator","type":"round","n":2}
+{"ts":"2026-10-03T15:32:32.004Z","run":"r1","cycle":4,"src":"orchestrator","type":"note","text":"decided §14.1: fan-out copies get their own key packet_id:<branch> (D22), P026 warns on keys that can't distinguish copies — please review"}
+{"ts":"2026-10-03T15:32:41.760Z","run":"r1","cycle":4,"src":"runner","type":"cycle.end","exit":"ok","duration_s":3074,"cost_usd":4.456586149999998,"turns":7}
+{"ts":"2026-10-03T15:32:41.780Z","run":"r1","cycle":4,"src":"runner","type":"wait","reason":"between_cycles","seconds":15}
+{"ts":"2026-10-03T15:32:56.811Z","run":"r1","cycle":5,"src":"runner","type":"cycle.start","mode":"build","model":"opus","effort":"high","timeout_s":5400}
+{"ts":"2026-10-03T15:42:57.172Z","run":"r1","cycle":5,"src":"orchestrator","type":"milestone","text":"M2: delivery semantics — batching, lifetime max_packets/until, fan-out branches, stall detection (jammed/pause); stress 20/20"}
+{"ts":"2026-10-03T15:43:08.101Z","run":"r1","cycle":5,"src":"orchestrator","type":"round","n":2}
+{"ts":"2026-10-03T16:14:19.792Z","run":"r1","cycle":5,"src":"orchestrator","type":"round","n":3}
+{"ts":"2026-10-03T16:21:15.120Z","run":"r1","cycle":5,"src":"runner","type":"cycle.end","exit":"ok","duration_s":2898,"cost_usd":5.309524850000001,"turns":29}
+{"ts":"2026-10-03T16:21:15.142Z","run":"r1","cycle":5,"src":"runner","type":"wait","reason":"between_cycles","seconds":15}
+{"ts":"2026-10-03T16:21:30.176Z","run":"r1","cycle":6,"src":"runner","type":"cycle.start","mode":"build","model":"opus","effort":"high","timeout_s":5400}
+{"ts":"2026-10-03T16:53:02.820Z","run":"r1","cycle":6,"src":"orchestrator","type":"round","n":2}
+{"ts":"2026-10-03T17:25:33.583Z","run":"r1","cycle":6,"src":"orchestrator","type":"blocked","text":"needs approval: append packages/engine/test/reattach.test.ts to scripts/stress.ts RESILIENCE (permission classifier denied the edit)"}
+{"ts":"2026-10-03T17:26:04.986Z","run":"r1","cycle":6,"src":"runner","type":"cycle.end","exit":"ok","duration_s":3875,"cost_usd":9.036060249999998,"turns":9}
+{"ts":"2026-10-03T17:26:05.002Z","run":"r1","cycle":6,"src":"runner","type":"wait","reason":"between_cycles","seconds":15}
+{"ts":"2026-10-03T17:26:20.033Z","run":"r1","cycle":7,"src":"runner","type":"cycle.start","mode":"build","model":"opus","effort":"high","timeout_s":5400}
+{"ts":"2026-10-03T18:24:20.288Z","run":"r1","cycle":7,"src":"runner","type":"cycle.end","exit":"ok","duration_s":3480,"cost_usd":7.683298749999998,"turns":7}
+{"ts":"2026-10-03T18:24:20.296Z","run":"r1","cycle":7,"src":"runner","type":"warn","text":"state/handoff.md has 27 lines (cap 25)"}
+{"ts":"2026-10-03T18:24:20.308Z","run":"r1","cycle":7,"src":"runner","type":"wait","reason":"between_cycles","seconds":15}
+{"ts":"2026-10-03T18:24:35.340Z","run":"r1","cycle":8,"src":"runner","type":"cycle.start","mode":"build","model":"opus","effort":"high","timeout_s":5400}
+{"ts":"2026-10-03T19:02:59.342Z","run":"r1","cycle":8,"src":"orchestrator","type":"note","text":"decided §14.5: detached runners keep lifetime/stall/schedules in the runner always; engine learns from replayed journal events (D30) — please review"}
+{"ts":"2026-10-03T19:02:59.383Z","run":"r1","cycle":8,"src":"orchestrator","type":"round","n":2}
+{"ts":"2026-10-03T19:29:06.880Z","run":"r1","cycle":8,"src":"orchestrator","type":"note","text":"c8: detached mode, engine idle sleep/TTL, CLI lifecycle commands done; M3-6 e2e + critic remain for M3; M8-2 cut (schedule)"}
+{"ts":"2026-10-03T19:29:30.211Z","run":"r1","cycle":8,"src":"runner","type":"cycle.end","exit":"ok","duration_s":3895,"cost_usd":8.236971900000002,"turns":5}
+{"ts":"2026-10-03T19:29:30.231Z","run":"r1","cycle":8,"src":"runner","type":"wait","reason":"between_cycles","seconds":15}
+{"ts":"2026-10-03T19:29:45.260Z","run":"r1","cycle":9,"src":"runner","type":"cycle.start","mode":"build","model":"opus","effort":"high","timeout_s":5400}
+{"ts":"2026-10-03T19:41:33.982Z","run":"r1","cycle":9,"src":"orchestrator","type":"milestone","text":"M3: engine control plane — supervisor, reattach, gateway, detached runners surviving engine SIGKILL (e2e exactly-once), idle/TTL; critic 7/7/6/7, R-3..R-8 filed"}
+{"ts":"2026-10-03T19:41:34.019Z","run":"r1","cycle":9,"src":"orchestrator","type":"blocked","text":"needs approval: append packages/engine/test/{reattach,gateway,detached,lifetime,engine-kill}.test.ts to RESILIENCE in scripts/stress.ts (M3-9)"}
+{"ts":"2026-10-03T19:41:55.349Z","run":"r1","cycle":9,"src":"orchestrator","type":"round","n":2}
+{"ts":"2026-10-03T20:32:22.071Z","run":"r1","cycle":9,"src":"orchestrator","type":"note","text":"decided (harness, pending review): D27 amendment (stopped entries not restarted), D32 pause restored from journal, D33 DLQ replay resumes at failed node, D34 offline read-only journal reads, D35 runners/attach/engine CLI — please review"}
+{"ts":"2026-10-03T20:32:22.120Z","run":"r1","cycle":9,"src":"user","type":"control","action":"pause"}
+{"ts":"2026-10-03T20:32:45.303Z","run":"r1","cycle":9,"src":"runner","type":"cycle.end","exit":"ok","duration_s":3780,"cost_usd":14.610014849999997,"turns":8}
+{"ts":"2026-10-03T20:32:45.337Z","run":"r1","cycle":9,"src":"runner","type":"run.end","reason":"paused"}
+{"ts":"2026-10-03T20:55:46.837Z","run":"r1","cycle":null,"src":"user","type":"control","action":"resume"}
+{"ts":"2026-10-03T20:55:47.113Z","run":"r1","cycle":null,"src":"runner","type":"run.start","timebox_s":43200,"resumed":true}
+{"ts":"2026-10-03T20:55:47.143Z","run":"r1","cycle":10,"src":"runner","type":"cycle.start","mode":"build","model":"opus","effort":"high","timeout_s":5400}
+{"ts":"2026-10-03T22:13:59.003Z","run":"r1","cycle":10,"src":"orchestrator","type":"milestone","text":"M8: VS Code extension (packages/vscode: .pipo language, schema, ${} highlighting); language server cut"}
+{"ts":"2026-10-03T22:13:59.051Z","run":"r1","cycle":10,"src":"orchestrator","type":"note","text":"c10: M5-1/M5-2 agent nodes + budgets (D36, D37 pending review), R-4 pid-reuse liveness; full stress rerun not done (orchestrator stress run denied by the classifier)"}
+{"ts":"2026-10-03T22:14:23.492Z","run":"r1","cycle":10,"src":"runner","type":"cycle.end","exit":"ok","duration_s":4716,"cost_usd":10.82016565,"turns":13}
+{"ts":"2026-10-03T22:14:23.516Z","run":"r1","cycle":10,"src":"runner","type":"wait","reason":"between_cycles","seconds":15}
+{"ts":"2026-10-03T22:14:38.569Z","run":"r1","cycle":11,"src":"runner","type":"cycle.start","mode":"build","model":"opus","effort":"high","timeout_s":5400}
+{"ts":"2026-10-03T23:12:59.364Z","run":"r1","cycle":11,"src":"orchestrator","type":"milestone","text":"M6-1/M7-1/M4-3: retention enforced; dashboard at /ui with live graph and packet inspector; pipo history/diff/rollback (rollback survives restarts)"}
+{"ts":"2026-10-03T23:12:59.423Z","run":"r1","cycle":11,"src":"orchestrator","type":"note","text":"decided D38 (file wins only if changed since last start), D39 (retention semantics), D40 (/ui + graph route) — please review"}
+{"ts":"2026-10-03T23:44:17.131Z","run":"r1","cycle":11,"src":"orchestrator","type":"note","text":"stress 79/80: engine-kill.test.ts flaked 1/5 again (c10, c11); filed R-13 [high] for the first wrap-up round"}
+{"ts":"2026-10-03T23:44:39.204Z","run":"r1","cycle":11,"src":"runner","type":"cycle.end","exit":"timeout","duration_s":5401,"cost_usd":10.613779,"turns":3}
+{"ts":"2026-10-03T23:44:39.230Z","run":"r1","cycle":11,"src":"runner","type":"wait","reason":"between_cycles","seconds":15}
+{"ts":"2026-10-03T23:44:54.258Z","run":"r1","cycle":null,"src":"runner","type":"mode","from":"build","to":"wrapup"}
+{"ts":"2026-10-03T23:44:54.284Z","run":"r1","cycle":12,"src":"runner","type":"cycle.start","mode":"wrapup","model":"opus","effort":"high","timeout_s":5164}
+{"ts":"2026-10-03T23:50:51.503Z","run":"r1","cycle":12,"src":"orchestrator","type":"blocked","text":"needs approval: spec §14.6 — narrow §7.6/§12 (OTLP, MCP, per-node latency) to Phase 2, or build them"}
+{"ts":"2026-10-04T00:37:21.799Z","run":"r1","cycle":12,"src":"orchestrator","type":"done","text":"Phase 1 wrap-up: verify green (485 tests), stress 80/80, coverage 4 left (agent change protocol, pipo test); final critic spec 7/res 8/DX 7/code 7/ui 4 (UI improved after); §14.6 + D14–D40 await review"}
+{"ts":"2026-10-04T00:37:45.963Z","run":"r1","cycle":12,"src":"runner","type":"cycle.end","exit":"ok","duration_s":3172,"cost_usd":3.308540199999999,"turns":4}
+{"ts":"2026-10-04T00:37:45.993Z","run":"r1","cycle":12,"src":"runner","type":"run.end","reason":"done"}
+{"ts":"2026-10-04T08:30:34.022Z","run":"r1","cycle":null,"src":"user","type":"control","action":"reset"}
+{"ts":"2026-10-04T08:30:34.036Z","run":null,"cycle":null,"src":"user","type":"job","id":"phase1-ledger","title":"Phase 1 ledger","previous":"job-1","previous_title":"Pipo Phase 1","archived":"state/archive/job-1"}
+{"ts":"2026-10-04T08:34:30.802Z","run":"r1","cycle":null,"src":"user","type":"control","action":"start"}
+{"ts":"2026-10-04T08:34:34.054Z","run":"r2","cycle":null,"src":"runner","type":"run.start","timebox_s":36000,"resumed":false,"job":"phase1-ledger"}
+{"ts":"2026-10-04T08:34:34.086Z","run":"r2","cycle":13,"src":"runner","type":"cycle.start","mode":"build","model":"opus","effort":"high","timeout_s":5400}
+{"ts":"2026-10-04T08:57:20.933Z","run":"r2","cycle":13,"src":"orchestrator","type":"round","n":2}
+{"ts":"2026-10-04T09:43:45.929Z","run":"r2","cycle":13,"src":"runner","type":"cycle.end","exit":"ok","duration_s":4152,"cost_usd":9.337228649999998,"turns":8}
+{"ts":"2026-10-04T09:43:45.951Z","run":"r2","cycle":13,"src":"runner","type":"wait","reason":"between_cycles","seconds":15}
+{"ts":"2026-10-04T09:44:01.007Z","run":"r2","cycle":14,"src":"runner","type":"cycle.start","mode":"build","model":"opus","effort":"high","timeout_s":5400}
+{"ts":"2026-10-04T10:07:55.117Z","run":"r2","cycle":14,"src":"orchestrator","type":"note","text":"decided §14.7: agents may never change agent_budget (D47); dry-run semantics D48 — please review"}
+{"ts":"2026-10-04T10:08:32.717Z","run":"r2","cycle":14,"src":"orchestrator","type":"round","n":2}
+{"ts":"2026-10-04T10:52:42.628Z","run":"r2","cycle":14,"src":"orchestrator","type":"milestone","active_s":8288,"text":"M1: human decisions in spec (D41–D44), anchored TTL, SSE skip, stop settles crashed runners, --json hints; stress 89/90 (one unreproduced gateway flake tracked)"}
+{"ts":"2026-10-04T11:01:25.735Z","run":"r2","cycle":14,"src":"orchestrator","type":"note","text":"decided D49 (apply_proposal semantics, version audit fields) — please review"}
+{"ts":"2026-10-04T11:01:54.776Z","run":"r2","cycle":14,"src":"runner","type":"cycle.end","exit":"ok","duration_s":4674,"cost_usd":16.357430500000017,"turns":6}
+{"ts":"2026-10-04T11:01:54.795Z","run":"r2","cycle":14,"src":"runner","type":"wait","reason":"between_cycles","seconds":15}
+{"ts":"2026-10-04T11:02:09.836Z","run":"r2","cycle":15,"src":"runner","type":"cycle.start","mode":"build","model":"opus","effort":"high","timeout_s":5400}
+{"ts":"2026-10-04T11:37:46.044Z","run":"r2","cycle":15,"src":"runner","type":"cycle.end","exit":"ok","duration_s":2136,"cost_usd":6.8503605499999995,"turns":14}
+{"ts":"2026-10-04T11:37:46.063Z","run":"r2","cycle":15,"src":"runner","type":"wait","reason":"between_cycles","seconds":15}
+{"ts":"2026-10-04T11:38:01.105Z","run":"r2","cycle":16,"src":"runner","type":"cycle.start","mode":"build","model":"opus","effort":"high","timeout_s":5400}
+{"ts":"2026-10-04T11:44:49.019Z","run":"r2","cycle":16,"src":"orchestrator","type":"note","text":"decided D50 (escalated packets: then: agent everywhere, on_stall: handle, resolve op) — please review"}
+{"ts":"2026-10-04T12:10:40.980Z","run":"r2","cycle":16,"src":"orchestrator","type":"note","text":"decided D51 (no approve: human; proposals apply at once unless held with --hold/apply:false; reject_proposal) — please review"}
+{"ts":"2026-10-04T12:16:05.100Z","run":"r2","cycle":16,"src":"orchestrator","type":"milestone","active_s":13291,"text":"M2: agent change protocol works end to end — propose/validate/dry-run/apply at a safe point with SIGKILL-safe versions, then: agent escalation + resolve, REST and pipo proposals/resolve (critic 7/7/7/7)"}
+{"ts":"2026-10-04T12:37:21.625Z","run":"r2","cycle":16,"src":"orchestrator","type":"note","text":"decided D52 (pipo test fixtures/stubs/snapshots format; now()/iso() pinned via AsyncLocalStorage on shared helpers) — please review"}
+{"ts":"2026-10-04T12:37:28.910Z","run":"r2","cycle":16,"src":"orchestrator","type":"milestone","active_s":14574,"text":"M3: pipo test runs fixtures in-process with stubs and snapshots; every example passes; no planned CLI commands left (coverage: 1 left, the /mcp gap, M4)"}
+{"ts":"2026-10-04T12:37:37.785Z","run":"r2","cycle":16,"src":"runner","type":"cycle.end","exit":"ok","duration_s":3577,"cost_usd":11.815562600000016,"turns":4}
+{"ts":"2026-10-04T12:37:37.801Z","run":"r2","cycle":16,"src":"runner","type":"wait","reason":"between_cycles","seconds":15}
+{"ts":"2026-10-04T12:37:52.829Z","run":"r2","cycle":17,"src":"runner","type":"cycle.start","mode":"build","model":"opus","effort":"high","timeout_s":5400}
+{"ts":"2026-10-04T13:55:21.497Z","run":"r2","cycle":17,"src":"orchestrator","type":"note","text":"decided D53 (MCP: hand-rolled Streamable HTTP, engine.mcp.tokens op://|env: with read/operate/edit scopes, agent.control required, rollback via agent proposal, resolve as 15th tool) — please review"}
+{"ts":"2026-10-04T13:55:21.830Z","run":"r2","cycle":17,"src":"orchestrator","type":"note","text":"decided D54 (metrics: latency = latest 100 steps per node, nearest-rank p50/p95/max from journal events.ms; oldest pending includes escalated/held) — please review"}
+{"ts":"2026-10-04T13:56:03.428Z","run":"r2","cycle":17,"src":"runner","type":"cycle.end","exit":"ok","duration_s":4691,"cost_usd":15.712883799999998,"turns":21}
+{"ts":"2026-10-04T13:56:03.446Z","run":"r2","cycle":17,"src":"runner","type":"wait","reason":"between_cycles","seconds":15}
+{"ts":"2026-10-04T13:56:18.494Z","run":"r2","cycle":18,"src":"runner","type":"cycle.start","mode":"build","model":"opus","effort":"high","timeout_s":5400}
+{"ts":"2026-10-04T14:20:43.325Z","run":"r2","cycle":18,"src":"orchestrator","type":"milestone","active_s":20769,"text":"M4: MCP /mcp endpoint with scoped tokens, per-node latency and oldest-pending metrics; stress 110/110 green"}
+{"ts":"2026-10-04T14:20:43.609Z","run":"r2","cycle":18,"src":"orchestrator","type":"note","text":"decided D55 (meta.key runtime): explicit key only at output/delivered steps, unit id earlier and inside output with: — please review"}
+{"ts":"2026-10-04T14:20:54.495Z","run":"r2","cycle":18,"src":"orchestrator","type":"round","n":2}
+{"ts":"2026-10-04T14:41:30.033Z","run":"r2","cycle":18,"src":"orchestrator","type":"round","n":3}
+{"ts":"2026-10-04T15:12:52.920Z","run":"r2","cycle":18,"src":"orchestrator","type":"note","text":"decided D57 (pipo start --ttl: per-start override, anchored like file ttl, kept in registry across crash restart/reattach, not sticky; restart stops crashed/backoff first) and D59 (dashboard reads: lifetime, logs tail, activity endpoints) — please review"}
+{"ts":"2026-10-04T15:21:49.846Z","run":"r2","cycle":18,"src":"orchestrator","type":"milestone","active_s":24435,"text":"M5: meta.key runtime, P039 duplicate listen ports, pipo start --ttl, engine-wide agent budget with a mocked-provider example; verify 659 green, coverage 0"}
+{"ts":"2026-10-04T15:21:50.119Z","run":"r2","cycle":18,"src":"orchestrator","type":"note","text":"decided D58 (engine-wide agent budget: no new store, sums agent_spend across journals, check-before-call, engine day in engine.timezone) — please review"}
+{"ts":"2026-10-04T15:22:20.587Z","run":"r2","cycle":18,"src":"runner","type":"cycle.end","exit":"ok","duration_s":5162,"cost_usd":19.796116000000016,"turns":8}
+{"ts":"2026-10-04T15:22:20.603Z","run":"r2","cycle":18,"src":"runner","type":"wait","reason":"between_cycles","seconds":15}
+{"ts":"2026-10-04T15:22:35.632Z","run":"r2","cycle":19,"src":"runner","type":"cycle.start","mode":"build","model":"opus","effort":"high","timeout_s":5400}
+{"ts":"2026-10-04T16:23:45.896Z","run":"r2","cycle":19,"src":"runner","type":"cycle.end","exit":"ok","duration_s":3670,"cost_usd":11.408764699999997,"turns":1}
+{"ts":"2026-10-04T16:23:45.916Z","run":"r2","cycle":19,"src":"runner","type":"wait","reason":"between_cycles","seconds":15}
+{"ts":"2026-10-04T16:24:00.955Z","run":"r2","cycle":20,"src":"runner","type":"cycle.start","mode":"build","model":"opus","effort":"high","timeout_s":5400}
+{"ts":"2026-10-04T16:35:17.318Z","run":"r2","cycle":20,"src":"orchestrator","type":"note","text":"decided D60 (L-18 version file hashes): each version stores sha256 of its fn module and schema files (as run: fn as loaded by the process) in the same insert; mismatch on rollback/start is a warning (reply warnings[] + runner log), never a refusal; old rows null, no warning; failed live apply adds check diagnostics to invalid_pipeline errors and the REST 422 body — please review"}
+{"ts":"2026-10-04T16:40:18.922Z","run":"r2","cycle":20,"src":"orchestrator","type":"milestone","active_s":29144,"text":"M6: dashboard complete (L-13): critic ui_design 7, §8 conformance 8, ui code 7 from 64 real-browser screenshots"}
+{"ts":"2026-10-04T17:11:03.964Z","run":"r2","cycle":20,"src":"orchestrator","type":"milestone","active_s":30989,"text":"M7: L-18 version file hashes (D60), L-20 clean-ups, supervisor.ts split (runner.ts half cut); docs drift L-21 fixed"}
+{"ts":"2026-10-04T17:11:27.193Z","run":"r2","cycle":20,"src":"runner","type":"cycle.end","exit":"ok","duration_s":2846,"cost_usd":10.731694000000001,"turns":10}
+{"ts":"2026-10-04T17:11:27.212Z","run":"r2","cycle":20,"src":"runner","type":"wait","reason":"between_cycles","seconds":15}
+{"ts":"2026-10-04T17:11:42.253Z","run":"r2","cycle":21,"src":"runner","type":"cycle.start","mode":"build","model":"opus","effort":"high","timeout_s":5400}
+{"ts":"2026-10-04T17:15:42.710Z","run":"r2","cycle":21,"src":"orchestrator","type":"wrapup","active_s":31268,"text":"c21: all build tasks done (M1–M7), only R-37 med / R-40 low left; D1/D2 green, D3 rerun in progress"}
+{"ts":"2026-10-04T17:29:10.677Z","run":"r2","cycle":21,"src":"runner","type":"cycle.end","exit":"ok","duration_s":1048,"cost_usd":2.7601056000000015,"turns":1}
+{"ts":"2026-10-04T17:29:10.696Z","run":"r2","cycle":21,"src":"runner","type":"wait","reason":"between_cycles","seconds":15}
+{"ts":"2026-10-04T17:29:25.713Z","run":"r2","cycle":null,"src":"runner","type":"mode","from":"build","to":"wrapup"}
+{"ts":"2026-10-04T17:29:25.733Z","run":"r2","cycle":22,"src":"runner","type":"cycle.start","mode":"wrapup","model":"opus","effort":"high","timeout_s":5400}
+{"ts":"2026-10-04T17:31:55.731Z","run":"r2","cycle":22,"src":"orchestrator","type":"lesson","text":"A 20+ minute verification (stress suite) must start at the very top of a cycle, alone; when the runner ends a cycle it kills background runs, so two cycles in a row lost their stress results and orphaned test processes","topic":"cycles"}
+{"ts":"2026-10-04T17:31:56.119Z","run":"r2","cycle":22,"src":"orchestrator","type":"lesson","text":"Run the long resilience suite in the main checkout and send fix workers to git worktrees told to run only targeted tests; parallel full test runs on a /mnt (WSL) drive caused load-induced flakes that were misread as product bugs","topic":"checks"}
+{"ts":"2026-10-04T17:31:56.500Z","run":"r2","cycle":22,"src":"orchestrator","type":"lesson","text":"The cheap mechanical checker role (small model, 20-turn cap) cannot babysit long scripts or more than ~3 commands; the orchestrator should run long checks itself in the background and give qa short, redirected commands (cmd > file 2>&1; echo exit=$?)","topic":"roles"}
+{"ts":"2026-10-04T18:04:05.648Z","run":"r2","cycle":22,"src":"runner","type":"cycle.end","exit":"ok","duration_s":2080,"cost_usd":2.718095500000001,"turns":17}
+{"ts":"2026-10-04T18:04:05.666Z","run":"r2","cycle":22,"src":"runner","type":"wait","reason":"between_cycles","seconds":15}
+{"ts":"2026-10-04T18:04:20.695Z","run":"r2","cycle":23,"src":"runner","type":"cycle.start","mode":"wrapup","model":"opus","effort":"high","timeout_s":4214}
+{"ts":"2026-10-04T18:41:06.904Z","run":"r2","cycle":23,"src":"orchestrator","type":"done","active_s":36392,"text":"Phase 1 ledger complete: all items [x]/[cut]; D1 verify 681 green, D2 coverage 0, D4 critic ≥7 all criteria; D3 stress 119/120 (ttl-anchor late-restart test bound fixed, 5/5 alone; full 5x rerun recommended); D50–D60 await human review"}
+{"ts":"2026-10-04T18:41:21.655Z","run":"r2","cycle":23,"src":"runner","type":"cycle.end","exit":"ok","duration_s":2221,"cost_usd":0.9864492,"turns":33}
+{"ts":"2026-10-04T18:41:21.690Z","run":"r2","cycle":23,"src":"runner","type":"run.end","reason":"done"}

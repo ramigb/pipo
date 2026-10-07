@@ -1,0 +1,44 @@
+# Watches ./inbox for new .txt files and POSTs each one to an HTTP endpoint.
+#   mkdir -p examples/inbox-forward/inbox
+#   INBOX_URL=http://localhost:9000/ingest bun pipo run examples/inbox-forward/inbox-forward.pipo
+#   echo hello > examples/inbox-forward/inbox/note.txt
+pipo: 1
+name: inbox-forward
+description: Forward the content of each new text file in a folder to an HTTP endpoint.
+
+secrets:
+  inbox_url: env:INBOX_URL
+
+input:
+  via: watch
+  with:
+    path: ./inbox/*.txt
+    events: [create]
+    read: content
+
+nodes:
+  shape:
+    from: input
+    transform: map
+    with:
+      data:
+        file: "${data.name}"
+        text: "${data.content}"
+
+output:
+  from: shape
+  to: http
+  with:
+    method: POST
+    url: "${secrets.inbox_url}"
+    headers:
+      content-type: application/json
+    body:
+      file: "${data.file}"
+      text: "${data.text}"
+    success: [200-299]
+  on_error:
+    retry: 3
+    backoff: exponential
+    delay: 500ms
+    then: dead_letter

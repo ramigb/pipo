@@ -1,0 +1,4 @@
+{
+  "data": { "subject": "Site is down", "body": "Checkout fails for everyone since 9:00" },
+  "stubs": { "triage": { "category": "outage", "priority": "high", "summary": "outage ticket: Site is down" } }
+}

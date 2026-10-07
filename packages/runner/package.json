@@ -1,0 +1,14 @@
+{
+  "name": "@pipo/runner",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@pipo/spec": "workspace:*",
+    "ajv": "^8.20.0"
+  }
+}

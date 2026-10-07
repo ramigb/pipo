@@ -1,0 +1,22 @@
+{
+  "name": "@pipo/engine",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@pipo/spec": "workspace:*",
+    "@pipo/runner": "workspace:*",
+    "@pipo/ui": "workspace:*",
+    "yaml": "^2.9.1"
+  },
+  "bin": {
+    "pipod": "./src/main.ts"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.0"
+  }
+}

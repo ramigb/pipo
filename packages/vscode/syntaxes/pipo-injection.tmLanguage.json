@@ -1,0 +1,27 @@
+{
+  "scopeName": "pipo.injection",
+  "injectionSelector": "L:source.pipo -comment",
+  "patterns": [{ "include": "#template" }],
+  "repository": {
+    "template": {
+      "name": "meta.embedded.expression.pipo",
+      "begin": "\\$\\{",
+      "beginCaptures": { "0": { "name": "punctuation.definition.template-expression.begin.pipo" } },
+      "end": "\\}",
+      "endCaptures": { "0": { "name": "punctuation.definition.template-expression.end.pipo" } },
+      "patterns": [{ "include": "#expr" }]
+    },
+    "expr": {
+      "patterns": [
+        { "name": "string.quoted.double.pipo", "match": "\"(?:[^\"\\\\]|\\\\.)*\"" },
+        { "name": "string.quoted.single.pipo", "match": "'(?:[^'\\\\]|\\\\.)*'" },
+        { "name": "constant.numeric.pipo", "match": "\\b\\d+(?:\\.\\d+)?\\b" },
+        { "name": "constant.language.pipo", "match": "\\b(?:true|false|null)\\b" },
+        { "name": "keyword.operator.pipo", "match": "===?|!==?|<=|>=|&&|\\|\\||[<>!?:+\\-*/%]" },
+        { "name": "variable.other.property.pipo", "match": "(?<=\\.)[A-Za-z_]\\w*" },
+        { "name": "variable.other.pipo", "match": "\\b[A-Za-z_]\\w*\\b" },
+        { "begin": "\\{", "end": "\\}", "patterns": [{ "include": "#expr" }] }
+      ]
+    }
+  }
+}

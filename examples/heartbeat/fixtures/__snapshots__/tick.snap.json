@@ -1,0 +1,28 @@
+{
+  "fixture": "tick",
+  "outcome": "delivered",
+  "units": [
+    {
+      "unit": "tick",
+      "branch": "",
+      "outcome": "delivered",
+      "path": ["stamp", "output"],
+      "data": {
+        "service": "pipo-example",
+        "status": "alive",
+        "tick": "test"
+      },
+      "write": {
+        "key": "tick",
+        "to": "file",
+        "with": {
+          "path": "./out/heartbeat.jsonl",
+          "format": "jsonl",
+          "mode": "append"
+        }
+      }
+    }
+  ],
+  "taps": [],
+  "calls": []
+}

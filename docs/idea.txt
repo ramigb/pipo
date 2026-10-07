@@ -1,0 +1,99 @@
+Pipo : super simple agnetic pipeline manager
+
+- UI : provides UI to visualize the agentic pipeline
+- Engine : the runtime manager for the agent pipeline
+- CLI : a tool to create, control and check pipeline status
+
+Concept: 
+Pipo allows the users to create agentic pipelines that treats inputs and outputs as continues operations triggered by external (webhook, API Call, sensors) or internal (CLI, UI, OS data) events. And processed continuesely by nodes between the global input and global output. There is no definition of done but rather a "delivery" so "delievered = done" for pipo. The resilience of pipo is focused on making sure the input is validated and went through the pipeline correctly and got delieverd (saved, written) to the predefined destination (database, file, API call). 
+
+How?: 
+
+Pipo uses a simple straight forward DSL to build the pipeline inside a .pipo file. once the pipeline is established the engine starts hydrating it with input data until stopped or if the pipeline has a time to live it will be the determining factor how long the pipeline can run. the engine it self can have a global time to live that all pipelines will be drained and stopped once reached. 
+
+
+Example .pipo file: 
+
+-input #this is the global input node
+	-method: API
+	-data: json
+	-validate:
+		-data EXISTS
+		-data.name == 'rami'
+		-data.age > 30
+	-error:
+		-"data was invalid"
+-node1
+	-input: [GLOBAL, node2]
+	-type: PASS_THROUGH
+	-label: "Logger"
+	-action: WRITE_LOG
+	-data: "Got data ${data}"
+	-output
+
+-node2
+	-input: node1
+	-type: MUTATE
+	-action: TRANSFORM
+	-data: textTransformer(data) #here data refers to the data received by the node
+	-output: [node1, node3]
+
+-node3
+	-input: node2
+	-type: PASS_THROUGH
+	-label: "Telemetry"
+	-action: POST_TO_API
+	-data: <CLAUDE: insert a nice block that follows the way the system is designed to send telemetry data>
+	
+
+-output #this is the global output node
+	-method: DB
+	-destination : SQLite <CLAUDE: Here you help me fill the values and should it be a generic way or every destination has it's own way of defining destination>
+	-validate: <CLAUDE: please help with output validation that make sense> 
+	-error:
+		-<CLAUDE: please help with error that make sense> 
+
+-delivered #this is the process validator
+	-validate: RECORD_EXISTS <CLAUDE: the CLI should be able to refuse validation that mismatch output method, output methods don't have to always be coupled delivery verification, as delivery can simply want to be a time to live for 30 minutes of runs and another process somewhere else outside of pipo can validate the results, but for example doing a file exists on a SQLite can be inaccurate and should be rejected> 
+	-error: 
+		-"pipeline got jammed" <CLAUDE: a meaningful useful error is appreciated here> 
+
+
+pipo files toolchain: 
+We need a simple pipo file language server or spec that allows vscode (as a start) to show it correctly and do autocomplete, syntax highlight etc. 
+We need a generator similar to rails generators that can generate from a template. 
+We need a validator to ensure the file format and logic is correct
+
+
+What does the UI do?:
+- Phase1 the UI is just showing the current status and debug information of the pipeline(s) running
+- Phase2 the UI can create pipo files with nodes style connections and connectors types etc
+
+
+What does the CLI do?: 
+- The cli runs the pipo generators
+- The cli starts/stops/pause/resume a pipeline
+- The cli provides status in a formatted way of what's happening with the pieplines in general or a specific pipeline
+
+
+What does the engine do?: 
+- Engine built in bun
+- The engine has a server component for API calls and webhooks and UI serving
+- The engine manages time and chronjobs 
+- The engine must be always running if there is a piperunning and will sleep/stop if there are no pipe running and all marked as delivered 
+- TLDR Engine is the orchestrator
+
+
+Where do LLM agents fit in?: 
+- Building the pipeline using the DSL language (agent does not write code to modify the engine in runtime unless at development phase)
+- Modifying the pipeline in runtime if it needs modification to ensure continues delivery within a set of rules to ensure the pipeline modification stays as deterministic as possible
+- The ability to step in and manage a pipeline using an agent specific endpoint in the engine
+- The ability to be a node
+
+Why pipo over n8n or other systems: 
+- Simplicity pipo is for personal pipelines, that doesn't mean it can't be used for companies but the mindset is to maximize developer experience rather than create big bloated systems. 
+- Agent first: the agent is part of the system it can orchestrate the orchestrator it can step in anytime and step out seamlessly. the process for the agent is not hacky and does not have extra effort it should be natural and efficient. 
+- Resilience: Pipelines are detachable decentralized processes so even if the harness falls downs or another pipelines gets broken the others continue to run 
+- Phase2: Distrubuted: pipo can run pipes and sub engines on other instances/os's 
+
+

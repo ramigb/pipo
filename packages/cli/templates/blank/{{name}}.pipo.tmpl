@@ -1,0 +1,15 @@
+pipo: 1
+name: {{name}}
+description: TODO describe what {{name}} does.
+
+input:
+  via: http
+  with:
+    path: /{{name}}
+  format: json
+
+output:
+  from: input
+  to: stdout
+  with:
+    format: jsonl

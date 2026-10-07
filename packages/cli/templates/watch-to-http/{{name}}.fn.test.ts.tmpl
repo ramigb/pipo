@@ -1,0 +1,7 @@
+import { expect, test } from "bun:test";
+import { shape } from "./{{name}}.fn";
+
+test("shape trims the file content", async () => {
+  const sample = await Bun.file(`${import.meta.dir}/fixtures/sample.json`).json();
+  expect(shape(sample)).toEqual({ file: "note.txt", text: "hello" });
+});

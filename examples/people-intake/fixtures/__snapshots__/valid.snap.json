@@ -1,0 +1,54 @@
+{
+  "fixture": "valid",
+  "outcome": "delivered",
+  "units": [
+    {
+      "unit": "valid",
+      "branch": "",
+      "outcome": "delivered",
+      "path": ["logger", "normalize", "output"],
+      "data": {
+        "name": "Ada",
+        "age": 36,
+        "bio": "Mathematician"
+      },
+      "write": {
+        "key": "valid",
+        "to": "sqlite",
+        "with": {
+          "path": "./data/people.db",
+          "table": "people",
+          "create": true,
+          "mode": "upsert",
+          "key": "id",
+          "columns": {
+            "id": "valid",
+            "name": "Ada",
+            "age": 36,
+            "bio": "Mathematician",
+            "received_at": 1767225600000
+          }
+        },
+        "record": {
+          "id": "valid",
+          "name": "Ada",
+          "age": 36,
+          "bio": "Mathematician",
+          "received_at": 1767225600000
+        }
+      }
+    }
+  ],
+  "taps": [
+    {
+      "unit": "valid",
+      "node": "logger",
+      "tap": "log",
+      "with": {
+        "level": "info",
+        "message": "Received valid via http from test"
+      }
+    }
+  ],
+  "calls": []
+}

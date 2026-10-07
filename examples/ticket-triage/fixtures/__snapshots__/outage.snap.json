@@ -1,0 +1,42 @@
+{
+  "fixture": "outage",
+  "outcome": "delivered",
+  "units": [
+    {
+      "unit": "outage",
+      "branch": "",
+      "outcome": "delivered",
+      "path": ["triage", "output"],
+      "data": {
+        "category": "outage",
+        "priority": "high",
+        "summary": "outage ticket: Site is down"
+      },
+      "write": {
+        "key": "outage",
+        "to": "file",
+        "with": {
+          "path": "./out/triaged.jsonl",
+          "format": "jsonl",
+          "mode": "append"
+        }
+      }
+    }
+  ],
+  "taps": [],
+  "calls": [
+    {
+      "unit": "outage",
+      "node": "triage",
+      "kind": "agent",
+      "attempt": 1,
+      "with": {
+        "model": "claude-haiku-4-5",
+        "prompt": "Triage this support ticket. Pick its category and priority and summarise it in one sentence.\nSubject: Site is down\nBody: Checkout fails for everyone since 9:00\n",
+        "schema": "./triage.schema.json",
+        "timeout": "30s",
+        "max_tokens": 512
+      }
+    }
+  ]
+}

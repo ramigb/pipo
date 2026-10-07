@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "id": "pipo-phase1",
+  "name": "Pipo Phase 1",
+  "kind": "code",
+  "objective": "Work through docs/phase1-ledger.md top to bottom (the hand-over from run r1) so Pipo Phase 1 is complete and ready for Phase 2: record the human's decisions in the spec, fix the open bugs, build the agent change protocol, `pipo test`, MCP and built-in metrics, finish the smaller features and the dashboard, and bring the docs in line with the code. For the user, a developer running personal pipelines.",
+  "done": [
+    {
+      "id": "D1",
+      "check": "Typecheck, lint and every test pass",
+      "verify": {
+        "type": "command",
+        "run": "bun run verify"
+      }
+    },
+    {
+      "id": "D2",
+      "check": "No runtime gaps remain and no CLI command is still 'planned'",
+      "verify": {
+        "type": "command",
+        "run": "bun scripts/phase1-coverage.ts"
+      }
+    },
+    {
+      "id": "D3",
+      "check": "Resilience end-to-end tests (SIGKILL recovery, engine crash and reattach, anchored TTL) pass 5 times in a row",
+      "verify": {
+        "type": "command",
+        "run": "bun scripts/stress.ts"
+      }
+    },
+    {
+      "id": "D4",
+      "check": "Final critic review scores at least 7 on spec conformance, resilience, developer experience, UI and code quality; the UI is judged from real headless-Chrome screenshots at 375px and 1440px in light and dark",
+      "verify": {
+        "type": "agent"
+      }
+    },
+    {
+      "id": "D5",
+      "check": "Every item in docs/phase1-ledger.md is ticked or cut with a reason; section A answers are §13 rows; no '(harness, pending review)' markers remain for D14–D40; docs/spec.md, docs/roadmap.md, README.md and CLAUDE.md match the code",
+      "verify": {
+        "type": "agent"
+      }
+    }
+  ],
+  "non_goals": [
+    "Phase 2 items (ledger section F): visual editor, postgres/mqtt/s3/queue connectors, join/window nodes, multiple outputs, http batch mode, connector SDK and template registry, distributed sub-engines, the editor language server",
+    "items moved to Phase 2 by the human on 2026-10-04: OTLP export (§7.6), declared env vars (§14.2), watch-input limits and first-start emit (§14.3)",
+    "hosted or multi-tenant operation",
+    "live calls to the Claude API or any paid service (agent nodes are tested against a mocked provider)",
+    "changes outside /mnt/d/web/pipo"
+  ],
+  "approval_required": [
+    "spending money or using paid services, including live Claude API calls",
+    "sending anything outside this machine (git push, publishing, posting)",
+    "deleting user data outside the repository",
+    "changing the done checks, the time box, or relaxing assertions in scripts/phase1-coverage.ts or scripts/stress.ts",
+    "changing spec behaviour in docs/spec.md beyond the ledger decisions the human made on 2026-10-04 (allowed without approval: those edits, adding §14 open questions, and §13 rows that resolve a new §14 question, marked 'pending review')",
+    "adding a dependency whose licence is not MIT, Apache-2.0, BSD or ISC"
+  ],
+  "timebox": {
+    "total_min": 600,
+    "wrapup_min": 70,
+    "grace_min": 40,
+    "pause_on_rate_limit": true
+  },
+  "checkpoints": "git",
+  "adapter": {
+    "type": "claude-code",
+    "model": "opus",
+    "effort": "high",
+    "permission_mode": "auto"
+  },
+  "cycle": {
+    "timeout_min": 90,
+    "pause_between_s": 15,
+    "max_budget_usd": null
+  },
+  "failures": {
+    "cooldown_after": 3,
+    "cooldown_min": 10,
+    "give_up_after": 6
+  },
+  "rate_limit": {
+    "backoff_s": 300,
+    "backoff_max_s": 1800
+  },
+  "state_caps": {
+    "handoff.md": 25,
+    "lessons.md": 30,
+    "progress.md": 120
+  },
+  "notify": [
+    "milestone",
+    "blocked",
+    "done"
+  ],
+  "job": {
+    "id": "phase1-ledger",
+    "title": "Phase 1 ledger"
+  },
+  "output": "docs/phase1-ledger.md"
+}

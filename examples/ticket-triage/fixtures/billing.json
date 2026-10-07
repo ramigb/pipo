@@ -1,0 +1,4 @@
+{
+  "data": { "subject": "Charged twice", "body": "My card was charged twice for the March invoice" },
+  "stubs": { "triage": { "category": "billing", "priority": "normal", "summary": "billing ticket: Charged twice" } }
+}

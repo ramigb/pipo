@@ -1,0 +1,13 @@
+{
+  "fixture": "blank-name",
+  "outcome": "rejected",
+  "units": [],
+  "taps": [],
+  "calls": [],
+  "error": {
+    "step": "input",
+    "code": "input.invalid",
+    "message": "Rejected: rule 'type(data.name) == \"string\" && len(trim(data.name)) > 0' failed",
+    "rule": "type(data.name) == \"string\" && len(trim(data.name)) > 0"
+  }
+}

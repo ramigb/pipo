@@ -1,0 +1,8 @@
+description: "On a schedule, build a record with a function and append it to a JSONL file."
+variables:
+  - name: every
+    prompt: How often to run (a duration such as 1m or 1h)
+    default: 1m
+  - name: out
+    prompt: File to append to
+    default: ./out/{{name}}.jsonl

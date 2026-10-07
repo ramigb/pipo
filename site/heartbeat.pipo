@@ -1,0 +1,19 @@
+pipo: 1
+name: heartbeat
+input:
+  via: schedule
+  with: {every: 5s, payload: {status: alive}}
+nodes:
+  stamp:
+    from: input
+    transform: map
+    with:
+      data: {status: "${data.status}", tick: "${meta.source}"}
+output:
+  from: stamp
+  to: file
+  with: {path: ./out/heartbeat.jsonl, format: jsonl}
+delivered:
+  check: line_contains
+  with: {value: "${meta.packet_id}"}
+  within: 5s

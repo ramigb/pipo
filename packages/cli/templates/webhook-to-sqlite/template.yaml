@@ -1,0 +1,14 @@
+description: "Receive JSON on a webhook, tidy it with a function and store it in SQLite."
+variables:
+  - name: path
+    prompt: URL path of the webhook
+    default: /events
+  - name: table
+    prompt: SQLite table name
+    default: events
+  - name: port
+    prompt: Port to listen on
+    default: "8787"
+  - name: token_env
+    prompt: Environment variable holding the shared token callers send in X-Pipo-Token
+    default: PIPO_TOKEN

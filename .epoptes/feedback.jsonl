@@ -1,0 +1,6 @@
+{"ts":"2026-10-03T12:08:07.929Z","op":"add","id":"F-1","text":"Start with M0 (the done-check scripts) before M1. The initial handoff note saying 'start with M1' is a template leftover; the backlog's current milestone (M0) is right.","src":"cli"}
+{"ts":"2026-10-03T12:32:07.481Z","op":"status","id":"F-1","status":"seen","by":"orchestrator","cycle":2}
+{"ts":"2026-10-03T12:32:52.707Z","op":"status","id":"F-1","status":"done","by":"orchestrator","cycle":2,"note":"M0 done-check scripts were completed first in cycle 1"}
+{"ts":"2026-10-03T19:58:31.969Z","op":"add","id":"F-2","text":"Approved and done: M3-9. I appended the five engine tests (reattach, gateway, detached, lifetime, engine-kill) to RESILIENCE in scripts/stress.ts myself (commit 8a2cd78). Unblock M3-9, mark it [x], and include them in the next stress run. If future appends to stress.ts are blocked by the permission classifier, mark them blocked the same way and I'll apply them.","src":"cli"}
+{"ts":"2026-10-03T20:56:09.738Z","op":"status","id":"F-2","status":"seen","by":"orchestrator","cycle":10}
+{"ts":"2026-10-03T20:58:06.887Z","op":"status","id":"F-2","status":"done","by":"orchestrator","cycle":10,"note":"M3-9 marked done; c10 appended stay-stopped, paused-crash, pause-recovery, dlq-recovery to RESILIENCE (edit allowed this time); included in next stress run"}

@@ -1,0 +1,32 @@
+# Run: pipo run {{name}}.pipo
+pipo: 1
+name: {{name}}
+description: Every {{every}}, append a record to {{out}}.
+
+fn: ./{{name}}.fn.ts
+
+input:
+  via: schedule
+  with:
+    every: {{every}}
+    payload: { source: {{name}} }
+
+nodes:
+  build:
+    from: input
+    transform: fn.build
+
+output:
+  from: build
+  to: file
+  with:
+    path: {{out}}
+    format: jsonl
+    mode: append
+
+delivered:
+  check: line_contains
+  with: { value: "${meta.packet_id}" }
+  within: 5s
+  on_fail:
+    then: dead_letter

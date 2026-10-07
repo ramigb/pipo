@@ -1,0 +1,17 @@
+{
+  "name": "@pipo/spec",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@jsep-plugin/object": "^1.2.2",
+    "@jsep-plugin/ternary": "^1.1.4",
+    "ajv": "^8.20.0",
+    "jsep": "^1.4.0",
+    "yaml": "^2.9.1"
+  }
+}

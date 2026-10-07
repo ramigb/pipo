@@ -1,0 +1,46 @@
+# Run: pipo run {{name}}.pipo   (agent nodes need the runner's agent support and an API key reference)
+pipo: 1
+name: {{name}}
+description: Classify each incoming item as one of {{labels}}.
+
+agent_budget:
+  per_day: {{per_day}}
+  per_packet: 15000
+
+input:
+  via: http
+  with:
+    path: /{{name}}
+  format: json
+  validate:
+    - exists(data)
+
+nodes:
+  classify:
+    from: input
+    agent: claude_api
+    with:
+      model: {{model}}
+      prompt: |
+        Classify this item as one of: {{labels}}. Give a one-sentence reason.
+        ${json(data)}
+      schema: ./schemas/classification.schema.json
+      timeout: 60s
+    on_error:
+      retry: 2
+      backoff: exponential
+      delay: 1s
+      then: dead_letter
+
+output:
+  from: classify
+  to: file
+  with:
+    path: ./out/{{name}}.jsonl
+    format: jsonl
+    mode: append
+
+delivered:
+  check: line_contains
+  with: { value: "${meta.packet_id}" }
+  within: 5s

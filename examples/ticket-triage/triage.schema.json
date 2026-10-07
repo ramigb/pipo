@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "category": { "type": "string", "enum": ["outage", "billing", "account", "other"] },
+    "priority": { "type": "string", "enum": ["high", "normal", "low"] },
+    "summary": { "type": "string", "maxLength": 200 }
+  },
+  "required": ["category", "priority", "summary"],
+  "additionalProperties": false
+}

@@ -1,0 +1,8 @@
+description: "Watch a folder for new files and POST each one's content to an HTTP endpoint."
+variables:
+  - name: glob
+    prompt: Files to watch
+    default: ./inbox/*.txt
+  - name: url_env
+    prompt: Environment variable holding the destination URL
+    default: DESTINATION_URL

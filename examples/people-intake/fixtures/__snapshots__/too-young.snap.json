@@ -1,0 +1,13 @@
+{
+  "fixture": "too-young",
+  "outcome": "rejected",
+  "units": [],
+  "taps": [],
+  "calls": [],
+  "error": {
+    "step": "input",
+    "code": "input.invalid",
+    "message": "Rejected: rule 'data.age > 30' failed",
+    "rule": "data.age > 30"
+  }
+}

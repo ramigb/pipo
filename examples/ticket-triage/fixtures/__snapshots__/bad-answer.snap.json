@@ -1,0 +1,65 @@
+{
+  "fixture": "bad-answer",
+  "outcome": "dead_lettered",
+  "units": [
+    {
+      "unit": "bad-answer",
+      "branch": "",
+      "outcome": "dead_lettered",
+      "path": ["triage"],
+      "data": {
+        "subject": "Help",
+        "body": "Something odd"
+      },
+      "error": {
+        "step": "triage",
+        "code": "node.failed",
+        "message": "agent output does not match ./triage.schema.json: /category must be equal to one of the allowed values",
+        "attempts": 3,
+        "then": "dead_letter"
+      }
+    }
+  ],
+  "taps": [],
+  "calls": [
+    {
+      "unit": "bad-answer",
+      "node": "triage",
+      "kind": "agent",
+      "attempt": 1,
+      "with": {
+        "model": "claude-haiku-4-5",
+        "prompt": "Triage this support ticket. Pick its category and priority and summarise it in one sentence.\nSubject: Help\nBody: Something odd\n",
+        "schema": "./triage.schema.json",
+        "timeout": "30s",
+        "max_tokens": 512
+      }
+    },
+    {
+      "unit": "bad-answer",
+      "node": "triage",
+      "kind": "agent",
+      "attempt": 2,
+      "with": {
+        "model": "claude-haiku-4-5",
+        "prompt": "Triage this support ticket. Pick its category and priority and summarise it in one sentence.\nSubject: Help\nBody: Something odd\n",
+        "schema": "./triage.schema.json",
+        "timeout": "30s",
+        "max_tokens": 512
+      }
+    },
+    {
+      "unit": "bad-answer",
+      "node": "triage",
+      "kind": "agent",
+      "attempt": 3,
+      "with": {
+        "model": "claude-haiku-4-5",
+        "prompt": "Triage this support ticket. Pick its category and priority and summarise it in one sentence.\nSubject: Help\nBody: Something odd\n",
+        "schema": "./triage.schema.json",
+        "timeout": "30s",
+        "max_tokens": 512
+      }
+    }
+  ]
+}

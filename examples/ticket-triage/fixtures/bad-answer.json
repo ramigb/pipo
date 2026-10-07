@@ -1,0 +1,4 @@
+{
+  "data": { "subject": "Help", "body": "Something odd" },
+  "stubs": { "triage": { "category": "urgent!", "priority": "high", "summary": "not a category" } }
+}

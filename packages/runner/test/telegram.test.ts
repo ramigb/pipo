@@ -1,0 +1,191 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { readFileSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { load, type Pipeline } from "@pipo/spec";
+import { gaps, Runner } from "../src";
+import { type BotsFile, readBots, writeBots } from "../src/bots";
+import { sandbox, waitFor } from "./helpers";
+
+let cleanups: (() => Promise<void> | void)[] = [];
+afterEach(async () => {
+  for (const c of cleanups.reverse()) await c();
+  cleanups = [];
+});
+
+const MAIN = "111:main-secret-token";
+const ALERTS = "222:alerts-secret-token";
+
+/** A fake Bot API: queued updates, recorded calls, one downloadable file. */
+function fakeTelegram() {
+  const updates: any[] = [];
+  const calls: { token: string; method: string; body: any }[] = [];
+  const offsets: number[] = [];
+  let failNextSend = 0;
+  const server = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const url = new URL(req.url);
+      if (url.pathname.startsWith("/file/")) return new Response("file-bytes");
+      const [, bot, method] = url.pathname.split("/") as [string, string, string];
+      const token = bot.slice(3);
+      const form = (req.headers.get("content-type") ?? "").startsWith("multipart/");
+      const body: any = form ? Object.fromEntries((await req.formData()).entries()) : await req.json();
+      if (method === "getUpdates") {
+        offsets.push(body.offset);
+        const due = updates.filter((u) => u.update_id >= body.offset);
+        if (!due.length) await Bun.sleep(20);
+        return Response.json({ ok: true, result: due });
+      }
+      calls.push({ token, method, body });
+      if (method === "getFile") return Response.json({ ok: true, result: { file_path: "documents/file_1.txt" } });
+      if (failNextSend > 0) {
+        failNextSend--;
+        return Response.json(
+          { ok: false, error_code: 429, description: "Too Many Requests", parameters: { retry_after: 0 } },
+          { status: 429 },
+        );
+      }
+      return Response.json({ ok: true, result: { message_id: calls.length, chat: { id: Number(body.chat_id) } } });
+    },
+  });
+  cleanups.push(() => server.stop(true));
+  let next = 1;
+  return {
+    api: `http://127.0.0.1:${server.port}`,
+    calls,
+    offsets,
+    sends: () => calls.filter((c) => c.method.startsWith("send")),
+    failSends: (n: number) => {
+      failNextSend = n;
+    },
+    message(chat: number, extra: Record<string, unknown> = {}) {
+      const id = next++;
+      updates.push({
+        update_id: id,
+        message: {
+          message_id: id,
+          date: 1_700_000_000,
+          chat: { id: chat, type: "private" },
+          from: { id: chat, first_name: "Ann", username: "ann" },
+          ...extra,
+        },
+      });
+      return id;
+    },
+  };
+}
+
+function setup(tg: ReturnType<typeof fakeTelegram>, bots: BotsFile["telegram"]["bots"], def: string | null = "main") {
+  const box = sandbox();
+  cleanups.push(() => box.cleanup());
+  for (const b of Object.values(bots)) b.api = tg.api;
+  writeBots(box.home, { telegram: { default: def, bots } });
+  const lines: string[] = [];
+  const open = async (name: string, body: string) => {
+    const file = box.write(`${name}.pipo`, `pipo: 1\nname: ${name}\n${body}`);
+    const runner = await Runner.open({ file, home: box.home, log: (l) => lines.push(l) });
+    await runner.start();
+    cleanups.push(() => runner.stop());
+    return runner;
+  };
+  return { box, lines, open };
+}
+
+describe("telegram", () => {
+  test("has no gaps", () => {
+    const p = load(
+      "pipo: 1\nname: t\ninput: { via: telegram }\nnodes: { n: { from: input, tap: telegram } }\noutput: { from: n, to: telegram }\n",
+    ).value as Pipeline;
+    expect(gaps(p)).toEqual([]);
+  });
+
+  test("bots.json is written 0600 and validated", () => {
+    const box = sandbox();
+    cleanups.push(() => box.cleanup());
+    writeBots(box.home, { telegram: { default: "main", bots: { main: { token: MAIN, allow: [1] } } } });
+    expect(statSync(join(box.home, "bots.json")).mode & 0o777).toBe(0o600);
+    expect(readBots(box.home).telegram.bots.main?.allow).toEqual([1]);
+    writeFileSync(
+      join(box.home, "bots.json"),
+      JSON.stringify({ telegram: { default: "x", bots: { main: { token: "", poll_every: "10ms" } } } }),
+    );
+    expect(() => readBots(box.home)).toThrow(/3 problem/);
+  });
+
+  test("replies to the sender's chat, ignores strangers, and resumes after its saved offset", async () => {
+    const tg = fakeTelegram();
+    const s = setup(tg, { main: { token: MAIN, allow: [42] } });
+    const body =
+      "input: { via: telegram }\noutput: { from: input, to: telegram, with: { text: 'echo: ${data.text}' } }\n";
+    let runner = await s.open("echo", body);
+    tg.message(7, { text: "let me in" });
+    tg.message(42, { text: "hi" });
+    await waitFor(() => tg.sends().length === 1, 5000, "the reply");
+    expect(tg.sends()[0]).toMatchObject({
+      token: MAIN,
+      method: "sendMessage",
+      body: { chat_id: "42", text: "echo: hi" },
+    });
+    expect(s.lines.some((l) => l.includes("ignored a message from @ann (user id 7, chat id 7)"))).toBe(true);
+    expect(JSON.parse(readFileSync(join(s.box.home, "run", "echo.json"), "utf8")).telegram_bot).toBe("111");
+    expect(s.lines.join("\n")).not.toContain(MAIN);
+    await runner.stop();
+
+    tg.offsets.length = 0;
+    runner = await s.open("echo", body);
+    await waitFor(() => tg.offsets.length > 0, 5000, "a poll");
+    expect(tg.offsets[0]).toBe(3);
+    expect(tg.sends().length).toBe(1);
+  });
+
+  test("a tap sends from another bot; 429 is retried as Telegram asks", async () => {
+    const tg = fakeTelegram();
+    const s = setup(tg, { main: { token: MAIN, allow: [42] }, alerts: { token: ALERTS } });
+    tg.failSends(1);
+    await s.open(
+      "notify",
+      "input: { via: telegram }\nnodes:\n  ping: { from: input, tap: telegram, with: { bot: alerts, chat_id: 99, text: 'new: ${data.text}' } }\noutput: { from: ping, to: stdout }\n",
+    );
+    tg.message(42, { text: "yo" });
+    await waitFor(() => tg.sends().length === 2, 5000, "the retried send");
+    expect(tg.sends()[1]).toMatchObject({ token: ALERTS, body: { chat_id: 99, text: "new: yo" } });
+  });
+
+  test("downloads an attached file and sends one back", async () => {
+    const tg = fakeTelegram();
+    const s = setup(tg, { main: { token: MAIN, allow: [42] } });
+    await s.open(
+      "files",
+      "input: { via: telegram }\noutput: { from: input, to: telegram, with: { document: '${data.file.path}', text: 'got ${data.file.name}' } }\n",
+    );
+    tg.message(42, {
+      caption: "here",
+      document: { file_id: "F1", file_unique_id: "U1", file_name: "notes.txt", file_size: 10 },
+    });
+    await waitFor(() => tg.sends().length === 1, 5000, "the document");
+    const path = join(s.box.home, "pipelines", "files", "files", "U1-notes.txt");
+    expect(readFileSync(path, "utf8")).toBe("file-bytes");
+    const sent = tg.sends()[0];
+    expect(sent?.method).toBe("sendDocument");
+    expect(sent?.body.caption).toBe("got notes.txt");
+    expect(sent?.body.chat_id).toBe("42");
+  });
+
+  test("refuses to start without a bot, and a second poller of the same bot", async () => {
+    const tg = fakeTelegram();
+    const s = setup(tg, {}, null);
+    const file = s.box.write(
+      "nobot.pipo",
+      "pipo: 1\nname: nobot\ninput: { via: telegram }\noutput: { from: input, to: stdout }\n",
+    );
+    await expect(Runner.open({ file, home: s.box.home })).rejects.toThrow(/no bot is set up/);
+
+    writeBots(s.box.home, { telegram: { default: "main", bots: { main: { token: MAIN, allow: [42], api: tg.api } } } });
+    await s.open("one", "input: { via: telegram }\noutput: { from: input, to: stdout }\n");
+    const two = s.box.write(
+      "two.pipo",
+      "pipo: 1\nname: two\ninput: { via: telegram }\noutput: { from: input, to: stdout }\n",
+    );
+    await expect(Runner.open({ file: two, home: s.box.home })).rejects.toThrow(/already polled by pipeline 'one'/);
+  });
+});

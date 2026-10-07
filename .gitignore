@@ -1,0 +1,12 @@
+node_modules/
+*.db
+*.db-wal
+*.db-shm
+.pipo/
+examples/**/data/
+.epoptes/run/
+.epoptes/cycles/
+examples/**/out/
+examples/**/inbox/
+# Pipelines made with the builder in this checkout are local
+/my-pipeline-*/

@@ -1,0 +1,704 @@
+<!-- biome-ignore-all lint/a11y/noNoninteractiveTabindex: code and terminal panels are focusable for keyboard scrolling. -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f6f5ee">
+    <title>Pipo — Durable pipelines for humans and agents</title>
+    <meta
+      name="description"
+      content="A local, self-hosted runtime for continuous pipelines. Plain .pipo files, durable journals, explicit delivery checks. Humans and agents operate the same artifact."
+    >
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Pipo — Durable pipelines for humans and agents">
+    <meta
+      property="og:description"
+      content="Human-readable. Agent-operable. Follow every packet from a versionable file to delivered output."
+    >
+    <meta property="og:image" content="social-card.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta
+      property="og:image:alt"
+      content="Pipo. Durable pipelines for humans and agents. File to journal to delivered output."
+    >
+    <meta name="twitter:card" content="summary_large_image">
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="style.css">
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header wrap">
+      <a class="brand" href="#main" aria-label="Pipo home"
+        ><img src="favicon.svg" width="32" height="32" alt="">pipo<span class="brand-period">.</span></a
+      >
+      <nav aria-label="Main navigation">
+        <a href="#how-it-works">How it works</a>
+        <a href="#interfaces">Interfaces</a>
+        <a href="https://github.com/ramigb/pipo/blob/main/docs/spec.md">Docs <span aria-hidden="true">↗</span></a>
+      </nav>
+      <a class="nav-github" href="https://github.com/ramigb/pipo">GitHub <span aria-hidden="true">↗</span></a>
+    </header>
+    <main id="main">
+      <section class="hero wrap" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> LOCAL / SELF-HOSTED / OPEN SOURCE</p>
+          <h1 id="hero-title">Durable pipelines.<br>Shared <span class="serif">control.</span></h1>
+          <p class="hero-description">
+            A pipeline runtime for humans and agents. Describe it in a plain <code>.pipo</code> file. Keep it running.
+            Follow each packet through to delivered output.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="#quick-start">Get started <span aria-hidden="true">→</span></a
+            ><a class="button secondary" href="https://github.com/ramigb/pipo"
+              >View on GitHub <span aria-hidden="true">↗</span></a
+            >
+          </div>
+          <p class="hero-note">One file. One runtime. Whoever is at the controls.</p>
+        </div>
+        <div class="pipeline-window dark-panel" id="hero-flow">
+          <div class="window-bar">
+            <span><span class="status-dot" aria-hidden="true"></span> people-intake.pipo</span
+            ><span class="window-caption">ILLUSTRATIVE FLOW</span>
+          </div>
+          <div class="pipeline-grid">
+            <div class="hero-node">
+              <span class="node-glyph" aria-hidden="true">↳</span>
+              <div><span class="micro-label">INPUT</span><strong>HTTP webhook</strong></div>
+              <span class="node-tag">JSON</span>
+            </div>
+            <div class="flow-wire">
+              <span class="traveller" aria-hidden="true"></span><span>accepted → journaled before acknowledgement</span>
+            </div>
+            <div class="hero-node">
+              <span class="node-glyph" aria-hidden="true">ƒ</span>
+              <div><span class="micro-label">TRANSFORM</span><strong>normalize</strong></div>
+              <span class="node-tag">fn</span>
+            </div>
+            <div class="flow-wire">
+              <span class="traveller second" aria-hidden="true"></span><span>result committed to the journal</span>
+            </div>
+            <div class="hero-node">
+              <span class="node-glyph" aria-hidden="true">▤</span>
+              <div><span class="micro-label">OUTPUT</span><strong>SQLite</strong></div>
+              <span class="node-tag">upsert</span>
+            </div>
+            <div class="flow-wire">
+              <span class="traveller third" aria-hidden="true"></span><span>verify: record_exists</span>
+            </div>
+            <div class="delivery-receipt">
+              <span aria-hidden="true">✓</span><strong>delivered</strong><span>destination checked</span>
+            </div>
+          </div>
+          <div class="window-footer">
+            <span>packet → journal → destination</span
+            ><button type="button" class="text-button" id="motion-toggle" aria-pressed="false" hidden>
+              Pause motion
+            </button>
+          </div>
+        </div>
+      </section>
+      <section class="principles wrap" aria-label="Pipo's design principles">
+        <div>
+          <span>01 / FILE-NATIVE</span>
+          <p>Your pipeline is the file.</p>
+        </div>
+        <div>
+          <span>02 / DURABLE</span>
+          <p>Recovery is built in.</p>
+        </div>
+        <div>
+          <span>03 / DELIVERY-ORIENTED</span>
+          <p>Follow the output.</p>
+        </div>
+        <div>
+          <span>04 / SHARED CONTROL</span>
+          <p>Human or agent. Same system.</p>
+        </div>
+      </section>
+
+      <section class="section wrap" id="how-it-works" aria-labelledby="file-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">01 / THE ARTIFACT</p>
+            <h2 id="file-title">A pipeline is just <span class="serif">a file.</span></h2>
+          </div>
+          <p>YAML you can read, diff, review and version.<br>The builder edits the same artifact.</p>
+        </div>
+        <div class="file-comparison">
+          <div class="source-panel">
+            <div class="panel-heading">
+              <span><span class="file-symbol" aria-hidden="true">≡</span> heartbeat.pipo</span
+              ><a href="heartbeat.pipo" download>Download <span aria-hidden="true">↓</span></a>
+            </div>
+            <section aria-label="Valid heartbeat pipeline YAML">
+              <pre
+                class="source-code"
+                tabindex="0"
+              ><code><span class="code-block" data-source="definition"><span class="key">pipo:</span> <span class="value">1</span>
+<span class="key">name:</span> heartbeat
+</span><span class="code-block" data-source="input"><span class="key">input:</span>
+  <span class="key">via:</span> schedule
+  <span class="key">with:</span> {every: <span class="value">5s</span>, payload: {status: alive}}
+</span><span class="code-block" data-source="stamp"><span class="key">nodes:</span>
+  <span class="key">stamp:</span>
+    <span class="key">from:</span> input
+    <span class="key">transform:</span> map
+    <span class="key">with:</span>
+      <span class="key">data:</span> {status: <span class="string">"${data.status}"</span>, tick: <span class="string">"${meta.source}"</span>}
+</span><span class="code-block" data-source="output"><span class="key">output:</span>
+  <span class="key">from:</span> stamp
+  <span class="key">to:</span> file
+  <span class="key">with:</span> {path: ./out/heartbeat.jsonl, format: jsonl}
+</span><span class="code-block" data-source="delivered"><span class="key">delivered:</span>
+  <span class="key">check:</span> line_contains
+  <span class="key">with:</span> {value: <span class="string">"${meta.packet_id}"</span>}
+  <span class="key">within:</span> <span class="value">5s</span>
+</span></code></pre>
+            </section>
+            <div class="panel-footer">
+              Derived from
+              <a href="https://github.com/ramigb/pipo/tree/main/examples/heartbeat">examples/heartbeat ↗</a>
+            </div>
+          </div>
+          <div class="file-graph">
+            <p class="micro-label">THE SAME FILE, AS A GRAPH</p>
+            <ol class="vertical-graph" aria-label="Heartbeat pipeline graph">
+              <li>
+                <button class="graph-node" type="button" data-node="input">
+                  <span class="graph-icon" aria-hidden="true">◷</span
+                  ><span><small>INPUT / schedule</small><strong>Every 5 seconds</strong></span
+                  ><span class="port" aria-hidden="true"></span>
+                </button>
+              </li>
+              <li>
+                <button class="graph-node" type="button" data-node="stamp">
+                  <span class="graph-icon" aria-hidden="true">ƒ</span
+                  ><span><small>TRANSFORM / map</small><strong>Stamp the tick</strong></span
+                  ><span class="port" aria-hidden="true"></span>
+                </button>
+              </li>
+              <li>
+                <button class="graph-node" type="button" data-node="output">
+                  <span class="graph-icon" aria-hidden="true">▤</span
+                  ><span><small>OUTPUT / file</small><strong>Append to JSONL</strong></span
+                  ><span class="port" aria-hidden="true"></span>
+                </button>
+              </li>
+              <li>
+                <button class="graph-node verified" type="button" data-node="delivered">
+                  <span class="graph-icon" aria-hidden="true">✓</span
+                  ><span><small>DELIVERY / line_contains</small><strong>Find the packet's line</strong></span
+                  ><span class="port" aria-hidden="true"></span>
+                </button>
+              </li>
+            </ol>
+            <p class="graph-hint">Hover or focus a node to find it in the file.</p>
+          </div>
+        </div>
+        <div class="file-footnote">
+          <p><code>git diff</code> · pull requests · branches · CI · your editor</p>
+          <p>No separate format for the builder or for agents.</p>
+        </div>
+      </section>
+
+      <section class="delivery-section" id="delivery" aria-labelledby="delivery-title">
+        <div class="wrap section">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">02 / THE CONTRACT</p>
+              <h2 id="delivery-title">Execution is not <span class="serif">delivery.</span></h2>
+            </div>
+            <p>The code returned. Did the output get there?<br>Pipo tracks that boundary explicitly.</p>
+          </div>
+          <div class="execution-comparison">
+            <span class="micro-label">A STEP SUCCEEDING</span
+            ><span
+              >trigger <span aria-hidden="true">→</span> steps <span aria-hidden="true">→</span> execution
+              succeeded</span
+            ><span class="boundary-label">is part of the journey</span>
+          </div>
+          <section class="lifecycle" aria-label="Pipo packet lifecycle">
+            <button type="button" data-stage="received" aria-pressed="false">
+              <span>01</span><strong>received</strong><small>validate input</small>
+            </button>
+            <button type="button" data-stage="accepted" aria-pressed="false">
+              <span>02</span><strong>accepted</strong><small>journal, then ack</small>
+            </button>
+            <button type="button" data-stage="processing" aria-pressed="false">
+              <span>03</span><strong>processing</strong><small>commit each step</small>
+            </button>
+            <button type="button" data-stage="writing" aria-pressed="false">
+              <span>04</span><strong>writing</strong><small>output connector</small>
+            </button>
+            <button type="button" data-stage="verifying" aria-pressed="false">
+              <span>05</span><strong>verifying</strong><small>delivery contract</small>
+            </button>
+            <button type="button" data-stage="delivered" aria-pressed="true">
+              <span>✓</span><strong>delivered</strong><small>terminal state</small>
+            </button>
+          </section>
+          <div class="delivery-detail">
+            <p id="stage-detail" aria-live="polite">
+              The output connector reports a successful write and the configured delivery check passes. That packet is
+              delivered.
+            </p>
+            <div class="failure-branch">
+              <span aria-hidden="true">↳</span>
+              failure → configured retries → DLQ <span class="muted">/ inspect &amp; replay</span>
+            </div>
+          </div>
+          <div class="delivery-notes">
+            <p>
+              <strong>Verification is explicit.</strong>
+              Default <code>ack</code> trusts the connector's success report. Configure checks such as
+              <code>record_exists</code>, <code>line_contains</code>, <code>follow_up</code> or
+              <code>external</code>
+              when your destination needs more evidence. <code>none</code> skips verification.
+            </p>
+            <p>
+              <strong>At-least-once, with idempotency keys.</strong>
+              Exactly-once delivery is not guaranteed. A repeated step can repeat a side effect. HTTP destinations must
+              honour the key; Telegram sends can duplicate. Invalid input is rejected, filters can end packets as
+              <code>filtered</code>, and error policies can pause, halt or escalate.
+              <a href="https://github.com/ramigb/pipo/blob/main/docs/spec.md#73-delivery-guarantees"
+                >Read the guarantees ↗</a
+              >
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section wrap recovery-section" aria-labelledby="recovery-title">
+        <div class="recovery-copy">
+          <p class="eyebrow">03 / THE JOURNAL</p>
+          <h2 id="recovery-title">The process stops.<br>The trail <span class="serif">stays.</span></h2>
+          <p>
+            Each pipeline has its own runner process and SQLite WAL journal. Packets are recorded before input
+            acknowledgement. Every node result is committed before the next node runs.
+          </p>
+          <p>
+            After a crash, the runner resumes from the last committed node. Work beyond that boundary may run again.
+            Packets keep the version that accepted them.
+          </p>
+          <div class="small-facts">
+            <span>isolated runners</span><span>version pinning</span><span>DLQ replay</span>
+          </div>
+          <a class="inline-link" href="https://github.com/ramigb/pipo/blob/main/docs/spec.md#21-packet-lifecycle"
+            >Recovery semantics <span aria-hidden="true">↗</span></a
+          >
+        </div>
+        <div class="recovery-demo" id="recovery-demo">
+          <div class="panel-heading">
+            <span><span class="status-dot" aria-hidden="true"></span> runner / heartbeat</span
+            ><span class="label-pill">SIMULATION</span>
+          </div>
+          <table class="packet-table" aria-label="Simulated packet states">
+            <thead>
+              <tr class="packet-row table-head">
+                <th scope="col">PACKET</th>
+                <th scope="col">COMMITTED</th>
+                <th scope="col">STATE</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="packet-row">
+                <td><code>#01</code></td>
+                <td>delivery</td>
+                <td class="state-good">✓ delivered</td>
+              </tr>
+              <tr class="packet-row">
+                <td><code>#02</code></td>
+                <td id="packet2-commit">stamp</td>
+                <td id="packet2-state" class="state-working">→ writing</td>
+              </tr>
+              <tr class="packet-row">
+                <td><code>#03</code></td>
+                <td id="packet3-commit">accepted</td>
+                <td id="packet3-state">pending</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="journal-line"><span aria-hidden="true">▤</span> journal.db <span>WAL / persistent</span></div>
+          <p class="recovery-message" id="recovery-message" role="status">
+            The journal has #02's stamp result and #03's accepted input.
+          </p>
+          <div class="recovery-controls">
+            <button type="button" class="button primary" id="crash-button" hidden>
+              Simulate a crash <span aria-hidden="true">↻</span>
+            </button><span>~5 seconds · no backend</span>
+          </div>
+          <noscript
+            ><p class="no-script">
+              On restart, #02 resumes its write from the committed stamp result; #03 begins processing. A write that
+              completed before the crash may repeat.
+            </p></noscript
+          >
+        </div>
+      </section>
+
+      <section class="section wrap agency-section" id="shared-control" aria-labelledby="agency-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">04 / THE OPERATING MODEL</p>
+            <h2 id="agency-title">Human-readable.<br><span class="serif">Agent-operable.</span></h2>
+          </div>
+          <p>Author, operator, editor. Agency can move<br>back and forth; the pipeline remains.</p>
+        </div>
+        <div class="agency-grid">
+          <figure
+            class="agency-diagram"
+            aria-label="A human and an agent both edit pipeline.pipo, which defines the runner's graph"
+          >
+            <div class="actors">
+              <div><span aria-hidden="true">⌘</span><strong>Human</strong><small>editor / builder / CLI</small></div>
+              <span class="shared-arrow" aria-hidden="true">↔</span>
+              <div><span aria-hidden="true">&gt;_</span><strong>Agent</strong><small>CLI / REST / MCP</small></div>
+            </div>
+            <div class="agency-connectors" aria-hidden="true"><span>↕</span><span>↕</span></div>
+            <div class="shared-file">
+              <span class="file-symbol" aria-hidden="true">≡</span><strong>pipeline.pipo</strong
+              ><span>the shared durable artifact</span>
+            </div>
+            <div class="agency-runtime">
+              <span aria-hidden="true">↓</span>
+              <div>Pipo runtime <small>same validator · same journal · same versions</small></div>
+            </div>
+            <p class="handoff">
+              human creates <span>→</span> agent edits <span>→</span> human reviews <span>→</span> agent operates
+            </p>
+          </figure>
+          <div class="agency-copy">
+            <h3>Same pipeline. Same operating language.</h3>
+            <p>
+              Both can create and inspect the file, validate it, test it, operate pipelines, diagnose failures, replay
+              dead-lettered packets and work with versions.
+            </p>
+            <div class="operation-tags">
+              <span>create</span><span>inspect</span><span>edit</span><span>check</span><span>test</span
+              ><span>operate</span><span>diagnose</span><span>replay</span><span>version</span><span>rollback</span>
+            </div>
+            <h3>Explicit policy boundaries.</h3>
+            <p>
+              Agent access uses scoped tokens and pipeline policies. Permitted changes follow
+              <strong>propose → validate → optional dry run → apply</strong>, creating a new version with an audit
+              trail.
+            </p>
+            <p class="policy-note">
+              Output, delivery, secrets, agent policy and agent budgets stay human-controlled. A granted edit can apply
+              automatically; a proposal can also be held. In-flight packets finish on their pinned version.
+            </p>
+            <a class="inline-link" href="https://github.com/ramigb/pipo/blob/main/docs/spec.md#9-agents-in-pipo"
+              >Agent interfaces &amp; policies <span aria-hidden="true">↗</span></a
+            >
+          </div>
+        </div>
+      </section>
+
+      <section class="section wrap" id="interfaces" aria-labelledby="interfaces-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">05 / YOUR WAY IN</p>
+            <h2 id="interfaces-title">Files. CLI. <span class="serif">A visual view.</span></h2>
+          </div>
+          <p>Write the file in your editor. Build it visually.<br>Watch packets move. Inspect what changed.</p>
+        </div>
+        <div class="interface-preview">
+          <div class="preview-top">
+            <span class="brand preview-brand"><img src="favicon.svg" alt="" width="22" height="22">pipo.</span
+            ><span class="preview-path">/ people-intake</span><span class="label-pill">ILLUSTRATIVE UI PREVIEW</span>
+          </div>
+          <fieldset class="preview-controls">
+            <legend class="sr-only">Select interface preview</legend>
+            <button type="button" data-view="dashboard" aria-pressed="true" aria-controls="dashboard-preview">
+              Dashboard
+            </button>
+            <button type="button" data-view="builder" aria-pressed="false" aria-controls="builder-preview">
+              Builder
+            </button>
+            <button type="button" data-view="cli" aria-pressed="false" aria-controls="cli-preview">CLI</button>
+            <span class="preview-command"><code>bun pipo ui</code></span>
+          </fieldset>
+          <div class="preview-content" id="dashboard-preview">
+            <div class="preview-stat-row">
+              <div><span>PIPELINE</span><strong>people-intake</strong></div>
+              <div><span>STATE</span><strong class="state-good">running</strong></div>
+              <div><span>DELIVERED</span><strong>128</strong></div>
+              <div><span>PENDING</span><strong>2</strong></div>
+              <div><span>DLQ</span><strong>1</strong></div>
+            </div>
+            <figure
+              class="dashboard-graph"
+              aria-label="HTTP input to logger to normalize to SQLite output to record_exists check"
+            >
+              <span><small>http</small><strong>input</strong></span><b aria-hidden="true">→</b
+              ><span><small>tap: log</small><strong>logger</strong></span><b aria-hidden="true">→</b
+              ><span><small>fn</small><strong>normalize</strong></span><b aria-hidden="true">→</b
+              ><span><small>sqlite</small><strong>output</strong></span><b aria-hidden="true">→</b
+              ><span class="graph-delivered"><small>record_exists</small><strong>✓ delivered</strong></span>
+            </figure>
+            <div class="inspector-strip">
+              <span class="micro-label">PACKET INSPECTOR</span
+              ><code>{ name: <span class="before">" Ada "</span> → <span class="after">"Ada"</span>, age: 36 }</code
+              ><span class="label-pill">version 1</span>
+            </div>
+          </div>
+          <div class="preview-content builder-preview" id="builder-preview" hidden>
+            <div class="builder-palette">
+              <span class="micro-label">PALETTE</span><span>Inputs</span><span>Transforms</span><span>Agents</span
+              ><span>Outputs</span>
+            </div>
+            <div class="builder-canvas">
+              <div class="dashboard-graph">
+                <span><small>schedule</small><strong>input</strong></span><b aria-hidden="true">→</b
+                ><span><small>map</small><strong>stamp</strong></span><b aria-hidden="true">→</b
+                ><span><small>file</small><strong>output</strong></span>
+              </div>
+              <div class="builder-check">
+                <span class="state-good">✓ pipo check</span><span>dry-run fixtures</span
+                ><span>save → heartbeat.pipo</span>
+              </div>
+            </div>
+          </div>
+          <div class="preview-content terminal-preview" id="cli-preview" hidden>
+            <pre><code><span class="terminal-comment"># Validate, test, operate and inspect the same file</span>
+<span class="prompt">$</span> bun pipo check examples/people-intake
+<span class="prompt">$</span> bun pipo test examples/people-intake
+<span class="prompt">$</span> bun pipo start examples/people-intake/people-intake.pipo
+<span class="prompt">$</span> bun pipo status --json
+<span class="prompt">$</span> bun pipo packets people-intake
+<span class="prompt">$</span> bun pipo dlq people-intake
+<span class="prompt">$</span> bun pipo history people-intake</code></pre>
+          </div>
+        </div>
+        <div class="interface-features">
+          <div>
+            <h3>Inspect the runtime</h3>
+            <p>Live graph, per-node metrics, packet inspector, log tail, agent feed, DLQ replay and version diffs.</p>
+          </div>
+          <div>
+            <h3>Edit the artifact</h3>
+            <p>
+              Drag blocks, wire ports, validate live and dry-run fixtures. Save writes the <code>.pipo</code> file,
+              keeping comments.
+            </p>
+          </div>
+          <div>
+            <h3>Use your tools</h3>
+            <p>
+              CLI JSON output for scripts and agents. REST and MCP interfaces. VS Code schema support and template
+              highlighting.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section wrap tools-section" aria-labelledby="tools-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">06 / INSIDE THE GRAPH</p>
+            <h2 id="tools-title">Code, agents &amp; <span class="serif">local tools.</span></h2>
+          </div>
+          <p>Deterministic transforms where they fit.<br>Agent steps where they help. Programs you own.</p>
+        </div>
+        <div class="tools-grid">
+          <article class="tool-card">
+            <span class="tool-number">A / AGENT AS A NODE</span>
+            <h3>Structured answers.<br>Declared limits.</h3>
+            <p>
+              An agent node renders a prompt and returns data validated against a required JSON Schema, with a timeout
+              and configurable token and daily budgets.
+            </p>
+            <div class="provider-list">
+              <span>Claude API</span><span>Claude Code</span><span>Codex</span><span>pi</span><span>opencode</span>
+            </div>
+            <p class="fine-print">
+              API calls use your key; local CLIs need installation and account setup. USD caps depend on reported cost
+              or configured token pricing. Unpriced CLI calls may count as $0.
+            </p>
+            <a class="inline-link" href="https://github.com/ramigb/pipo/tree/main/examples/ticket-triage"
+              >See ticket triage <span aria-hidden="true">↗</span></a
+            >
+          </article>
+          <article class="tool-card exec-card">
+            <span class="tool-number">B / EXEC AS A STEP</span>
+            <h3>Your machine.<br>Your programs.</h3>
+            <p>
+              Run <code>ffmpeg</code>, <code>pandoc</code> or your own scripts as a tap or transform. Arguments go
+              directly to the program, with declared outputs and a timeout.
+            </p>
+            <div class="exec-flow">
+              <span>watch / *.mp3</span><b aria-hidden="true">↓</b><span>transform: exec / ffmpeg</span
+              ><b aria-hidden="true">↓</b><span>video file + JSONL record</span>
+            </div>
+            <p class="fine-print">
+              Programs run as you, with no shell and no sandbox. A crash before the step commits can run the program
+              again.
+            </p>
+            <a class="inline-link" href="https://github.com/ramigb/pipo/tree/main/examples/audio-to-video"
+              >See audio → video <span aria-hidden="true">↗</span></a
+            >
+          </article>
+        </div>
+        <p class="tools-note">
+          An agent <em>inside</em> a pipeline is separate from an agent <em>operating</em> Pipo. You can use either,
+          both, or neither.
+        </p>
+      </section>
+
+      <section class="section wrap" id="examples" aria-labelledby="examples-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">07 / START WITH SOMETHING REAL</p>
+            <h2 id="examples-title">Small files. <span class="serif">Useful work.</span></h2>
+          </div>
+          <a class="inline-link" href="https://github.com/ramigb/pipo/tree/main/examples"
+            >All runnable examples <span aria-hidden="true">↗</span></a
+          >
+        </div>
+        <div class="example-grid">
+          <a class="example-card" href="https://github.com/ramigb/pipo/tree/main/examples/people-intake"
+            ><span class="example-route">HTTP → FN → SQLITE</span>
+            <h3>People intake <span aria-hidden="true">↗</span></h3>
+            <p>Validate a token-protected webhook, normalize people and verify the stored row.</p>
+            <span class="example-capability">Validation + delivery verification</span></a
+          >
+          <a class="example-card" href="https://github.com/ramigb/pipo/tree/main/examples/heartbeat"
+            ><span class="example-route">SCHEDULE → MAP → FILE</span>
+            <h3>Heartbeat <span aria-hidden="true">↗</span></h3>
+            <p>Append a heartbeat every five seconds and confirm the packet's line landed.</p>
+            <span class="example-capability">Continuous intake + file checks</span></a
+          >
+          <a class="example-card" href="https://github.com/ramigb/pipo/tree/main/examples/inbox-forward"
+            ><span class="example-route">WATCH → MAP → HTTP</span>
+            <h3>Inbox forwarding <span aria-hidden="true">↗</span></h3>
+            <p>Watch for new text files, shape their contents and POST to an endpoint with retries.</p>
+            <span class="example-capability">File input + HTTP output</span></a
+          >
+          <a class="example-card" href="https://github.com/ramigb/pipo/tree/main/examples/ticket-triage"
+            ><span class="example-route">HTTP → AGENT → FILE</span>
+            <h3>Ticket triage <span aria-hidden="true">↗</span></h3>
+            <p>Classify support tickets into a schema within a budget. Try the mock API without a key.</p>
+            <span class="example-capability">Structured agent output + budgets</span></a
+          >
+          <a class="example-card" href="https://github.com/ramigb/pipo/tree/main/examples/telegram-echo"
+            ><span class="example-route">TELEGRAM → LOG → TELEGRAM</span>
+            <h3>Telegram echo <span aria-hidden="true">↗</span></h3>
+            <p>Receive allow-listed bot messages, log who wrote them and reply in the same chat.</p>
+            <span class="example-capability">Bot input + tap + output</span></a
+          >
+          <a class="example-card" href="https://github.com/ramigb/pipo/tree/main/examples/audio-to-video"
+            ><span class="example-route">WATCH → EXEC → FILE</span>
+            <h3>Audio → video <span aria-hidden="true">↗</span></h3>
+            <p>Turn each dropped MP3 into a video with a cover image using an installed ffmpeg.</p>
+            <span class="example-capability">Local programs + output files</span></a
+          >
+        </div>
+      </section>
+
+      <section class="section wrap capabilities-section" aria-labelledby="capabilities-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">08 / PROJECT STATUS</p>
+            <h2 id="capabilities-title">Built today. <span class="serif">Next in line.</span></h2>
+          </div>
+          <p>Phase 1 is complete. Phase 2 is in progress.<br>Current capabilities and planned work, explicitly.</p>
+        </div>
+        <div class="capabilities-grid">
+          <div class="available-card">
+            <h3><span class="status-dot" aria-hidden="true"></span> Available today</h3>
+            <dl>
+              <div>
+                <dt>Intake</dt>
+                <dd>HTTP, schedule, watch, system, push, Telegram.</dd>
+              </div>
+              <div>
+                <dt>Processing</dt>
+                <dd>Map, user functions, filters, routes, loops, fan-out, taps, agent nodes and exec.</dd>
+              </div>
+              <div>
+                <dt>Output</dt>
+                <dd>SQLite, file, HTTP, stdout and Telegram. Batching for SQLite and file.</dd>
+              </div>
+              <div>
+                <dt>Runtime</dt>
+                <dd>Durable journal, crash recovery, retries, DLQ, version pinning, retention and stall detection.</dd>
+              </div>
+              <div>
+                <dt>Operation</dt>
+                <dd>CLI, REST, SSE, scoped MCP, change proposals, dashboard, builder and VS Code extension.</dd>
+              </div>
+            </dl>
+          </div>
+          <div class="roadmap-card">
+            <h3><span class="planned-dot" aria-hidden="true"></span> Planned / Phase 2</h3>
+            <ul>
+              <li>Postgres, MQTT, S3 and queue connectors</li>
+              <li>Join and window nodes, multiple outputs</li>
+              <li>Connector SDK and template registry</li>
+              <li>Distributed sub-engines</li>
+              <li>OpenTelemetry export and fn sandboxing</li>
+              <li>Editor language server</li>
+            </ul>
+            <p>These are roadmap items, not available features.</p>
+            <a class="inline-link" href="https://github.com/ramigb/pipo/blob/main/docs/roadmap.md"
+              >Read the roadmap <span aria-hidden="true">↗</span></a
+            >
+          </div>
+        </div>
+      </section>
+
+      <section class="quick-start-section" id="quick-start" aria-labelledby="start-title">
+        <div class="section wrap quick-start-grid">
+          <div>
+            <p class="eyebrow">09 / MAKE IT RUN</p>
+            <h2 id="start-title">Your first pipeline.<br><span class="serif">On your machine.</span></h2>
+            <p>Requires Bun ≥ 1.3 on Linux or macOS.<br>Clone the repo, install, open the dashboard.</p>
+            <div class="start-links">
+              <a href="https://github.com/ramigb/pipo">GitHub ↗</a
+              ><a href="https://github.com/ramigb/pipo/blob/main/README.md">Full quick start ↗</a
+              ><a href="https://github.com/ramigb/pipo/blob/main/docs/spec.md">Specification ↗</a>
+            </div>
+          </div>
+          <div class="start-terminal">
+            <div class="window-bar">
+              <span>terminal</span
+              ><button class="text-button copy-button" type="button" data-copy="install-commands" hidden>
+                Copy commands
+              </button>
+            </div>
+            <pre tabindex="0"><code id="install-commands">git clone https://github.com/ramigb/pipo.git
+cd pipo
+bun install
+bun pipo ui</code></pre>
+            <div class="terminal-divider">
+              <span>OR RUN THE HEARTBEAT IN YOUR TERMINAL</span
+              ><button class="text-button copy-button" type="button" data-copy="run-commands" hidden>Copy</button>
+            </div>
+            <pre tabindex="0"><code id="run-commands">bun pipo check examples/heartbeat
+bun pipo run examples/heartbeat/heartbeat.pipo</code></pre>
+            <p>
+              Paths resolve relative to the <code>.pipo</code> file. Ctrl-C drains the foreground runner; a second
+              Ctrl-C stops it.
+            </p>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer class="site-footer wrap">
+      <div>
+        <a class="brand" href="#main"><img src="favicon.svg" width="28" height="28" alt="">pipo.</a>
+        <p>Pipes + I/O. Built to keep the trail.</p>
+      </div>
+      <nav aria-label="Footer navigation">
+        <a href="https://github.com/ramigb/pipo">GitHub ↗</a
+        ><a href="https://github.com/ramigb/pipo/blob/main/docs/spec.md">Spec ↗</a
+        ><a href="https://github.com/ramigb/pipo/blob/main/docs/roadmap.md">Roadmap ↗</a
+        ><a href="https://github.com/ramigb/pipo/blob/main/LICENSE">MIT license ↗</a>
+      </nav>
+    </footer>
+    <p id="copy-status" class="sr-only" role="status"></p>
+  </body>
+</html>

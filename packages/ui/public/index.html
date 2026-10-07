@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pipo</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%AB%A7%3C/text%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="/ui/style.css" />
+  </head>
+  <body>
+    <header class="top">
+      <a class="brand" href="#/" title="Pipo home"><span id="logo"></span><span class="word">pipo</span></a>
+      <nav class="nav">
+        <a href="#/" id="nav-home"><span aria-hidden="true">🏠</span> Pipelines</a>
+        <a href="#/top" id="nav-top"><span aria-hidden="true">🧮</span> Tasks</a>
+        <a href="#/build" id="nav-build"><span aria-hidden="true">🛠️</span> Builder</a>
+        <a href="#/bots" id="nav-bots"><span aria-hidden="true">🤖</span> Bots</a>
+        <a href="#/settings" id="nav-settings"><span aria-hidden="true">⚙️</span> Settings</a>
+      </nav>
+      <span class="spacer"></span>
+      <span id="engine" class="chip" title="engine">…</span>
+      <span id="live" class="chip" title="live event stream">connecting…</span>
+      <button id="theme" type="button" class="icon-btn" title="Switch theme">🌗</button>
+    </header>
+    <div id="banner" hidden></div>
+    <main id="app"></main>
+    <script type="module" src="/ui/app.js"></script>
+  </body>
+</html>

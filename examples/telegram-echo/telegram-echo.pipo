@@ -1,0 +1,21 @@
+pipo: 1
+name: telegram-echo
+description: Answers every message the default Telegram bot gets, and logs who wrote what.
+
+# Add a bot first: dashboard > Bots (pipo ui), with your own chat id in its allow list.
+# Message the bot once without it: the log names your id.
+input:
+  via: telegram
+
+nodes:
+  seen:
+    from: input
+    tap: log
+    with:
+      message: "${data.from.name} wrote: ${data.text}"
+
+output:
+  from: seen
+  to: telegram
+  with:
+    text: "You said: ${data.text}"

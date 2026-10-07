@@ -1,0 +1,39 @@
+# Run: mkdir -p inbox && {{url_env}}=http://localhost:9000/ingest pipo run {{name}}.pipo
+pipo: 1
+name: {{name}}
+description: Forward the content of each new file matching {{glob}} to an HTTP endpoint.
+
+fn: ./{{name}}.fn.ts
+
+secrets:
+  destination: env:{{url_env}}
+
+input:
+  via: watch
+  with:
+    path: {{glob}}
+    events: [create]
+    read: content
+
+nodes:
+  shape:
+    from: input
+    transform: fn.shape
+
+output:
+  from: shape
+  to: http
+  with:
+    method: POST
+    url: "${secrets.destination}"
+    headers:
+      content-type: application/json
+    body:
+      file: "${data.file}"
+      text: "${data.text}"
+    success: [200-299]
+  on_error:
+    retry: 3
+    backoff: exponential
+    delay: 500ms
+    then: dead_letter

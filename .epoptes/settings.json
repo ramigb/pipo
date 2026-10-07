@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Read", "Edit", "Write", "Glob", "Grep",
+      "Bash(ls *)", "Bash(cat *)", "Bash(head *)", "Bash(tail *)", "Bash(grep *)", "Bash(sed -n *)",
+      "Bash(wc *)", "Bash(sort *)", "Bash(diff *)", "Bash(find *)", "Bash(test *)", "Bash(echo *)",
+      "Bash(mkdir *)", "Bash(cp *)", "Bash(mv *)", "Bash(date *)", "Bash(pgrep *)", "Bash(kill *)",
+      "Bash(ps *)", "Bash(timeout *)", "Bash(sleep *)", "Bash(rm -f *)",
+      "Bash(bun *)", "Bash(node_modules/.bin/*)",
+      "Bash(curl http://127.0.0.1*)", "Bash(curl * http://127.0.0.1*)", "Bash(curl http://localhost*)", "Bash(curl * http://localhost*)",
+      "Bash(git status *)", "Bash(git status)", "Bash(git diff *)", "Bash(git diff)", "Bash(git log *)", "Bash(git show *)",
+      "Bash(git add *)", "Bash(git commit *)", "Bash(git restore *)", "Bash(git stash push *)", "Bash(git tag *)",
+      "Bash(git clean -fd -- *)", "Bash(git rm *)"
+    ],
+    "deny": [
+      "Bash(sudo *)",
+      "Bash(git push *)", "Bash(git push)",
+      "Bash(git reset --hard *)", "Bash(git rebase *)", "Bash(git filter-branch *)", "Bash(git filter-repo *)",
+      "Bash(git commit --amend *)", "Bash(git clean -fdx *)", "Bash(git clean -xfd *)", "Bash(git clean -x *)",
+      "Bash(git stash -a *)", "Bash(git stash --all *)", "Bash(git checkout -- .)", "Bash(git branch -D *)",
+      "Bash(pkill *)", "Bash(rm -rf /*)", "Bash(rm -rf ~*)", "Bash(chmod -R *)",
+      "Bash(curl * | sh)", "Bash(curl * | bash)", "Bash(env)", "Bash(printenv *)", "Bash(printenv)",
+      "Bash(bun publish *)", "Bash(npm publish *)", "Bash(op *)",
+      "Read(./.env)", "Read(./.env.*)", "Read(~/.ssh/**)", "Read(~/.aws/**)", "Read(~/.config/gcloud/**)", "Read(~/.netrc)",
+      "Read(~/.config/op/**)"
+    ]
+  }
+}

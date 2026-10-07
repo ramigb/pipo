@@ -1,0 +1,2232 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ramigb.com/pipo/schema/pipo-1.json",
+  "title": "Pipo pipeline",
+  "type": "object",
+  "properties": {
+    "pipo": {
+      "const": 1,
+      "description": "Spec version"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "description": {
+      "type": "string"
+    },
+    "fn": {
+      "type": "string",
+      "description": "Module of user functions, relative to this file"
+    },
+    "secrets": {
+      "type": "object",
+      "description": "Secret references: op://vault/item/field or env:NAME",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^(op://|env:)"
+      }
+    },
+    "lifetime": {
+      "type": "object",
+      "properties": {
+        "ttl": {
+          "type": "string",
+          "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$",
+          "examples": [
+            "500ms",
+            "10s",
+            "5m",
+            "1h"
+          ]
+        },
+        "max_packets": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "until": {
+          "type": "string",
+          "description": "Expression (docs/spec.md §3.2)"
+        },
+        "on_end": {
+          "enum": [
+            "drain",
+            "stop"
+          ]
+        },
+        "drain_timeout": {
+          "type": "string",
+          "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$",
+          "examples": [
+            "500ms",
+            "10s",
+            "5m",
+            "1h"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "concurrency": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "buffer": {
+      "type": "object",
+      "properties": {
+        "max": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "errors": {
+      "type": "object",
+      "properties": {
+        "retry": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "backoff": {
+          "enum": [
+            "fixed",
+            "exponential"
+          ]
+        },
+        "delay": {
+          "type": "string",
+          "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$",
+          "examples": [
+            "500ms",
+            "10s",
+            "5m",
+            "1h"
+          ]
+        },
+        "max_delay": {
+          "type": "string",
+          "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$",
+          "examples": [
+            "500ms",
+            "10s",
+            "5m",
+            "1h"
+          ]
+        },
+        "then": {
+          "enum": [
+            "dead_letter",
+            "drop",
+            "continue",
+            "pause",
+            "halt",
+            "agent"
+          ]
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "input": {
+      "type": "object",
+      "properties": {
+        "via": {
+          "enum": [
+            "http",
+            "schedule",
+            "watch",
+            "push",
+            "system",
+            "telegram"
+          ]
+        },
+        "with": {
+          "type": "object"
+        },
+        "format": {
+          "enum": [
+            "json",
+            "text",
+            "csv",
+            "form",
+            "bytes"
+          ]
+        },
+        "schema": {
+          "type": "string"
+        },
+        "validate": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "Expression (docs/spec.md §3.2)"
+          }
+        },
+        "on_invalid": {
+          "type": "object",
+          "properties": {
+            "respond": {
+              "type": "integer",
+              "minimum": 400,
+              "maximum": 599
+            },
+            "then": {
+              "enum": [
+                "dead_letter",
+                "drop",
+                "continue",
+                "pause",
+                "halt",
+                "agent"
+              ]
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "via"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "via": {
+                "const": "http"
+              }
+            },
+            "required": [
+              "via"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "default": "/"
+                  },
+                  "method": {
+                    "enum": [
+                      "GET",
+                      "POST",
+                      "PUT",
+                      "PATCH",
+                      "DELETE"
+                    ]
+                  },
+                  "auth": {
+                    "type": "object",
+                    "properties": {
+                      "header": {
+                        "type": "string"
+                      },
+                      "equals": {
+                        "type": "string"
+                      },
+                      "hmac": {
+                        "type": "object",
+                        "properties": {
+                          "header": {
+                            "type": "string"
+                          },
+                          "secret": {
+                            "type": "string"
+                          },
+                          "algorithm": {
+                            "enum": [
+                              "sha256",
+                              "sha1"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "header",
+                          "secret"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "respond": {
+                    "enum": [
+                      "accepted",
+                      "delivered"
+                    ]
+                  },
+                  "timeout": {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$"
+                  },
+                  "listen": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "via": {
+                "const": "schedule"
+              }
+            },
+            "required": [
+              "via"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {
+                  "cron": {
+                    "type": "string"
+                  },
+                  "every": {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$"
+                  },
+                  "payload": {}
+                },
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "via": {
+                "const": "watch"
+              }
+            },
+            "required": [
+              "via"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "events": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "create",
+                        "change",
+                        "delete"
+                      ]
+                    }
+                  },
+                  "read": {
+                    "enum": [
+                      "content",
+                      "path"
+                    ]
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "via": {
+                "const": "push"
+              }
+            },
+            "required": [
+              "via"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "via": {
+                "const": "system"
+              }
+            },
+            "required": [
+              "via"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {
+                  "every": {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$"
+                  },
+                  "metrics": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "cpu",
+                        "memory",
+                        "disk",
+                        "battery",
+                        "network"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "every"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "via": {
+                "const": "telegram"
+              }
+            },
+            "required": [
+              "via"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {
+                  "bot": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                  },
+                  "token": {
+                    "type": "string"
+                  },
+                  "allow": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  },
+                  "poll_every": {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$"
+                  },
+                  "download": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      ]
+    },
+    "nodes": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "description": "Where packets come from: input, a node id, a route branch (node.branch) or a list",
+            "type": [
+              "string",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "label": {
+            "type": "string"
+          },
+          "tap": {
+            "type": "string",
+            "description": "Side effect; data passes on unchanged",
+            "examples": [
+              "log",
+              "http",
+              "file",
+              "telegram",
+              "emit",
+              "exec",
+              "fn.<name>"
+            ]
+          },
+          "transform": {
+            "type": "string",
+            "description": "Replace data",
+            "examples": [
+              "map",
+              "http",
+              "exec",
+              "fn.<name>"
+            ]
+          },
+          "filter": {
+            "type": "string",
+            "description": "Keep the packet only when this expression is true"
+          },
+          "route": {
+            "type": "object",
+            "description": "Branch name → expression; the last may be `else`",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "minProperties": 1
+          },
+          "agent": {
+            "type": "string",
+            "examples": [
+              "claude_api",
+              "claude_code",
+              "codex",
+              "pi",
+              "opencode"
+            ]
+          },
+          "with": {
+            "type": "object"
+          },
+          "on_error": {
+            "type": "object",
+            "properties": {
+              "retry": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "backoff": {
+                "enum": [
+                  "fixed",
+                  "exponential"
+                ]
+              },
+              "delay": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$",
+                "examples": [
+                  "500ms",
+                  "10s",
+                  "5m",
+                  "1h"
+                ]
+              },
+              "max_delay": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$",
+                "examples": [
+                  "500ms",
+                  "10s",
+                  "5m",
+                  "1h"
+                ]
+              },
+              "then": {
+                "enum": [
+                  "dead_letter",
+                  "drop",
+                  "continue",
+                  "pause",
+                  "halt",
+                  "agent"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "loop": {
+            "type": "object",
+            "properties": {
+              "back_to": {
+                "type": "string"
+              },
+              "until": {
+                "type": "string",
+                "description": "Expression (docs/spec.md §3.2)"
+              },
+              "max": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "then": {
+                "enum": [
+                  "dead_letter",
+                  "drop",
+                  "continue",
+                  "pause",
+                  "halt",
+                  "agent"
+                ]
+              }
+            },
+            "required": [
+              "back_to",
+              "until",
+              "max"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "from"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "tap": {
+                  "const": "log"
+                }
+              },
+              "required": [
+                "tap"
+              ]
+            },
+            "then": {
+              "properties": {
+                "with": {
+                  "type": "object",
+                  "properties": {
+                    "level": {
+                      "enum": [
+                        "debug",
+                        "info",
+                        "warn",
+                        "error"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "tap": {
+                  "const": "http"
+                }
+              },
+              "required": [
+                "tap"
+              ]
+            },
+            "then": {
+              "properties": {
+                "with": {
+                  "type": "object",
+                  "properties": {
+                    "method": {
+                      "enum": [
+                        "GET",
+                        "POST",
+                        "PUT",
+                        "PATCH",
+                        "DELETE"
+                      ]
+                    },
+                    "url": {
+                      "type": "string"
+                    },
+                    "headers": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string"
+                      }
+                    },
+                    "body": {},
+                    "success": {
+                      "type": "array",
+                      "items": {
+                        "type": [
+                          "integer",
+                          "string"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "tap": {
+                  "const": "file"
+                }
+              },
+              "required": [
+                "tap"
+              ]
+            },
+            "then": {
+              "properties": {
+                "with": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "format": {
+                      "enum": [
+                        "jsonl",
+                        "json",
+                        "csv",
+                        "text"
+                      ]
+                    },
+                    "mode": {
+                      "enum": [
+                        "append",
+                        "write"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "tap": {
+                  "const": "telegram"
+                }
+              },
+              "required": [
+                "tap"
+              ]
+            },
+            "then": {
+              "properties": {
+                "with": {
+                  "type": "object",
+                  "properties": {
+                    "bot": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                    },
+                    "token": {
+                      "type": "string"
+                    },
+                    "chat_id": {
+                      "type": [
+                        "integer",
+                        "string"
+                      ]
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "photo": {
+                      "type": "string"
+                    },
+                    "document": {
+                      "type": "string"
+                    },
+                    "parse_mode": {
+                      "enum": [
+                        "Markdown",
+                        "MarkdownV2",
+                        "HTML"
+                      ]
+                    }
+                  },
+                  "required": [],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "tap": {
+                  "const": "emit"
+                }
+              },
+              "required": [
+                "tap"
+              ]
+            },
+            "then": {
+              "properties": {
+                "with": {
+                  "type": "object",
+                  "properties": {
+                    "event": {
+                      "type": "string"
+                    },
+                    "detail": {}
+                  },
+                  "required": [
+                    "event"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "tap": {
+                  "const": "exec"
+                }
+              },
+              "required": [
+                "tap"
+              ]
+            },
+            "then": {
+              "properties": {
+                "with": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string",
+                      "minLength": 1,
+                      "examples": [
+                        "ffmpeg"
+                      ]
+                    },
+                    "args": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "cwd": {
+                      "type": "string"
+                    },
+                    "env": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string"
+                      }
+                    },
+                    "stdin": {
+                      "type": "string"
+                    },
+                    "timeout": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$"
+                    },
+                    "success": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      },
+                      "minItems": 1
+                    },
+                    "result": {
+                      "enum": [
+                        "info",
+                        "text",
+                        "json"
+                      ]
+                    },
+                    "outputs": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "transform": {
+                  "const": "map"
+                }
+              },
+              "required": [
+                "transform"
+              ]
+            },
+            "then": {
+              "properties": {
+                "with": {
+                  "type": "object",
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "transform": {
+                  "const": "http"
+                }
+              },
+              "required": [
+                "transform"
+              ]
+            },
+            "then": {
+              "properties": {
+                "with": {
+                  "type": "object",
+                  "properties": {
+                    "method": {
+                      "enum": [
+                        "GET",
+                        "POST",
+                        "PUT",
+                        "PATCH",
+                        "DELETE"
+                      ]
+                    },
+                    "url": {
+                      "type": "string"
+                    },
+                    "headers": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string"
+                      }
+                    },
+                    "body": {},
+                    "success": {
+                      "type": "array",
+                      "items": {
+                        "type": [
+                          "integer",
+                          "string"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "transform": {
+                  "const": "exec"
+                }
+              },
+              "required": [
+                "transform"
+              ]
+            },
+            "then": {
+              "properties": {
+                "with": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string",
+                      "minLength": 1,
+                      "examples": [
+                        "ffmpeg"
+                      ]
+                    },
+                    "args": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "cwd": {
+                      "type": "string"
+                    },
+                    "env": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string"
+                      }
+                    },
+                    "stdin": {
+                      "type": "string"
+                    },
+                    "timeout": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$"
+                    },
+                    "success": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      },
+                      "minItems": 1
+                    },
+                    "result": {
+                      "enum": [
+                        "info",
+                        "text",
+                        "json"
+                      ]
+                    },
+                    "outputs": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "agent": {
+                  "const": "claude_api"
+                }
+              },
+              "required": [
+                "agent"
+              ]
+            },
+            "then": {
+              "properties": {
+                "with": {
+                  "type": "object",
+                  "properties": {
+                    "model": {
+                      "type": "string"
+                    },
+                    "prompt": {
+                      "type": "string"
+                    },
+                    "schema": {
+                      "type": "string"
+                    },
+                    "timeout": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$"
+                    },
+                    "max_tokens": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  },
+                  "required": [
+                    "model",
+                    "prompt",
+                    "schema"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "agent": {
+                  "const": "claude_code"
+                }
+              },
+              "required": [
+                "agent"
+              ]
+            },
+            "then": {
+              "properties": {
+                "with": {
+                  "type": "object",
+                  "properties": {
+                    "model": {
+                      "type": "string"
+                    },
+                    "prompt": {
+                      "type": "string"
+                    },
+                    "schema": {
+                      "type": "string"
+                    },
+                    "timeout": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$"
+                    },
+                    "cwd": {
+                      "type": "string"
+                    },
+                    "allow_tools": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "prompt",
+                    "schema"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "agent": {
+                  "const": "codex"
+                }
+              },
+              "required": [
+                "agent"
+              ]
+            },
+            "then": {
+              "properties": {
+                "with": {
+                  "type": "object",
+                  "properties": {
+                    "model": {
+                      "type": "string"
+                    },
+                    "prompt": {
+                      "type": "string"
+                    },
+                    "schema": {
+                      "type": "string"
+                    },
+                    "timeout": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$"
+                    },
+                    "cwd": {
+                      "type": "string"
+                    },
+                    "allow_tools": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "prompt",
+                    "schema"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "agent": {
+                  "const": "pi"
+                }
+              },
+              "required": [
+                "agent"
+              ]
+            },
+            "then": {
+              "properties": {
+                "with": {
+                  "type": "object",
+                  "properties": {
+                    "model": {
+                      "type": "string"
+                    },
+                    "prompt": {
+                      "type": "string"
+                    },
+                    "schema": {
+                      "type": "string"
+                    },
+                    "timeout": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$"
+                    },
+                    "cwd": {
+                      "type": "string"
+                    },
+                    "allow_tools": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "prompt",
+                    "schema"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "agent": {
+                  "const": "opencode"
+                }
+              },
+              "required": [
+                "agent"
+              ]
+            },
+            "then": {
+              "properties": {
+                "with": {
+                  "type": "object",
+                  "properties": {
+                    "model": {
+                      "type": "string"
+                    },
+                    "prompt": {
+                      "type": "string"
+                    },
+                    "schema": {
+                      "type": "string"
+                    },
+                    "timeout": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$"
+                    },
+                    "cwd": {
+                      "type": "string"
+                    },
+                    "allow_tools": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "prompt",
+                    "schema"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "description": "Where packets come from: input, a node id, a route branch (node.branch) or a list",
+          "type": [
+            "string",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "to": {
+          "enum": [
+            "sqlite",
+            "file",
+            "http",
+            "telegram",
+            "stdout"
+          ]
+        },
+        "batch": {
+          "type": "object",
+          "properties": {
+            "size": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "within": {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$",
+              "examples": [
+                "500ms",
+                "10s",
+                "5m",
+                "1h"
+              ]
+            }
+          },
+          "required": [
+            "size"
+          ],
+          "additionalProperties": false
+        },
+        "with": {
+          "type": "object"
+        },
+        "validate": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "Expression (docs/spec.md §3.2)"
+          }
+        },
+        "on_invalid": {
+          "type": "object",
+          "properties": {
+            "respond": {
+              "type": "integer",
+              "minimum": 400,
+              "maximum": 599
+            },
+            "then": {
+              "enum": [
+                "dead_letter",
+                "drop",
+                "continue",
+                "pause",
+                "halt",
+                "agent"
+              ]
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "on_error": {
+          "type": "object",
+          "properties": {
+            "retry": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "backoff": {
+              "enum": [
+                "fixed",
+                "exponential"
+              ]
+            },
+            "delay": {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$",
+              "examples": [
+                "500ms",
+                "10s",
+                "5m",
+                "1h"
+              ]
+            },
+            "max_delay": {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$",
+              "examples": [
+                "500ms",
+                "10s",
+                "5m",
+                "1h"
+              ]
+            },
+            "then": {
+              "enum": [
+                "dead_letter",
+                "drop",
+                "continue",
+                "pause",
+                "halt",
+                "agent"
+              ]
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "to": {
+                "const": "sqlite"
+              }
+            },
+            "required": [
+              "to"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "table": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                  },
+                  "create": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "enum": [
+                      "insert",
+                      "upsert"
+                    ]
+                  },
+                  "key": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                  },
+                  "columns": {
+                    "type": "object",
+                    "propertyNames": {
+                      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                    }
+                  }
+                },
+                "required": [
+                  "path",
+                  "table"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "to": {
+                "const": "file"
+              }
+            },
+            "required": [
+              "to"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "format": {
+                    "enum": [
+                      "jsonl",
+                      "json",
+                      "csv",
+                      "text"
+                    ]
+                  },
+                  "mode": {
+                    "enum": [
+                      "append",
+                      "write"
+                    ]
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "to": {
+                "const": "http"
+              }
+            },
+            "required": [
+              "to"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {
+                  "method": {
+                    "enum": [
+                      "GET",
+                      "POST",
+                      "PUT",
+                      "PATCH",
+                      "DELETE"
+                    ]
+                  },
+                  "url": {
+                    "type": "string"
+                  },
+                  "headers": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "body": {},
+                  "success": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "integer",
+                        "string"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "url"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "to": {
+                "const": "telegram"
+              }
+            },
+            "required": [
+              "to"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {
+                  "bot": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                  },
+                  "token": {
+                    "type": "string"
+                  },
+                  "chat_id": {
+                    "type": [
+                      "integer",
+                      "string"
+                    ]
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "photo": {
+                    "type": "string"
+                  },
+                  "document": {
+                    "type": "string"
+                  },
+                  "parse_mode": {
+                    "enum": [
+                      "Markdown",
+                      "MarkdownV2",
+                      "HTML"
+                    ]
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "to": {
+                "const": "stdout"
+              }
+            },
+            "required": [
+              "to"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {
+                  "format": {
+                    "enum": [
+                      "jsonl",
+                      "json",
+                      "text"
+                    ]
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      ]
+    },
+    "delivered": {
+      "type": "object",
+      "properties": {
+        "check": {
+          "enum": [
+            "ack",
+            "external",
+            "none",
+            "record_exists",
+            "row_count",
+            "query",
+            "file_exists",
+            "file_nonempty",
+            "line_contains",
+            "checksum",
+            "status",
+            "follow_up"
+          ]
+        },
+        "with": {
+          "type": "object"
+        },
+        "within": {
+          "type": "string",
+          "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$",
+          "examples": [
+            "500ms",
+            "10s",
+            "5m",
+            "1h"
+          ]
+        },
+        "on_fail": {
+          "type": "object",
+          "properties": {
+            "retry": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "backoff": {
+              "enum": [
+                "fixed",
+                "exponential"
+              ]
+            },
+            "delay": {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$",
+              "examples": [
+                "500ms",
+                "10s",
+                "5m",
+                "1h"
+              ]
+            },
+            "max_delay": {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$",
+              "examples": [
+                "500ms",
+                "10s",
+                "5m",
+                "1h"
+              ]
+            },
+            "then": {
+              "enum": [
+                "dead_letter",
+                "drop",
+                "continue",
+                "pause",
+                "halt",
+                "agent"
+              ]
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "stall": {
+          "type": "object",
+          "properties": {
+            "after": {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$",
+              "examples": [
+                "500ms",
+                "10s",
+                "5m",
+                "1h"
+              ]
+            },
+            "then": {
+              "enum": [
+                "notify",
+                "pause",
+                "agent"
+              ]
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "after"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "check": {
+                "const": "ack"
+              }
+            },
+            "required": [
+              "check"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "check": {
+                "const": "external"
+              }
+            },
+            "required": [
+              "check"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "check": {
+                "const": "none"
+              }
+            },
+            "required": [
+              "check"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "check": {
+                "const": "record_exists"
+              }
+            },
+            "required": [
+              "check"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {
+                  "where": {
+                    "type": "object",
+                    "minProperties": 1
+                  }
+                },
+                "required": [
+                  "where"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "check": {
+                "const": "row_count"
+              }
+            },
+            "required": [
+              "check"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string"
+                  },
+                  "params": {
+                    "type": "array"
+                  },
+                  "min": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "query"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "check": {
+                "const": "query"
+              }
+            },
+            "required": [
+              "check"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {
+                  "sql": {
+                    "type": "string"
+                  },
+                  "query": {
+                    "type": "string"
+                  },
+                  "params": {
+                    "type": "array"
+                  }
+                },
+                "required": [],
+                "additionalProperties": false,
+                "anyOf": [
+                  {
+                    "required": [
+                      "sql"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "query"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "check": {
+                "const": "file_exists"
+              }
+            },
+            "required": [
+              "check"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "check": {
+                "const": "file_nonempty"
+              }
+            },
+            "required": [
+              "check"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "check": {
+                "const": "line_contains"
+              }
+            },
+            "required": [
+              "check"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "value"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "check": {
+                "const": "checksum"
+              }
+            },
+            "required": [
+              "check"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "sha256": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "sha256"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "check": {
+                "const": "status"
+              }
+            },
+            "required": [
+              "check"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {
+                  "success": {
+                    "type": "array"
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "check": {
+                "const": "follow_up"
+              }
+            },
+            "required": [
+              "check"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {
+                  "url": {
+                    "type": "string"
+                  },
+                  "headers": {
+                    "type": "object"
+                  },
+                  "success": {
+                    "type": "array"
+                  },
+                  "match": {}
+                },
+                "required": [
+                  "url"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      ]
+    },
+    "agent": {
+      "type": "object",
+      "properties": {
+        "control": {
+          "type": "boolean"
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "pause",
+              "resume",
+              "replay",
+              "push",
+              "ack"
+            ]
+          }
+        },
+        "edit": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "redact": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "on_stall": {
+          "enum": [
+            "notify",
+            "handle"
+          ]
+        },
+        "verify": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "agent_budget": {
+      "type": "object",
+      "properties": {
+        "per_day": {
+          "type": "number",
+          "minimum": 0
+        },
+        "reset_at": {
+          "type": "string",
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+        },
+        "per_packet": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "warn_at": {
+          "type": "string",
+          "pattern": "^\\d{1,3}%$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "retention": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "string",
+          "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$",
+          "examples": [
+            "500ms",
+            "10s",
+            "5m",
+            "1h"
+          ]
+        },
+        "trail": {
+          "type": "string",
+          "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$",
+          "examples": [
+            "500ms",
+            "10s",
+            "5m",
+            "1h"
+          ]
+        },
+        "rejected": {
+          "type": "string",
+          "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$",
+          "examples": [
+            "500ms",
+            "10s",
+            "5m",
+            "1h"
+          ]
+        },
+        "dlq": {
+          "type": "string",
+          "pattern": "^(\\d+(\\.\\d+)?(ms|s|m|h|d)|forever)$"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "pipo",
+    "name",
+    "input",
+    "output"
+  ],
+  "additionalProperties": false
+}

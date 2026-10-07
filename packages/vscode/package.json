@@ -1,0 +1,53 @@
+{
+  "name": "pipo-vscode",
+  "displayName": "Pipo",
+  "description": "Pipo pipeline files: YAML language, JSON Schema and ${…} highlighting",
+  "version": "0.0.0",
+  "private": true,
+  "publisher": "pipo",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "extensionDependencies": [
+    "redhat.vscode-yaml"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "pipo",
+        "aliases": [
+          "Pipo",
+          "pipo"
+        ],
+        "extensions": [
+          ".pipo"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "pipo",
+        "scopeName": "source.pipo",
+        "path": "./syntaxes/pipo.tmLanguage.json"
+      },
+      {
+        "scopeName": "pipo.injection",
+        "path": "./syntaxes/pipo-injection.tmLanguage.json",
+        "injectTo": [
+          "source.pipo"
+        ]
+      }
+    ],
+    "yamlValidation": [
+      {
+        "fileMatch": "*.pipo",
+        "url": "./schemas/pipo.schema.json"
+      }
+    ]
+  }
+}

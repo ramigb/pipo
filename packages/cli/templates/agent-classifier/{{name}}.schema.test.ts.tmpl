@@ -1,0 +1,8 @@
+import { expect, test } from "bun:test";
+
+test("the expected fixture answers the classification schema's required fields", async () => {
+  const dir = import.meta.dir;
+  const schema = await Bun.file(`${dir}/schemas/classification.schema.json`).json();
+  const expected = await Bun.file(`${dir}/fixtures/expected.json`).json();
+  for (const key of schema.required) expect(expected).toHaveProperty(key);
+});

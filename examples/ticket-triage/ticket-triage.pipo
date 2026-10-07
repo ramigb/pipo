@@ -1,0 +1,58 @@
+# Triages support tickets with an agent node, under a daily and a per-ticket budget.
+# Runs against the bundled mock of the Claude API (no API key, no cost); see README.md:
+#   bun examples/ticket-triage/mock-claude.ts      # then point agents.claude_api.base_url at it in config.yaml
+#   bun pipo run examples/ticket-triage/ticket-triage.pipo
+#   curl -s localhost:8791/in/ticket-triage/tickets -H 'content-type: application/json' -d '{"subject": "Site is down", "body": "Checkout fails for everyone"}'
+pipo: 1
+name: ticket-triage
+description: Classify each support ticket (category, priority, one-line summary) with an agent, within a budget.
+
+agent_budget:
+  per_day: 0.50
+  per_packet: 4000
+  warn_at: 80%
+
+input:
+  via: http
+  with:
+    listen: 8791
+    path: /tickets
+  format: json
+  validate:
+    - type(data.subject) == "string" && len(trim(data.subject)) > 0
+    - type(data.body) == "string"
+  on_invalid:
+    respond: 422
+    message: "Rejected: rule '${error.rule}' failed; send {subject, body}"
+
+nodes:
+  triage:
+    from: input
+    agent: claude_api
+    with:
+      model: claude-haiku-4-5
+      prompt: |
+        Triage this support ticket. Pick its category and priority and summarise it in one sentence.
+        Subject: ${data.subject}
+        Body: ${data.body}
+      schema: ./triage.schema.json
+      timeout: 30s
+      max_tokens: 512
+    on_error:
+      retry: 2
+      backoff: exponential
+      delay: 1s
+      then: dead_letter
+
+output:
+  from: triage
+  to: file
+  with:
+    path: ./out/triaged.jsonl
+    format: jsonl
+    mode: append
+
+delivered:
+  check: line_contains
+  with: { value: "${meta.packet_id}" }
+  within: 5s

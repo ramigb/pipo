@@ -1,0 +1,11 @@
+description: "Classify incoming JSON with an agent (schema-checked, budget-capped) and write the result to a file."
+variables:
+  - name: labels
+    prompt: Labels the agent may choose from, comma separated
+    default: urgent|normal|spam
+  - name: model
+    prompt: Agent model
+    default: claude-sonnet-5-5
+  - name: per_day
+    prompt: Daily agent budget in USD
+    default: "2.00"

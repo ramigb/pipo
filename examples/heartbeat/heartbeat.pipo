@@ -1,0 +1,37 @@
+# Writes a heartbeat line to ./out/heartbeat.jsonl every 5 seconds (paths are relative to this file).
+#   bun pipo run examples/heartbeat/heartbeat.pipo
+pipo: 1
+name: heartbeat
+description: Every few seconds, append a heartbeat record to a JSONL file and verify it landed.
+
+input:
+  via: schedule
+  with:
+    every: 5s
+    payload: {service: pipo-example, status: alive}
+
+nodes:
+  stamp:
+    from: input
+    transform: map
+    with:
+      data:
+        service: "${data.service}"
+        status: "${data.status}"
+        tick: "${meta.source}"
+
+output:
+  from: stamp
+  to: file
+  with:
+    path: ./out/heartbeat.jsonl
+    format: jsonl
+    mode: append
+
+delivered:
+  check: line_contains
+  with: {value: "${meta.packet_id}"}
+  within: 5s
+  on_fail:
+    then: dead_letter
+    message: "Heartbeat ${meta.packet_id} was not found in ${output.with.path} after ${error.elapsed}"

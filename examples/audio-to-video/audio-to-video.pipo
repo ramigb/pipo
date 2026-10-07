@@ -1,0 +1,49 @@
+pipo: 1
+name: audio-to-video
+description: Turns every mp3 dropped in ./inbox into an mp4 that shows ./cover.jpg for the whole track.
+
+# Needs ffmpeg on this machine (brew install ffmpeg). Runs no shell: each arg goes to ffmpeg as it is.
+input:
+  via: watch
+  with:
+    path: ./inbox/*.mp3
+    events: [create]
+    read: path
+
+nodes:
+  render:
+    from: input
+    transform: exec
+    with:
+      command: ffmpeg
+      args:
+        - -y
+        - -loglevel
+        - error
+        - -loop
+        - "1"
+        - -i
+        - ./cover.jpg
+        - -i
+        - ${data.path}
+        - -c:v
+        - libx264
+        - -tune
+        - stillimage
+        - -c:a
+        - aac
+        - -b:a
+        - 192k
+        - -pix_fmt
+        - yuv420p
+        - -shortest
+        - ./out/${data.name}.mp4
+      outputs: ["./out/${data.name}.mp4"]
+      timeout: 10m
+
+output:
+  from: render
+  to: file
+  with:
+    path: ./out/videos.jsonl
+    format: jsonl

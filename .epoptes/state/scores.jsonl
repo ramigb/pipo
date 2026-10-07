@@ -1,0 +1,4 @@
+{"cycle":16,"milestone":"M2","scores":{"spec_conformance":7,"resilience":7,"developer_experience":7,"code_quality":7}}
+{"cycle":18,"milestone":"M6","scores":{"ui_design":6,"ui_spec_conformance":7,"ui_code_quality":6,"spec_conformance":7,"developer_experience":7,"ui":6,"code_quality":6}}
+{"cycle":20,"milestone":"M6","scores":{"ui_design":7,"ui_spec_conformance":8,"ui_code_quality":7}}
+{"cycle":21,"milestone":"final","scores":{"spec_conformance":8,"resilience":9,"developer_experience":7,"code_quality":7,"ui_design":7,"ui_spec_conformance":8,"ui_code_quality":7}}

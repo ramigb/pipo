@@ -1,0 +1,4 @@
+{
+  "files.associations": { "*.pipo": "yaml" },
+  "yaml.schemas": { "./schema/pipo.schema.json": "*.pipo" }
+}

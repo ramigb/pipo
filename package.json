@@ -1,0 +1,27 @@
+{
+  "name": "pipo",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p .",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "ui-shots": "bun scripts/ui-shots.ts",
+    "site": "bun scripts/serve-site.ts",
+    "verify": "bun run typecheck && bun run lint && bun test",
+    "schema": "bun packages/cli/src/main.ts schema > schema/pipo.schema.json",
+    "coverage": "bun scripts/phase1-coverage.ts",
+    "stress": "bun scripts/stress.ts",
+    "pipo": "bun packages/cli/src/main.ts"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
+    "@types/bun": "^1.4.2",
+    "typescript": "^7.0.2"
+  }
+}

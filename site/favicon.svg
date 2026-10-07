@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>Pipo pipe and packet mark</title>
+  <rect width="64" height="64" rx="14" fill="#20251e" />
+  <path
+    d="M17 45V24a7 7 0 0 1 7-7h16a7 7 0 0 1 7 7v16a7 7 0 0 1-7 7H29V32h11"
+    fill="none"
+    stroke="#d1ec8c"
+    stroke-width="7"
+    stroke-linecap="square"
+  />
+  <circle cx="17" cy="45" r="4" fill="#f6f5ee" />
+</svg>

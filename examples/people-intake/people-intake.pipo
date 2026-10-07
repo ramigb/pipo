@@ -1,0 +1,88 @@
+# Runnable version of the docs/spec.md §4 example, limited to what the runner implements today.
+#   PIPO_INTAKE_TOKEN=dev-token bun pipo run examples/people-intake/people-intake.pipo
+#   curl -X POST localhost:8787/in/people-intake/people -H 'X-Pipo-Token: dev-token' \
+#        -H 'content-type: application/json' -d '{"name": " Ada ", "age": 36}'
+pipo: 1
+name: people-intake
+description: Accept people from a webhook, normalise them and store them in SQLite.
+
+fn: ./people.fn.ts
+
+secrets:
+  intake_token: env:PIPO_INTAKE_TOKEN
+
+errors:
+  retry: 2
+  backoff: exponential
+  delay: 500ms
+  then: dead_letter
+
+input:
+  via: http
+  with:
+    path: /people
+    method: POST
+    listen: 8787
+    auth:
+      header: X-Pipo-Token
+      equals: "${secrets.intake_token}"
+  format: json
+  validate:
+    - exists(data)
+    - type(data.name) == "string" && len(trim(data.name)) > 0
+    - data.age > 30
+  on_invalid:
+    respond: 422
+    message: "Rejected: rule '${error.rule}' failed"
+
+nodes:
+  logger:
+    label: Logger
+    from: input
+    tap: log
+    with:
+      level: info
+      message: "Received ${meta.packet_id} via ${meta.trigger} from ${meta.source}"
+
+  normalize:
+    from: logger
+    transform: fn.textTransformer
+
+output:
+  from: normalize
+  to: sqlite
+  with:
+    path: ./data/people.db
+    table: people
+    create: true
+    mode: upsert
+    key: id
+    columns:
+      id: "${meta.packet_id}"
+      name: "${data.name}"
+      age: "${data.age}"
+      bio: "${data.bio}"
+      received_at: "${meta.received_at}"
+  validate:
+    - type(data.age) == "number"
+    - len(data.name) <= 200
+  on_invalid:
+    then: dead_letter
+    message: "Packet ${meta.packet_id} failed output rule '${error.rule}'; not written"
+  on_error:
+    retry: 5
+    backoff: exponential
+    max_delay: 1m
+    then: dead_letter
+    message: "Could not write ${meta.packet_id} to ${output.with.path}#${output.with.table} after ${error.attempts} attempts: ${error.message}"
+
+delivered:
+  check: record_exists
+  with:
+    where: {id: "${meta.packet_id}"}
+  within: 10s
+  on_fail:
+    then: dead_letter
+    message: >
+      Delivery unverified: sqlite acknowledged packet ${meta.packet_id} (rowid ${result.rowid}),
+      but no row with id=${meta.packet_id} exists in ${output.with.table} after ${error.elapsed}.
