@@ -217,4 +217,6 @@ Run `bun pipo help <command>` for details. Every command except `run` (which str
 
 ## License
 
-[MIT](LICENSE)
+Copyright (c) 2026 Rami GB
+
+[GNU Affero General Public License v3.0 (AGPL-3.0-only)](LICENSE)
