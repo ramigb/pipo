@@ -10,3 +10,4 @@ examples/**/out/
 examples/**/inbox/
 # Pipelines made with the builder in this checkout are local
 /my-pipeline-*/
+/target
