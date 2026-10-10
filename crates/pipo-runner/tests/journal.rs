@@ -514,65 +514,49 @@ fn bun(script: &str, journal: &Path) -> Option<String> {
     Some(String::from_utf8(out.stdout).unwrap())
 }
 
+/// The one write TypeScript still makes: the engine journals the stop of a runner it killed (journalStop, D46),
+/// opening the Rust-written journal with the TS `Journal`. Rust then reads it back, with nothing else changed.
 #[test]
-fn typescript_writes_and_rust_reads() {
+fn typescript_journals_a_stop_and_rust_reads_it() {
     let t = Tmp::new();
+    {
+        let mut j = Journal::open(t.db()).unwrap();
+        let start = PlannedStart {
+            latest: None,
+            append: Some(PlannedAppend {
+                hash: "h1".into(),
+                source: "src".into(),
+                reason: "start".into(),
+                compiled: Some(r#"{"pipeline":{"name":"x"}}"#.into()),
+            }),
+        };
+        j.commit_start(&start, "fh", None).unwrap();
+        j.insert(&packet("p1", 1, json!({ "n": 1, "f": 2.5 })), "packet.accepted", None, None).unwrap();
+        j.close().unwrap();
+    }
     let script = r#"
 const j = new Journal(J);
-const v = j.version("h1", "src", "human", null);
-j.insert({ id: "p1", version: v, state: "processing", cursor: "a", data: { n: 1, s: "x", f: 2.5 }, trigger: "http",
-  source: "in", error: null, received_at: 1000 }, "packet.accepted", { a: 1 });
-j.update("p1", { state: "dead_lettered", cursor: null, error: { code: "x", message: "boom", node: "a", attempts: 2 } },
-  "packet.dead_lettered", "a", undefined, [], 12.4);
-j.inputState("s").baseline(new Map([["k", { v: 1 }]]));
-j.setMeta("file_hash", "fh");
-j.recordAgentUsage({ at: 5, unit: "p1", root: "p1", node: "a", provider: "p", model: "m", input_tokens: 2,
-  output_tokens: 3, cost_usd: 0.25, attempt: 1 });
-const patch = j.db.query("SELECT patch FROM events WHERE type = 'packet.dead_lettered'").get().patch;
+j.event("pipeline.stopped", { reason: "killed after stop_timeout", by: "e1" });
 j.close();
-console.log(patch);
 "#;
-    let Some(ts_patch) = bun(script, &t.db()) else { return };
-
-    let mut j = Journal::open(t.db()).unwrap();
+    if bun(script, &t.db()).is_none() {
+        return;
+    }
+    let j = Journal::open(t.db()).unwrap();
     assert_eq!(j.latest_version().unwrap(), Some(LatestVersion { version: 1, hash: "h1".into() }));
-    assert_eq!(j.version_compiled(1).unwrap(), None);
-    let p = j.get("p1").unwrap().unwrap();
-    assert_eq!(p.data, json!({ "n": 1, "s": "x", "f": 2.5 }));
-    assert_eq!(p.error, Some(PacketError { attempts: Some(2), ..err("x", "boom", Some("a")) }));
-    assert_eq!((p.state.as_str(), p.cursor.clone(), p.result.clone()), ("dead_lettered", None, Value::Null));
-    let events = j.events("p1").unwrap();
+    assert_eq!(j.version_compiled(1).unwrap().as_deref(), Some(r#"{"pipeline":{"name":"x"}}"#));
+    assert_eq!(j.get("p1").unwrap().unwrap().data, json!({ "n": 1, "f": 2.5 }));
+    let last: (String, String) = j
+        .db()
+        .query_row("SELECT type, detail FROM events WHERE packet_id IS NULL ORDER BY seq DESC LIMIT 1", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .unwrap();
+    assert_eq!(last.0, "pipeline.stopped");
     assert_eq!(
-        events.iter().map(|e| e.kind.as_str()).collect::<Vec<_>>(),
-        ["packet.accepted", "packet.dead_lettered", "agent.usage"]
+        serde_json::from_str::<Value>(&last.1).unwrap(),
+        json!({ "reason": "killed after stop_timeout", "by": "e1" })
     );
-    assert_eq!(events[0].detail, json!({ "a": 1 }));
-    assert_eq!(j.step_durations("a", 5).unwrap(), vec![12]);
-    assert_eq!(j.input_load("s").unwrap().unwrap()["k"], json!({ "v": 1 }));
-    assert_eq!(j.meta("file_hash").unwrap().as_deref(), Some("fh"));
-    assert_eq!(j.packet_agent_tokens("p1").unwrap(), 5);
-    assert_eq!(j.dead_leaves("p1").unwrap().len(), 1);
-
-    // The same transition from Rust stores the same patch text.
-    j.insert(&packet("p2", 1, json!(null)), "packet.accepted", None, None).unwrap();
-    let patch = PacketPatch {
-        state: Some("dead_lettered".into()),
-        cursor: Some(None),
-        error: Some(Some(PacketError { attempts: Some(2), ..err("x", "boom", Some("a")) })),
-        ..Default::default()
-    };
-    j.update("p2", &patch, "packet.dead_lettered", Some("a"), None, &[], Some(12.4)).unwrap();
-    let rust_patch = text(j.db(), "SELECT patch FROM events WHERE packet_id = 'p2' AND type = 'packet.dead_lettered'");
-    assert_eq!(rust_patch.unwrap(), ts_patch.trim());
-    let raw = |id: &str| -> (Option<String>, Option<String>, Option<String>) {
-        j.db()
-            .query_row("SELECT data, error, result FROM packets WHERE id = ?", [id], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-            })
-            .unwrap()
-    };
-    assert_eq!(raw("p2").1, raw("p1").1);
-    assert_eq!(raw("p2").2, raw("p1").2);
 }
 
 #[test]
@@ -610,25 +594,15 @@ fn rust_writes_and_typescript_reads() {
     let script = r#"
 const j = new Journal(J);
 console.log(JSON.stringify({
-  latest: j.latestVersion(),
-  files: j.versionFiles(1),
   compiled: j.db.query("SELECT compiled FROM versions WHERE version = 1").get().compiled,
   P: j.get("P"),
-  copies: j.copies("P").map((c) => [c.id, c.state, c.root, c.parent, c.branch]),
+  copies: ["P:a", "P:b"].map((id) => j.get(id)).map((c) => [c.id, c.state, c.root, c.parent, c.branch]),
   events: j.events("P").map((e) => e.type),
-  counts: j.counts(),
-  oldest: j.oldestPending()?.lastError ?? null,
-  durations: j.stepDurations("a", 5),
-  state: Object.fromEntries(j.inputState("s").load()),
-  meta: j.meta("file_hash"),
 }));
 j.close();
 "#;
     let Some(out) = bun(script, &t.db()) else { return };
     let got: Value = serde_json::from_str(out.trim()).unwrap();
-    // `fanned_out` added version 2.
-    assert_eq!(got["latest"], json!({ "version": 2, "hash": "h" }));
-    assert_eq!(got["files"], json!({ "./f.ts": "abc" }));
     assert_eq!(got["compiled"], r#"{"pipeline":{"name":"x"}}"#);
     let p = &got["P"];
     assert_eq!(
@@ -644,11 +618,6 @@ j.close();
     assert_eq!(&rust_row, p);
     assert_eq!(got["copies"], json!([["P:a", "delivered", "P", "P", "a"], ["P:b", "filtered", "P", "P", "b"]]));
     assert_eq!(got["events"], json!(["packet.accepted", "packet.fanned_out", "packet.delivered"]));
-    assert_eq!(got["counts"], json!({ "delivered": 1, "processing": 1 }));
-    assert_eq!(got["oldest"], "slow");
-    assert_eq!(got["durations"], json!([7]));
-    assert_eq!(got["state"], json!({ "k": [1, 2] }));
-    assert_eq!(got["meta"], "fh");
 }
 
 /// `fanned_out` on a journal that already has version 1, plus a second packet `Q` in flight.

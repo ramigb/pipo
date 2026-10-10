@@ -1,7 +1,7 @@
 // Packet, version and proposal reads (docs/spec.md §6, §8, D33, D34, D38) over journals built with the Rust Journal:
 // paging and filters, a packet's trace, the DLQ, versions and diffs, proposals, offline reads with redaction and
-// withheld payloads, old journals, and the `pipo-runner read` mode. The same reads are compared key for key with the
-// TypeScript implementation (tests/support/ts-read.ts) when bun is available; unifiedDiff against fixtures/proposals.json.
+// withheld payloads, old journals, and the `pipo-runner read` mode; unifiedDiff against fixtures/proposals.json (the
+// outputs of the TypeScript implementation it was ported from).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -47,14 +47,6 @@ fn env() {
     static ONCE: Once = Once::new();
     // SAFETY: inside call_once, which every test calls before it reads the environment.
     ONCE.call_once(|| unsafe { std::env::set_var("PIPO_READS_TOKEN", TOKEN) });
-}
-
-fn bun() -> bool {
-    Command::new("bun").arg("--version").output().is_ok()
-}
-
-fn repo() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
 }
 
 fn args(v: Value) -> Map<String, Value> {
@@ -232,21 +224,6 @@ fn build(path: &Path) {
             .unwrap();
     }
     j.close().unwrap();
-}
-
-fn show(r: Result<Value, ControlError>) -> Value {
-    match r {
-        Ok(v) => json!({ "ok": v }),
-        Err(e) => {
-            let mut b = Map::new();
-            b.insert("code".into(), json!(e.code));
-            b.insert("message".into(), json!(e.message));
-            if let Some(h) = e.hint {
-                b.insert("hint".into(), json!(h));
-            }
-            json!({ "error": b })
-        }
-    }
 }
 
 #[test]
@@ -578,89 +555,6 @@ fn the_read_mode_prints_the_result_or_the_error() {
         vec!["--home", home_s, "--op", "versions"],
     ] {
         assert_eq!(run(&bad).0, Some(64), "{bad:?}");
-    }
-}
-
-/// Every read the TS implementation answers, compared key for key (in order) with the Rust port's answer.
-#[test]
-fn reads_match_the_typescript_implementation() {
-    env();
-    if !bun() {
-        eprintln!("skipped: bun is not on PATH, so the TypeScript reads can't run");
-        return;
-    }
-    let t = Tmp::new();
-    let path = t.path("journal.db");
-    build(&path);
-    let mut requests: Vec<Value> = vec![];
-    let ops: Vec<(&str, Value)> = vec![
-        ("packets", json!({})),
-        ("packets", json!({ "limit": 2 })),
-        ("packets", json!({ "limit": "2", "after": "01P3" })),
-        ("packets", json!({ "state": "dead_lettered" })),
-        ("packets", json!({ "state": "escalated" })),
-        ("packets", json!({ "state": "branched", "limit": 1 })),
-        ("packets", json!({ "state": "lost" })),
-        ("packets", json!({ "state": 3 })),
-        ("packets", json!({ "limit": 0 })),
-        ("packets", json!({ "limit": "x" })),
-        ("packets", json!({ "limit": "0x10" })),
-        ("packets", json!({ "after": "" })),
-        ("packets", json!({ "after": 1 })),
-        ("dlq", json!({})),
-        ("dlq", json!({ "state": "delivered" })),
-        ("packet", json!({ "packet_id": "01P1" })),
-        ("packet", json!({ "packet_id": "01P2" })),
-        ("packet", json!({ "packet_id": "01P3" })),
-        ("packet", json!({ "packet_id": "01P4" })),
-        ("packet", json!({ "packet_id": "01P4:b" })),
-        ("packet", json!({ "packet_id": "01P5" })),
-        ("packet", json!({ "packet_id": "nope" })),
-        ("packet", json!({})),
-        ("versions", json!({})),
-        ("version", json!({ "version": 1 })),
-        ("version", json!({ "version": "v2" })),
-        ("version", json!({ "version": 9 })),
-        ("version", json!({ "version": "latest" })),
-        ("version", json!({ "version": 0 })),
-        ("diff", json!({ "from": 1, "to": "2" })),
-        ("diff", json!({ "from": 2, "to": 2 })),
-        ("diff", json!({ "from": 1 })),
-        ("proposals", json!({})),
-        ("proposals", json!({ "state": "rejected" })),
-        ("proposals", json!({ "state": "bogus" })),
-        ("proposals", json!({ "limit": "1" })),
-        ("proposals", json!({ "limit": true })),
-        ("proposals", json!({ "limit": 1001 })),
-        ("proposal", json!({ "id": "pr_01B" })),
-        ("proposal", json!({ "id": "pr_nope" })),
-        ("proposal", json!({})),
-    ];
-    let mut expected: Vec<Value> = vec![];
-    let db = open_readonly(&path, 1000).unwrap();
-    for offline in [false, true] {
-        for (op, a) in &ops {
-            requests.push(json!({ "op": op, "args": a, "pipeline": "demo", "offline": offline }));
-            expected.push(if offline {
-                show(offline_read(&path, op, &args(a.clone()), "demo").map(|r| r.unwrap_or(Value::Null)))
-            } else {
-                show(read(&db, op, &args(a.clone()), "demo", None))
-            });
-        }
-    }
-    let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/support/ts-read.ts");
-    let out = Command::new("bun")
-        .arg(&script)
-        .arg(&path)
-        .arg(Value::Array(requests.clone()).to_string())
-        .current_dir(repo())
-        .output()
-        .unwrap();
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    let got: Vec<Value> = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(got.len(), expected.len());
-    for ((req, ts), rust) in requests.iter().zip(&got).zip(&expected) {
-        assert_eq!(rust.to_string(), ts.to_string(), "{req}");
     }
 }
 
