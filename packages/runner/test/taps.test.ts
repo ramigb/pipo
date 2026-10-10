@@ -1,15 +1,16 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+// Taps and transforms (docs/spec.md §3.4): http, file and emit through the Rust runner. A file tap skipping a repeat
+// of the same packet and node is unit-tested in crates/pipo-runner (connectors/steps.rs).
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { load } from "@pipo/spec";
-import { gaps } from "../src";
-import { FileTap } from "../src/connectors/steps";
-import { sandbox, settled, startRunner } from "./helpers";
+import { post, suite } from "./core";
 
-let cleanups: (() => Promise<void> | void)[] = [];
-afterEach(async () => {
-  for (const c of cleanups.reverse()) await c();
-  cleanups = [];
+setDefaultTimeout(30_000);
+const { box, start } = suite();
+
+const servers: { stop: (force?: boolean) => unknown }[] = [];
+afterEach(() => {
+  for (const s of servers.splice(0)) s.stop(true);
 });
 
 function server(status = 200) {
@@ -22,35 +23,22 @@ function server(status = 200) {
       return Response.json({ enriched: true });
     },
   });
-  cleanups.push(() => void srv.stop(true));
+  servers.push(srv);
   return { url: `http://127.0.0.1:${srv.port}/x`, calls };
 }
 
+let n = 0;
 async function run(node: string, extra = "") {
-  const box = sandbox();
-  cleanups.push(() => box.cleanup());
-  const file = box.write(
-    "t.pipo",
-    `pipo: 1\nname: taps\ninput: { via: http }\nnodes:\n${node}\noutput: { from: n, to: stdout }\n${extra}`,
+  const name = `taps${++n}`;
+  const r = await start(
+    name,
+    `pipo: 1\nname: ${name}\ninput: { via: http }\nnodes:\n${node}\noutput: { from: n, to: stdout }\n${extra}`,
   );
-  const r = await startRunner(file, box.home);
-  cleanups.push(() => r.runner.stop());
-  const res = await r.post("/", { a: 1 });
-  const id = ((await res.json()) as any).packet_id as string;
-  return { box, r, id, row: await settled(r.runner, id) };
+  const id = await post(r, { a: 1 });
+  return { r, id, row: await r.settled(id) };
 }
 
 describe("taps and transforms", () => {
-  test("no gaps for http, file, emit", () => {
-    for (const n of ["tap: http", "tap: file", "tap: emit", "transform: http"]) {
-      const p = load(
-        `pipo: 1\nname: x\ninput: { via: http }\nnodes:\n  n: { from: input, ${n}, with: { url: "http://x", path: a, event: e } }\noutput: { from: n, to: stdout }\n`,
-        "x.pipo",
-      ).value as any;
-      expect(gaps(p)).toEqual([]);
-    }
-  });
-
   test("tap http passes data through and sends an idempotency key", async () => {
     const s = server();
     const { row, id } = await run(
@@ -70,15 +58,11 @@ describe("taps and transforms", () => {
     expect(row.data).toEqual({ enriched: true });
   });
 
-  test("tap file writes and skips a repeat of the same packet and node", async () => {
-    const { box, row } = await run(`  n:\n    from: input\n    tap: file\n    with: { path: out/log.jsonl }`);
+  test("tap file writes the packet under its node's key", async () => {
+    const { row, id } = await run(`  n:\n    from: input\n    tap: file\n    with: { path: out/log.jsonl }`);
     expect(row.state).toBe("delivered");
-    const path = join(box.root, "out/log.jsonl");
-    expect(readFileSync(path, "utf8").trim().split("\n")).toHaveLength(1);
-    const again = new FileTap(box.root);
-    await again.run({ packetId: row.id, node: "n", data: row.data, with: { path: "out/log.jsonl" } });
-    expect(readFileSync(path, "utf8").trim().split("\n")).toHaveLength(1);
-    expect(existsSync(path)).toBe(true);
+    const lines = readFileSync(join(box.root, "out/log.jsonl"), "utf8").trim().split("\n");
+    expect(lines.map((l) => JSON.parse(l))).toEqual([{ packet_id: `${id}:n`, data: { a: 1 } }]);
   });
 
   test("tap emit records the event in the trail", async () => {
@@ -86,7 +70,7 @@ describe("taps and transforms", () => {
       `  n:\n    from: input\n    tap: emit\n    with: { event: enriched, detail: { v: "\${data.a}" } }`,
     );
     expect(row.data).toEqual({ a: 1 });
-    const ev = r.runner.journal.events(id);
+    const ev = r.events(id);
     const i = ev.findIndex((e) => e.type === "enriched");
     expect(i).toBeGreaterThan(-1);
     expect(ev[i]?.detail).toEqual({ v: 1 });
@@ -101,6 +85,6 @@ describe("taps and transforms", () => {
     );
     expect(row.state).toBe("dead_lettered");
     expect(s.calls).toHaveLength(3);
-    expect(r.runner.journal.events(row.id).filter((e) => e.type === "step.retry")).toHaveLength(2);
+    expect(r.events(row.id).filter((e) => e.type === "step.retry")).toHaveLength(2);
   });
 });

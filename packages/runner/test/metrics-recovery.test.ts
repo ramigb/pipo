@@ -43,7 +43,7 @@ const samples = (node: string) =>
   );
 
 test("SIGKILL mid-step: one latency sample per completed step, none for the killed run, all reported after restart", async () => {
-  box.write("fns.ts", "export const slow = async (d) => { await Bun.sleep(250); return d; };");
+  box.write("fns.ts", "export const slow = async (d) => { await new Promise((r) => setTimeout(r, 250)); return d; };");
   const file = box.write("timed.pipo", PIPELINE);
 
   const first = await spawn(box, spawned, "timed", file, 1);

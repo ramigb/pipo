@@ -1,25 +1,11 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { join } from "node:path";
-import { gaps, type Runner, StartError } from "../src";
-import { rows, sandbox, settled, startRunner } from "./helpers";
+// The runner end to end (docs/spec.md §2.1, §3.3–§3.10, §7.3): the Rust binary behind an http input, its journal read
+// read-only. http → transform → sqlite with a delivery check, node kinds and policies, refusals and drain.
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
+import { out, post, suite } from "./core";
+import { RustRunner } from "./rust";
 
-let cleanups: (() => Promise<void> | void)[] = [];
-afterEach(async () => {
-  for (const c of cleanups.reverse()) await c();
-  cleanups = [];
-});
-
-function setup() {
-  const box = sandbox();
-  cleanups.push(() => box.cleanup());
-  return box;
-}
-
-async function run(file: string, home: string) {
-  const r = await startRunner(file, home);
-  cleanups.push(() => (r.runner.state === "stopped" || r.runner.state === "failed" ? undefined : r.runner.stop()));
-  return r;
-}
+setDefaultTimeout(30_000);
+const { box, start } = suite();
 
 const PEOPLE = `pipo: 1
 name: people
@@ -64,29 +50,28 @@ export const flaky = (d) => { if (++calls < 3) throw new Error("flaky " + calls)
 
 describe("http → transform → sqlite → record_exists", () => {
   test("delivers valid packets, rejects invalid ones, redacts secrets", async () => {
-    process.env.PIPO_TEST_TOKEN = "s3cret-token";
-    const box = setup();
     box.write("fns.ts", FNS);
-    const { runner, post, lines } = await run(box.write("people.pipo", PEOPLE), box.home);
+    const r = await start("people", PEOPLE, { env: { PIPO_TEST_TOKEN: "s3cret-token" } });
     const auth = { "X-Token": "s3cret-token" };
 
-    expect((await post("/people", { name: "Ada", age: 36 })).status).toBe(401);
+    expect((await r.post("/people", { name: "Ada", age: 36 })).status).toBe(401);
 
-    const ok = await post("/people", { name: "  Ada ", age: 36 }, auth);
+    const ok = await r.post("/people", { name: "  Ada ", age: 36 }, auth);
     expect(ok.status).toBe(202);
     const { packet_id } = (await ok.json()) as { packet_id: string };
-    expect((await settled(runner, packet_id)).state).toBe("delivered");
-    expect(rows(join(box.root, "out.db"), "SELECT id, name, age FROM people")).toEqual([
+    expect((await r.settled(packet_id)).state).toBe("delivered");
+    expect(out(box.root, "out.db", "SELECT id, name, age FROM people")).toEqual([
       { id: packet_id, name: "Ada", age: 36 },
     ]);
 
-    const bad = await post("/people", { name: "Bob", age: 20 }, auth);
+    const bad = await r.post("/people", { name: "Bob", age: 20 }, auth);
     expect(bad.status).toBe(422);
     expect(await bad.json()).toMatchObject({ state: "rejected", error: "bad: data.age > 30", rule: "data.age > 30" });
 
-    expect(lines.some((l) => l.includes("Ada  token=***"))).toBe(true);
-    expect(lines.join("\n")).not.toContain("s3cret-token");
-    expect(runner.journal.events(packet_id).map((e) => e.type)).toEqual([
+    expect(r.lines().some((l) => l.includes("Ada  token=***"))).toBe(true);
+    expect(r.lines().join("\n")).not.toContain("s3cret-token");
+    expect(r.stderr()).not.toContain("s3cret-token");
+    expect(r.events(packet_id).map((e) => e.type)).toEqual([
       "packet.accepted",
       "log",
       "node.done",
@@ -94,11 +79,14 @@ describe("http → transform → sqlite → record_exists", () => {
       "output.written",
       "packet.delivered",
     ]);
+    const journaled = r.query<{ detail: string | null }>("SELECT detail FROM events").map((e) => e.detail ?? "");
+    expect(journaled.join("\n")).not.toContain("s3cret-token");
   });
 });
 
-const steps = (nodes: string, extra = "") => `pipo: 1
-name: steps
+let n = 0;
+const steps = (name: string, nodes: string, extra = "") => `pipo: 1
+name: ${name}
 fn: ./fns.ts
 input: { via: http }
 ${nodes}
@@ -107,22 +95,24 @@ output:
   to: stdout
 ${extra}`;
 
-async function send(box: ReturnType<typeof setup>, source: string, body: unknown) {
+async function send(nodes: string, body: unknown, edit = (s: string) => s) {
   box.write("fns.ts", FNS);
-  const { runner, post } = await run(box.write("p.pipo", source), box.home);
-  const res = await post("", body);
-  const { packet_id } = (await res.json()) as { packet_id: string };
-  return { runner, row: await settled(runner, packet_id) };
+  const name = `steps${++n}`;
+  const r = await start(name, edit(steps(name, nodes)));
+  const id = await post(r, body);
+  return { r, row: await r.settled(id) };
 }
 
 describe("node kinds and policies", () => {
   test("filter drops packets as filtered", async () => {
-    const src = steps("nodes:\n  last:\n    from: input\n    filter: data.keep == true\n");
-    expect((await send(setup(), src, { keep: false })).row.state).toBe("filtered");
+    expect(
+      (await send("nodes:\n  last:\n    from: input\n    filter: data.keep == true\n", { keep: false })).row.state,
+    ).toBe("filtered");
   });
 
   test("route sends packets down the matching branch", async () => {
-    const src = steps(`nodes:
+    const big = await send(
+      `nodes:
   triage:
     from: input
     route: { big: data.n > 10, small: else }
@@ -130,122 +120,117 @@ describe("node kinds and policies", () => {
     from: triage.big
     transform: map
     with: { data: { routed: big } }
-`);
-    const big = await send(setup(), src, { n: 50 });
+`,
+      { n: 50 },
+    );
     expect(big.row).toMatchObject({ state: "delivered", data: { routed: "big" } });
   });
 
   test("bounded loop runs until the condition holds", async () => {
-    const src = steps(`nodes:
+    const { row } = await send(
+      `nodes:
   last:
     from: input
     transform: map
     with: { data: { n: "\${data.n + 1}" } }
     loop: { back_to: last, until: data.n >= 3, max: 5 }
-`);
-    const { row } = await send(setup(), src, { n: 0 });
+`,
+      { n: 0 },
+    );
     expect(row).toMatchObject({ state: "delivered", data: { n: 3 }, iteration: 2 });
   });
 
   test("loop that never converges is dead-lettered at max", async () => {
-    const src = steps(`nodes:
+    const { row } = await send(
+      `nodes:
   last:
     from: input
     transform: map
     with: { data: { n: "\${data.n}" } }
     loop: { back_to: last, until: data.n > 100, max: 2 }
-`);
-    const { row } = await send(setup(), src, { n: 0 });
+`,
+      { n: 0 },
+    );
     expect(row.state).toBe("dead_lettered");
     expect(row.error).toMatchObject({ code: "loop.max", node: "last" });
   });
 
   test("retries with backoff, then succeeds", async () => {
-    const src = steps(
+    const { r, row } = await send(
       "nodes:\n  last:\n    from: input\n    transform: fn.flaky\n    on_error: { retry: 3, delay: 10ms }\n",
+      { x: 1 },
     );
-    const { runner, row } = await send(setup(), src, { x: 1 });
     expect(row.state).toBe("delivered");
-    expect(runner.journal.events(row.id).filter((e) => e.type === "step.retry")).toHaveLength(2);
+    expect(r.events(row.id).filter((e) => e.type === "step.retry")).toHaveLength(2);
   });
 
   test("exhausted retries dead-letter with the rendered message", async () => {
-    const src = steps(
+    const { row } = await send(
       "nodes:\n  last:\n    from: input\n    transform: fn.boom\n    on_error: { retry: 1, delay: 10ms, message: 'failed at ${error.node} after ${error.attempts}: ${error.message}' }\n",
+      {},
     );
-    const { row } = await send(setup(), src, {});
     expect(row.state).toBe("dead_lettered");
     expect(row.error).toMatchObject({ code: "node.failed", message: "failed at last after 2: boom", attempts: 2 });
   });
 
   test("then: continue lets a failing tap pass data on", async () => {
-    const src = steps("nodes:\n  last:\n    from: input\n    tap: fn.boom\n    on_error: { then: continue }\n");
-    expect((await send(setup(), src, { a: 1 })).row).toMatchObject({ state: "delivered", data: { a: 1 } });
+    const { row } = await send(
+      "nodes:\n  last:\n    from: input\n    tap: fn.boom\n    on_error: { then: continue }\n",
+      {
+        a: 1,
+      },
+    );
+    expect(row).toMatchObject({ state: "delivered", data: { a: 1 } });
   });
 
   test("output validation failure is not retried", async () => {
-    const src = steps("nodes:\n  last:\n    from: input\n    filter: 'true'\n").replace(
-      "  to: stdout\n",
-      "  to: stdout\n  validate: [data.ok == true]\n  on_error: { retry: 5 }\n",
+    const { row } = await send("nodes:\n  last:\n    from: input\n    filter: 'true'\n", { ok: false }, (s) =>
+      s.replace("  to: stdout\n", "  to: stdout\n  validate: [data.ok == true]\n  on_error: { retry: 5 }\n"),
     );
-    const { row } = await send(setup(), src, { ok: false });
     expect(row.error).toMatchObject({ code: "output.invalid", attempts: 1 });
   });
 });
 
 describe("refusals", () => {
-  test("check errors stop the runner from starting", async () => {
-    const box = setup();
+  test("check errors stop the runner from starting (exit 1)", async () => {
     const file = box.write(
       "bad.pipo",
       "pipo: 1\nname: bad\ninput: { via: http }\noutput: { from: nope, to: stdout }\n",
     );
-    const err = (await startRunner(file, box.home).catch((e) => e)) as StartError;
-    expect(err).toBeInstanceOf(StartError);
-    expect(err.diagnostics.map((d) => d.code)).toContain("P010");
-  });
-
-  test("features the runner lacks are refused, not ignored", () => {
-    // Every feature `pipo check` accepts runs now; a definition past check (a newer spec) still meets the gate.
-    const p = {
-      pipo: 1,
-      name: "s",
-      input: { via: "mqtt" },
-      output: { from: "input", to: "stdout" },
-      agent: { control: true },
-    } as any;
-    // An `agent:` block is served by the engine's /mcp endpoint (§9.2), so it is no gap.
-    expect(gaps(p)).toEqual([{ path: "input.via", feature: "input 'mqtt' (spec §3.3)", level: "refuse" }]);
+    const res = await RustRunner.refuse(box, file);
+    expect(res.code).toBe(1);
+    expect(res.stderr).toContain("P010");
   });
 
   test("a second runner for the same pipeline is refused", async () => {
-    const box = setup();
     box.write("fns.ts", FNS);
-    const file = box.write("p.pipo", steps("nodes:\n  last:\n    from: input\n    filter: 'true'\n"));
-    await run(file, box.home);
-    const err = (await startRunner(file, box.home).catch((e) => e)) as StartError;
-    expect(err.message).toContain("already running");
+    const r = await start("twice", steps("twice", "nodes:\n  last:\n    from: input\n    filter: 'true'\n"));
+    const res = await RustRunner.refuse(box, `${box.root}/twice.pipo`, { args: ["--listen", "0"] });
+    expect(res.code).toBe(1);
+    expect(res.stderr).toContain("already running");
+    expect((await r.status()).state).toBe("active");
   });
 });
 
 describe("lifecycle", () => {
   test("drain stops intake and lets accepted packets finish", async () => {
-    const box = setup();
-    box.write("fns.ts", `export const slow = async (d) => { await Bun.sleep(150); return d; };`);
-    const { runner, post } = await run(
-      box.write("p.pipo", steps("nodes:\n  last:\n    from: input\n    transform: fn.slow\n")),
-      box.home,
+    box.write(
+      "slow.ts",
+      "export const slow = async (d) => { await new Promise((r) => setTimeout(r, 150)); return d; };",
+    );
+    const r = await start(
+      "draining",
+      steps("draining", "nodes:\n  last:\n    from: input\n    transform: fn.slow\n").replace("./fns.ts", "./slow.ts"),
     );
     const ids: string[] = [];
-    for (let i = 0; i < 6; i++) ids.push(((await (await post("", { i })).json()) as { packet_id: string }).packet_id);
-    const journal = runner.journal;
-    const done = runner.drain();
-    const refused = await post("", { late: true }).catch(() => null);
+    for (let i = 0; i < 6; i++) ids.push(await post(r, { i }));
+    await r.request("drain");
+    const refused = await r.post("", { late: true }).catch(() => null);
     expect(refused === null || refused.status === 503).toBe(true);
-    await done;
-    expect((runner as Runner).state).toBe("stopped");
-    const reopened = new (journal.constructor as any)(journal.db.filename);
-    expect(ids.map((id) => reopened.get(id).state)).toEqual(Array(6).fill("delivered"));
-    reopened.close();
+    r.client.close();
+    expect(await r.proc.exited).toBe(0);
+    const states = r.query<{ state: string }>("SELECT state FROM packets ORDER BY id").map((x) => x.state);
+    expect(states).toEqual(Array(6).fill("delivered"));
+    expect(r.lines().some((l) => l.includes("stopped"))).toBe(true);
   });
 });
