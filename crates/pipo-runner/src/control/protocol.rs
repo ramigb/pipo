@@ -22,6 +22,7 @@ pub const OPS: &[&str] = &[
     "packet",
     "dlq",
     "replay",
+    "rerun",
     "purge",
     "versions",
     "version",

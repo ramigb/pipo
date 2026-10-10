@@ -13,6 +13,24 @@ const L: any = await import(layoutPath);
 const errors = (p: unknown) => check(JSON.stringify(p)).filter((d) => d.severity === "error" && d.code !== "P014");
 
 describe("model", () => {
+  test("rerunFrom: the node a trace step ran, `output` for the write, nothing for the input or markers", () => {
+    const at = (event: string, node: string | null) => M.rerunFrom({ event, node });
+    expect(at("node.done", "stamp")).toBe("stamp");
+    expect(at("packet.filtered", "keep")).toBe("keep");
+    expect(at("node.looped", "draft")).toBe("draft");
+    expect(at("output.written", "$output")).toBe("output");
+    for (const [event, node] of [
+      ["packet.accepted", "input"],
+      ["packet.fanned_out", "a"],
+      ["packet.rerun", "stamp"],
+      ["dlq.replayed", "stamp"],
+      ["packet.delivered", "$verify"],
+      ["node.done", null],
+    ] as const)
+      expect(at(event, node)).toBeNull();
+    expect(M.rerunFrom(undefined)).toBeNull();
+  });
+
   test("a blank pipeline passes pipo check", () => {
     expect(errors(M.blankPipeline("hello"))).toEqual([]);
   });

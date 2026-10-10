@@ -741,6 +741,17 @@ pub async fn handle(
             }
             plain(json!({ "replayed": replayed, "packets": packets, "skipped": skipped }))
         }
+        "rerun" => {
+            if !running(r) {
+                return Err(ControlError::new(
+                    "invalid_state",
+                    format!("cannot rerun: pipeline is {}", r.state().as_str()),
+                    "rerun works while the pipeline is active or paused; start it again (pipo start)",
+                ));
+            }
+            let by = r.redact(&by_arg(args));
+            plain(super::rerun::handle(r, args, &by).await?)
+        }
         "purge" => {
             live(r, "purge")?;
             let target = targets(args, "purge")?;

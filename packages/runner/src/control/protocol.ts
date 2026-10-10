@@ -21,6 +21,7 @@ export const OPS = [
   "packet",
   "dlq",
   "replay",
+  "rerun",
   "purge",
   "versions",
   "version",

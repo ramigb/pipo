@@ -304,6 +304,96 @@ fn replays_and_purges_the_dead_letter_queue() {
     assert!(ev[0].detail["events"].as_i64().unwrap() >= 8);
 }
 
+/// A step that moves `id` on to `cursor` with new data, as the runner commits it.
+fn moved(j: &mut Journal, id: &str, node: &str, cursor: &str, data: Value, hops: u32) {
+    let patch = PacketPatch {
+        state: Some("processing".into()),
+        cursor: Some(Some(cursor.into())),
+        data: Some(data),
+        hops: Some(hops),
+        attempt: Some(0),
+        ..Default::default()
+    };
+    j.update(id, &patch, "node.done", Some(node), None, &[], None).unwrap();
+}
+
+#[test]
+fn entry_of_finds_the_data_a_unit_first_reached_a_step_with() {
+    let t = Tmp::new();
+    let mut j = Journal::open(t.db()).unwrap();
+    let v = j.version("h", "src", "human", None, None).unwrap();
+    j.insert(&packet("P", v, json!({ "x": 1 })), "packet.accepted", None, None).unwrap();
+    moved(&mut j, "P", "a", "b", json!({ "x": 2 }), 1);
+    // A loop back to b: the first entry counts, so a rerun starts the loop over.
+    moved(&mut j, "P", "b", "c", json!({ "x": 3 }), 2);
+    moved(&mut j, "P", "c", "b", json!({ "x": 4 }), 3);
+    moved(&mut j, "P", "b", OUTPUT_STEP, json!({ "x": 5 }), 4);
+    assert_eq!(j.entry_of("P", &["a"]).unwrap(), Some((json!({ "x": 1 }), 0)));
+    assert_eq!(j.entry_of("P", &["b"]).unwrap(), Some((json!({ "x": 2 }), 1)));
+    assert_eq!(j.entry_of("P", &[OUTPUT_STEP, BATCH_STEP]).unwrap(), Some((json!({ "x": 5 }), 4)));
+    assert_eq!(j.entry_of("P", &["zzz"]).unwrap(), None);
+    assert_eq!(j.entry_of("nope", &["a"]).unwrap(), None);
+    // A copy starts at its packet.branched transition, with the hops it was made with.
+    let t = Tmp::new();
+    let mut j = Journal::open(t.db()).unwrap();
+    fanned_out(&mut j);
+    assert_eq!(j.entry_of("P:b", &["b"]).unwrap(), Some((json!({ "x": 1 }), 1)));
+    assert!(!j.data_cleared("P:b").unwrap());
+    assert!(j.data_cleared("nope").unwrap());
+}
+
+#[test]
+fn rerun_reopens_settled_units_and_their_ancestors() {
+    let t = Tmp::new();
+    let mut j = Journal::open(t.db()).unwrap();
+    fanned_out(&mut j);
+    moved(&mut j, "P:b", "b", OUTPUT_STEP, json!({ "x": 9 }), 2);
+    end(&mut j, "P:a", "filtered", None);
+    end(&mut j, "P:b", "delivered", None);
+    assert_eq!(state(&j, "P"), "delivered");
+    let v2 = j.version("h2", "src2", "human", None, None).unwrap();
+    let unit = |id: &str| RerunUnit {
+        id: id.into(),
+        cursor: "b".into(),
+        state: "processing".into(),
+        data: json!({ "x": 1 }),
+        hops: 1,
+    };
+
+    let item = |version, units| RerunItem { packet_id: "P".into(), version, units };
+
+    // A unit that isn't settled fails the whole rerun.
+    let e = j.rerun(&[item(v2, vec![unit("P:b")]), item(1, vec![unit("nope")])], "b", "me").unwrap_err();
+    assert_eq!(e.to_string(), "packet nope is gone, not delivered or filtered; nothing was rerun");
+    assert_eq!(state(&j, "P:b"), "delivered");
+
+    j.rerun(&[item(v2, vec![unit("P:b")])], "b", "me").unwrap();
+    let e = j.rerun(&[item(v2, vec![unit("P:b")])], "b", "me").unwrap_err();
+    assert_eq!(e.to_string(), "packet P:b is processing, not delivered or filtered; nothing was rerun");
+    let b = j.get("P:b").unwrap().unwrap();
+    assert_eq!(
+        (b.state.as_str(), b.cursor.as_deref(), b.data.clone(), b.hops, b.version, b.result.clone()),
+        ("processing", Some("b"), json!({ "x": 1 }), 1, v2, Value::Null)
+    );
+    let p = j.get("P").unwrap().unwrap();
+    assert_eq!((p.state.as_str(), p.version), (BRANCHED, v2));
+    // The sibling that wasn't rerun stays as it was.
+    let a = j.get("P:a").unwrap().unwrap();
+    assert_eq!((a.state.as_str(), a.version), ("filtered", 1));
+    let ev = j.latest_event("P:b", &["packet.rerun"]).unwrap().unwrap();
+    assert_eq!(ev.detail, json!({ "by": "me", "from": "b", "version": v2, "was": "delivered", "from_version": 1 }));
+    assert_eq!(
+        text(j.db(), "SELECT patch FROM events WHERE packet_id = 'P:b' AND type = 'packet.rerun'").unwrap(),
+        r#"{"state":"processing","cursor":"b","data":{"x":1},"hops":1,"error":null,"attempt":0,"iteration":0,"result":null}"#
+    );
+    let ev = j.latest_event("P", &["packet.rerun"]).unwrap().unwrap();
+    assert_eq!(ev.detail["was"], "delivered");
+
+    // It settles again once the rerun copy does.
+    end(&mut j, "P:b", "delivered", None);
+    assert_eq!(state(&j, "P"), "delivered");
+}
+
 #[test]
 fn input_state_joins_the_intake_transaction() {
     let t = Tmp::new();
@@ -386,6 +476,9 @@ fn agent_tokens_restart_after_a_replay() {
     assert_eq!(j.packet_agent_tokens("P").unwrap(), 0);
     j.record_agent_usage(&usage("P:a", 3, 4, 300)).unwrap();
     assert_eq!(j.packet_agent_tokens("P").unwrap(), 7);
+    // So does a rerun (D79).
+    j.event("packet.rerun", Some(&json!({ "by": "me" })), Some("P"), Some("ai")).unwrap();
+    assert_eq!(j.packet_agent_tokens("P").unwrap(), 0);
     assert_eq!(j.agent_spend_since(200).unwrap(), 1.0);
     assert_eq!(j.agent_spend_since(1000).unwrap(), 0.0);
     assert_eq!(

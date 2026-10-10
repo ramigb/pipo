@@ -333,6 +333,15 @@ fn error_value(e: Option<&PacketError>) -> Value {
     e.map_or(Value::Null, PacketError::to_value)
 }
 
+/// A `packet.rerun` event's detail (D79): `from_version` only when the rerun re-pins the unit.
+fn rerun_detail(by: &str, from: &str, version: i64, row: &PacketRow) -> Value {
+    let mut d = json!({ "by": by, "from": from, "version": version, "was": row.state });
+    if row.version != version {
+        d["from_version"] = json!(row.version);
+    }
+    d
+}
+
 /// A journal unit. Fields are in the table's column order, so it serializes like journal.ts's `decode`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PacketRow {
@@ -540,6 +549,24 @@ pub struct ReplayLeaf {
 pub struct ReplayItem {
     pub packet_id: String,
     pub leaves: Vec<ReplayLeaf>,
+}
+
+/// A settled unit put back in flight by a rerun (D79): where it restarts, and the data and hops it had there.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RerunUnit {
+    pub id: String,
+    pub cursor: String,
+    pub state: String,
+    pub data: Value,
+    pub hops: u32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RerunItem {
+    pub packet_id: String,
+    /// The version its units run on: the packet's own, or the version in force for `current` (re-pinned).
+    pub version: i64,
+    pub units: Vec<RerunUnit>,
 }
 
 /// One agent call's usage (spec §3.11, D36, D37).
@@ -1051,6 +1078,7 @@ impl Journal {
                 state: Some(c.state.clone()),
                 cursor: Some(Some(c.cursor.clone())),
                 data: Some(c.data.clone()),
+                hops: Some(c.hops),
                 ..Default::default()
             };
             let detail = json!({ "parent": parent.id, "branch": c.branch });
@@ -1338,10 +1366,10 @@ impl Journal {
     }
 
     /// Tokens (input + output) a packet used across its agent nodes, loop passes and branch copies, since its latest
-    /// DLQ replay (a replayed packet gets a fresh per-packet budget, D33).
+    /// DLQ replay or rerun (a replayed or rerun packet gets a fresh per-packet budget, D33, D79).
     pub fn packet_agent_tokens(&self, root: &str) -> Result<i64> {
         let replayed: i64 = self.db.query_row(
-            "SELECT COALESCE(MAX(seq), 0) AS s FROM events WHERE type = 'dlq.replayed' AND (packet_id = ? OR (packet_id >= ? AND packet_id < ?))",
+            "SELECT COALESCE(MAX(seq), 0) AS s FROM events WHERE type IN ('dlq.replayed', 'packet.rerun') AND (packet_id = ? OR (packet_id >= ? AND packet_id < ?))",
             [root, &format!("{root}:"), &format!("{root};")],
             |r| r.get(0),
         )?;
@@ -1453,6 +1481,99 @@ impl Journal {
             }
             Ok(())
         })
+    }
+
+    // ── reruns (D79) ────────────────────────────────────────────────────────
+
+    /// Where `unit` first reached one of `steps`: the data and hops on the transition that first set its cursor there.
+    /// None when its trail never did, or holds no data there (a journal from before D33).
+    pub fn entry_of(&self, unit: &str, steps: &[&str]) -> Result<Option<(Value, u32)>> {
+        let patches: Vec<String> = self
+            .db
+            .prepare_cached("SELECT patch FROM events WHERE packet_id = ? AND patch IS NOT NULL ORDER BY seq")?
+            .query_map([unit], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        let (mut data, mut hops) = (None, 0);
+        for text in patches {
+            let p: Value = serde_json::from_str(&text)?;
+            if let Some(d) = p.get("data") {
+                data = Some(d.clone());
+            }
+            if let Some(h) = p.get("hops").and_then(Value::as_u64) {
+                hops = h as u32;
+            }
+            if p.get("cursor").and_then(Value::as_str).is_some_and(|c| steps.contains(&c)) {
+                return Ok(data.map(|d| (d, hops)));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Whether retention cleared this unit's payload (D39).
+    pub fn data_cleared(&self, id: &str) -> Result<bool> {
+        Ok(self
+            .db
+            .query_row("SELECT data IS NULL FROM packets WHERE id = ?", [id], |r| r.get(0))
+            .optional()?
+            .unwrap_or(true))
+    }
+
+    /// Rerun (D79), in one transaction: each unit goes back in flight at its cursor with its entry data and hops
+    /// (attempt and iteration 0, no error, no result), pinned to the item's version, and each settled ancestor goes
+    /// back to `branched`. Every change commits its patch and a `packet.rerun` event. Fails (rolling everything back)
+    /// if a unit is no longer delivered or filtered.
+    pub fn rerun(&mut self, items: &[RerunItem], from: &str, by: &str) -> Result<()> {
+        self.tx("BEGIN", |j| {
+            for item in items {
+                let mut reopened = HashSet::new();
+                for u in &item.units {
+                    let row = j.get(&u.id)?;
+                    let Some(row) = row.filter(|r| r.state == "delivered" || r.state == "filtered") else {
+                        let state = j.get(&u.id)?.map_or("gone".to_string(), |r| r.state);
+                        return Err(format!(
+                            "packet {} is {state}, not delivered or filtered; nothing was rerun",
+                            u.id
+                        )
+                        .into());
+                    };
+                    let detail = rerun_detail(by, from, item.version, &row);
+                    j.repin(&u.id, item.version)?;
+                    let patch = PacketPatch {
+                        state: Some(u.state.clone()),
+                        cursor: Some(Some(u.cursor.clone())),
+                        data: Some(u.data.clone()),
+                        hops: Some(u.hops),
+                        error: Some(None),
+                        attempt: Some(0),
+                        iteration: Some(0),
+                        result: Some(Value::Null),
+                    };
+                    j.update(&u.id, &patch, "packet.rerun", Some(&u.cursor), Some(&detail), &[], None)?;
+                    let mut parent = row.parent.clone();
+                    while let Some(pid) = parent {
+                        let Some(p) = j.get(&pid)? else { break };
+                        if TERMINAL.contains(&p.state.as_str()) && reopened.insert(p.id.clone()) {
+                            let detail = rerun_detail(by, from, item.version, &p);
+                            j.repin(&p.id, item.version)?;
+                            let patch = PacketPatch {
+                                state: Some(BRANCHED.into()),
+                                cursor: Some(None),
+                                error: Some(None),
+                                ..Default::default()
+                            };
+                            j.update(&p.id, &patch, "packet.rerun", None, Some(&detail), &[], None)?;
+                        }
+                        parent = p.parent;
+                    }
+                }
+            }
+            Ok(())
+        })
+    }
+
+    fn repin(&mut self, id: &str, version: i64) -> Result<()> {
+        self.db.prepare_cached("UPDATE packets SET version = ? WHERE id = ?")?.execute(params![version, id])?;
+        Ok(())
     }
 
     /// DLQ purge (D33), in one transaction: removes each dead-lettered packet, its branch copies and their events, and

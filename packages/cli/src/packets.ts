@@ -1,4 +1,5 @@
-// packets, inspect, dlq (list, replay, purge), push and ack (docs/spec.md §6 Observe and Recover, §8, D33, D34).
+// packets, inspect, dlq (list, replay, purge), rerun, push and ack (docs/spec.md §6 Observe and Recover, §8, D33,
+// D34, D79).
 // Through the engine API, started on demand like lifecycle.ts; with --no-engine (or no engine) through the runner's
 // control socket. Reads of a pipeline with no runner come from its journal, read-only and redacted; writes need its
 // runner and say how to start it.
@@ -97,6 +98,7 @@ const EVENT_NAMES: Record<string, string> = {
   "output.batched": "batched",
   "output.written": "written",
   "dlq.replayed": "replayed",
+  "packet.rerun": "rerun",
 };
 
 const clock = (ms: number) => new Date(ms).toISOString().slice(11, 23);
@@ -308,6 +310,96 @@ export async function cmdDlq(args: string[]): Promise<number> {
   } else {
     out(ctx, { pipeline: name, result: r }, `purged ${r.purged} packet(s) from the dead-letter queue of ${name}`);
   }
+  return 0;
+}
+
+const RERUN_USAGE = "pipo rerun <name> --from <node> [ids…|--last n|--since 1h|--all] [--current] [--yes]";
+
+const EFFECTS: Record<string, string> = {
+  spend: "▲ calls the agent again (spends)",
+  external: "▲ reaches outside again",
+  write: "writes again (idempotent on its key)",
+};
+
+export function renderRerun(r: Record<string, any>, name: string): string {
+  const lines: string[] = [];
+  const how = r.current ? "on the version in force" : "each on its own version";
+  const ids = (r.packets ?? []).map((p: { packet_id: string; units: string[] }) =>
+    p.units.length === 1 && p.units[0] === p.packet_id ? p.packet_id : `${p.packet_id} (${p.units.join(", ")})`,
+  );
+  lines.push(
+    r.dry
+      ? `plan: rerun ${r.rerun} packet(s) of ${name} from '${r.from}', ${how}`
+      : `rerun ${r.rerun} packet(s) of ${name} from '${r.from}', ${how}`,
+  );
+  for (const id of ids) lines.push(`  ${id}`);
+  if (r.rerun > ids.length) lines.push(`  … and ${r.rerun - ids.length} more`);
+  for (const s of r.skipped ?? []) lines.push(`  skipped ${s.packet_id}: ${s.reason}`);
+  if (r.skipped_count > (r.skipped?.length ?? 0))
+    lines.push(`  … and ${r.skipped_count - r.skipped.length} more skipped`);
+  if (r.rerun > 0) {
+    lines.push("steps that run again:");
+    lines.push(
+      table(
+        ["STEP", "KIND", "EFFECT"],
+        (r.path ?? []).map((s: { step: string; kind: string | null; effect: string | null }) => [
+          s.step,
+          s.kind ?? "",
+          s.effect ? (EFFECTS[s.effect] ?? s.effect) : "",
+        ]),
+      )
+        .split("\n")
+        .map((l) => `  ${l}`)
+        .join("\n"),
+    );
+  }
+  if (r.dry && r.rerun > 0) lines.push("nothing ran yet: run it with --yes");
+  else if (!r.dry && r.rerun > 0) lines.push(`follow them with pipo packets ${name} or pipo inspect ${name} <id>`);
+  return lines.join("\n");
+}
+
+export async function cmdRerun(args: string[]): Promise<number> {
+  const { values, positionals } = parseArgs({
+    args,
+    allowPositionals: true,
+    options: {
+      ...COMMON,
+      from: { type: "string" },
+      last: { type: "string" },
+      since: { type: "string" },
+      all: { type: "boolean" },
+      current: { type: "boolean" },
+      yes: { type: "boolean", short: "y" },
+    },
+  });
+  const [name, ...ids] = positionals;
+  if (!name || !values.from) return usage(RERUN_USAGE);
+  const ranged = values.all || values.last !== undefined || values.since !== undefined;
+  if (ids.length && ranged) {
+    console.error("pipo rerun: pass packet ids, or --last/--since/--all, not both");
+    return usage(RERUN_USAGE);
+  }
+  if (!ids.length && !ranged) {
+    console.error("pipo rerun: name the packets to rerun, or pass --last n, --since 1h or --all");
+    return usage(RERUN_USAGE);
+  }
+  const last = values.last === undefined ? undefined : Number(values.last);
+  if (last !== undefined && !(Number.isInteger(last) && last >= 1)) {
+    throw new CliError(`--last must be a whole number from 1, got '${values.last}'`, "for example --last 5");
+  }
+  const body = {
+    from: values.from,
+    ...(ids.length ? { ids } : {}),
+    ...(last !== undefined && { last }),
+    ...(values.since !== undefined && { since: values.since }),
+    ...(values.all && { all: true }),
+    ...(values.current && { current: true }),
+    ...(!values.yes && { dry: true }),
+    by: "cli",
+  };
+  const ctx = await context(values);
+  const r = await writeOp(ctx, name, "rerun", body, "/rerun", "rerun packets");
+  out(ctx, { pipeline: name, result: r }, renderRerun(r, name));
   return 0;
 }
 

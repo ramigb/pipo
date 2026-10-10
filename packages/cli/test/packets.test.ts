@@ -1,4 +1,4 @@
-// `pipo packets|inspect|dlq|push|ack` (docs/spec.md §6, §8, D33, D34): in-process with --no-engine against a runner
+// `pipo packets|inspect|dlq|rerun|push|ack` (docs/spec.md §6, §8, D33, D34, D79): in-process with --no-engine against a runner
 // started in the test (and its journal once it stopped), and end to end through an engine started on demand: a step
 // that fails the first time only dead-letters a packet, `pipo dlq replay` delivers it exactly once. Subprocess output
 // goes to files, never a pipe; an engine that never comes up is retried once.
@@ -112,12 +112,17 @@ test("usage errors exit 64; bad JSON and missing files say what to do", async ()
   expect((await pipo("push", "x", ...N)).code).toBe(64);
   expect((await pipo("push", "x", "--data", "{}", "--file", "f", ...N)).code).toBe(64);
   expect((await pipo("ack", "x")).code).toBe(64);
+  expect((await pipo("rerun", "x", "id", ...N)).code).toBe(64);
+  expect((await pipo("rerun", "x", "--from", "a", ...N)).code).toBe(64);
+  expect((await pipo("rerun", "x", "id", "--from", "a", "--all", ...N)).code).toBe(64);
+  expect((await pipo("rerun", "x", "--from", "a", "--last", "0", ...N)).stderr).toContain("--last must be");
   const bad = await pipo("push", "x", "--data", "{nope", ...N);
   expect(bad.code).toBe(1);
   expect(bad.stderr).toContain("not valid JSON");
   const nofile = await pipo("push", "x", "--file", join(sb.root, "missing.json"), ...N);
   expect(nofile.stderr).toContain("cannot read");
-  for (const cmd of ["packets", "inspect", "dlq", "push", "ack"]) expect((await pipo(cmd, "--help")).code).toBe(0);
+  for (const cmd of ["packets", "inspect", "dlq", "rerun", "push", "ack"])
+    expect((await pipo(cmd, "--help")).code).toBe(0);
 });
 
 test("--no-engine: push, packets, inspect, dlq, replay and purge over the runner's socket; reads from the journal once stopped", async () => {
@@ -193,6 +198,22 @@ test("--no-engine: push, packets, inspect, dlq, replay and purge over the runner
   expect(ack.code).toBe(1);
   expect(ack.stderr).toContain("does not wait for an ack");
 
+  // A rerun from `check`: the plan, then with --yes it runs; the file output keeps the line it has (D79).
+  const plan = await pipo("rerun", "direct", ok, "--from", "check", ...N);
+  expect(plan.code).toBe(0);
+  expect(plan.stdout).toContain("plan: rerun 1 packet(s) of direct from 'check', each on its own version");
+  expect(plan.stdout).toMatch(/^ {2}check +transform: fn\.once$/m);
+  expect(plan.stdout).toMatch(/^ {2}output +output: file +writes again \(idempotent on its key\)$/m);
+  expect(plan.stdout).toContain("nothing ran yet: run it with --yes");
+  const ran = await pipo("rerun", "direct", ok, "--from", "check", "--yes", ...N);
+  expect(ran.stdout).toContain("rerun 1 packet(s) of direct from 'check'");
+  await waitFor(() => (runner?.packet(ok)?.data as { calls?: number })?.calls === 2, 5000, "rerun delivery");
+  await waitFor(() => runner?.packet(ok)?.state === "delivered", 5000, "rerun delivered");
+  expect((await pipo("inspect", "direct", ok, ...N)).stdout).toMatch(/check +rerun/);
+  expect(written("direct").map((r) => r.packet_id)).toEqual([ok, dead]);
+  const never = await pipo("rerun", "direct", "--from", "nope", "--all", "--json", ...N);
+  expect(json(never).result).toMatchObject({ rerun: 0, skipped_count: 2 });
+
   // Stopped: reads come from the journal, writes need the runner.
   expect(await runner.stop()).toBe(0);
   const offline = json(await pipo("packets", "direct", "--json", ...N));
@@ -203,6 +224,7 @@ test("--no-engine: push, packets, inspect, dlq, replay and purge over the runner
   expect(refused.stderr).toContain("'direct' is not running");
   expect(refused.stderr).toContain("pipo start");
   expect((await pipo("push", "direct", "--data", "{}", ...N)).stderr).toContain("is not running");
+  expect((await pipo("rerun", "direct", "--from", "check", "--all", ...N)).stderr).toContain("is not running");
   expect((await pipo("packets", "ghost", ...N)).stderr).toContain("no pipeline named 'ghost'");
 }, 60_000);
 

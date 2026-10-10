@@ -6,7 +6,7 @@
 // is no second implementation of any operation. On top of that the endpoint enforces, per tool call:
 // - the token's scope (`read` < `operate` < `edit`) and pipeline allowlist (a pipeline outside it does not exist);
 // - the pipeline's `agent:` policy of the version in force: `agent.control: true` for every pipeline tool and resource,
-//   and `agent.actions` for pause, resume, replay, push and ack (propose and resolve are checked by the runner, D45, D50);
+//   and `agent.actions` for pause, resume, replay, rerun, push and ack (propose and resolve are checked by the runner, D45, D50);
 // - redaction of every result: secrets (those the engine can resolve, plus the MCP tokens themselves), then the
 //   pipeline's `agent.redact` paths in packet data, and those fields' values wherever else they appear (log lines,
 //   errors), including values read from the journal for every packet the result names.
@@ -118,7 +118,7 @@ interface Tool {
   /** Takes `pipeline` (gated by the allowlist and `agent.control`). */
   pipeline: boolean;
   /** The `agent.actions` entry it needs. */
-  action?: "pause" | "resume" | "replay" | "push" | "ack";
+  action?: "pause" | "resume" | "replay" | "rerun" | "push" | "ack";
   readOnly: boolean;
   inputSchema: Schema;
   run(this: McpServer, ctx: ToolContext): Promise<unknown>;
@@ -238,6 +238,33 @@ const TOOLS: Tool[] = [
         ...(args.all !== undefined && { all: args.all }),
       };
       return this.call("POST", `${at(args.pipeline)}/dlq/replay`, { ...body, by: token.name });
+    },
+  },
+  {
+    name: "rerun",
+    title: "Rerun from a node",
+    description:
+      "Run settled (delivered or filtered) packets again from node `from` (or `output`) to the output, with the data they had there; the steps before it don't run again. Pick `ids`, or `last`/`since` (a duration)/`all`. Call it with `dry: true` first: the plan lists the packets, those skipped and why, and the steps that will run again (`effect`: spend, external, write). `current: true` runs them on the version in force instead of their own. Needs `rerun` in agent.actions and a running pipeline.",
+    scope: "operate",
+    pipeline: true,
+    action: "rerun",
+    readOnly: false,
+    inputSchema: input(
+      {
+        pipeline: PIPELINE,
+        from: { type: "string", description: "The node to run again from, or `output`" },
+        ids: { type: "array", items: { type: "string" } },
+        last: { type: "integer", minimum: 1 },
+        since: { type: "string", description: "A duration such as 30m, 1h or 7d" },
+        all: { type: "boolean" },
+        current: { type: "boolean" },
+        dry: { type: "boolean" },
+      },
+      ["pipeline", "from"],
+    ),
+    run({ args, token }) {
+      const { pipeline, ...body } = args;
+      return this.call("POST", `${at(pipeline)}/rerun`, { ...body, by: token.name });
     },
   },
   {
@@ -756,7 +783,7 @@ export class McpServer {
             typeof asked === "string" && MCP_PROTOCOL_VERSIONS.includes(asked) ? asked : MCP_PROTOCOL_VERSIONS[0],
           capabilities: { tools: { listChanged: false }, resources: { subscribe: false, listChanged: false } },
           serverInfo: { name: "pipo", title: "Pipo engine", version: "0.0.0" },
-          instructions: `Pipo pipelines (spec: resource pipo://docs/spec.md). This token is '${token.name}' with scope ${token.scope} (read < operate < edit). A pipeline takes agents only with agent.control: true; pause, resume, replay, push and ack need the pipeline's agent.actions; changes go through propose_change (agent.edit paths). Results are redacted.`,
+          instructions: `Pipo pipelines (spec: resource pipo://docs/spec.md). This token is '${token.name}' with scope ${token.scope} (read < operate < edit). A pipeline takes agents only with agent.control: true; pause, resume, replay, rerun, push and ack need the pipeline's agent.actions; changes go through propose_change (agent.edit paths). Results are redacted.`,
         };
       }
       case "ping":

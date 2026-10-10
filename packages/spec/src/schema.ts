@@ -170,7 +170,7 @@ export function buildSchema(): JsonSchema {
         type: "object",
         properties: {
           control: { type: "boolean" },
-          actions: { type: "array", items: { enum: ["pause", "resume", "replay", "push", "ack"] } },
+          actions: { type: "array", items: { enum: ["pause", "resume", "replay", "rerun", "push", "ack"] } },
           edit: { type: "array", items: { type: "string" } },
           redact: { type: "array", items: { type: "string" } },
           on_stall: { enum: ["notify", "handle"] },

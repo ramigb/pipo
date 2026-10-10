@@ -87,6 +87,7 @@ const ROUTES = [
   "GET  /api/pipelines/<name>/dlq?limit=&after=",
   "POST /api/pipelines/<name>/dlq/replay {ids?, all?}",
   "POST /api/pipelines/<name>/dlq/purge {ids?, all?}",
+  "POST /api/pipelines/<name>/rerun {from, ids?|last?|since?|all?, current?, dry?, by?}",
   "GET  /api/pipelines/<name>/versions",
   "GET  /api/pipelines/<name>/versions/<v>",
   "GET  /api/pipelines/<name>/diff?from=&to=",
@@ -118,6 +119,7 @@ const LIVE_STATES = new Set(["starting", "running", "backoff", "stopping", "unre
 const START_KEYS = ["listen", "detached", "ttl"];
 const PROPOSE_KEYS = ["source", "base_version", "reason", "by", "by_kind", "apply"];
 const RESOLVE_KEYS = ["ids", "packet_id", "action", "by", "by_kind", "reason"];
+const RERUN_KEYS = ["from", "ids", "last", "since", "all", "current", "dry", "by"];
 
 const ENGINE_STATUS: Record<string, number> = {
   bad_request: 400,
@@ -820,6 +822,14 @@ export class Gateway {
         this.needRunner(name, "rollback");
         const args = { version: body.version, by: by ?? "api" };
         return json(200, await runnerOp(name, () => engine.request(name, "rollback", args, 120_000)));
+      }
+      case "rerun": {
+        const unknown = Object.keys(body).filter((k) => !RERUN_KEYS.includes(k));
+        if (unknown.length) throw unknownKeys(unknown, "from, ids, last, since, all, current, dry and by");
+        const by = optional(body, "by", "string");
+        this.needRunner(name, "rerun");
+        const args = { ...body, by: by ?? "api" };
+        return json(200, await runnerOp(name, () => engine.request(name, "rerun", args, 120_000)));
       }
       case "resolve": {
         const unknown = Object.keys(body).filter((k) => !RESOLVE_KEYS.includes(k));

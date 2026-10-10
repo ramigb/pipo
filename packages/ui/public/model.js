@@ -609,3 +609,13 @@ function lookup(expr, data) {
     v = v && typeof v === "object" ? v[k] : undefined;
   return v === undefined ? null : v;
 }
+
+// Trace steps that ran a node or wrote the output, by their event (the runner's `packet.filtered` is a filter's).
+const RAN = new Set(["node.done", "node.looped", "node.failed_continued", "packet.filtered", "output.written"]);
+
+/** Where a rerun from this packet-trace step starts (D79): the node it ran, or `output` for the output's write; null
+ * for a step that ran nothing a rerun can start at (the input, a fan-out, a replay or rerun marker). */
+export function rerunFrom(step) {
+  if (!RAN.has(step?.event) || typeof step.node !== "string") return null;
+  return step.node.startsWith("$") ? "output" : step.node;
+}

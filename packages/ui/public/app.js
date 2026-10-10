@@ -17,6 +17,7 @@ import {
   mascot,
   plural,
 } from "./look.js";
+import { rerunFrom } from "./model.js";
 
 const app = document.getElementById("app");
 const $live = document.getElementById("live");
@@ -1601,7 +1602,28 @@ const patchOf = (before, after) => {
   return { set, removed: Object.keys(before).filter((k) => !(k in after)) };
 };
 
-function traceBody(t, top) {
+const EFFECT_TEXT = {
+  spend: "calls the agent again (spends)",
+  external: "reaches outside again",
+  write: "writes again (idempotent on its key)",
+};
+
+// Rerun one packet from a node (D79): the plan first, in a confirm, then the rerun.
+async function rerunPacket({ base, id }, from) {
+  let plan;
+  try {
+    plan = await api(`${base}/rerun`, { from, ids: [id], dry: true, by: "ui" });
+  } catch (e) {
+    if (e instanceof EngineDown) return napping();
+    return toast(`Rerun failed: ${e.message}`, "bad", e.hint);
+  }
+  const steps = plan.path.map((st) => `• ${st.step} (${st.kind})${st.effect ? `: ${EFFECT_TEXT[st.effect]}` : ""}`);
+  if (confirm(`Run this packet again from '${from}'?\n\nThese steps run again:\n${steps.join("\n")}`))
+    await act("Rerun", `${base}/rerun`, { from, ids: [id], by: "ui" }, "Rerunning 🔁");
+}
+
+// `rerun` ({base, id} of the packet) is set while the packet is settled; its copies' steps rerun the packet too.
+function traceBody(t, top, rerun = top && ["delivered", "filtered"].includes(t.packet?.state) ? top : null) {
   const p = t.packet;
   // The first step has nothing before it (p.data is where the packet ended up), so it shows its whole data.
   let prev;
@@ -1611,6 +1633,7 @@ function traceBody(t, top) {
     const same = st.data !== undefined && before !== undefined && fmtJson(st.data) === fmtJson(before);
     const failed = st.event === "packet.dead_lettered" || st.error;
     const patch = st.data !== undefined && st.changed && !same ? patchOf(before, st.data) : null;
+    const from = rerun ? rerunFrom(st) : null;
     return h(
       "li",
       { class: `step${st.error ? " err" : ""}` },
@@ -1632,6 +1655,21 @@ function traceBody(t, top) {
             { class: "muted small" },
             `${st.event} · ${st.duration_ms} ms · attempts ${st.attempts} · ${fmtTime(st.at)}`,
           ),
+          from
+            ? [
+                " ",
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    class: "btn small",
+                    title: `Run this packet again from ${from} to the output, with the data it had there`,
+                    onclick: () => rerunPacket(rerun, from),
+                  },
+                  "🔁 Rerun from here",
+                ),
+              ]
+            : null,
         ),
         st.error
           ? h("div", { class: "c-bad wrapany" }, errText(st.error.message ?? fmtJson(st.error), p?.packet_id))
@@ -1688,7 +1726,7 @@ function traceBody(t, top) {
     t.pending
       ? h("p", { class: "muted" }, `⏳ in progress at ${t.pending.node ?? "?"} since ${fmtTime(t.pending.since)}`)
       : null,
-    ...t.copies.map((c) => section(`🌿 Copy ${c.packet?.branch ?? ""}`, traceBody(c))),
+    ...t.copies.map((c) => section(`🌿 Copy ${c.packet?.branch ?? ""}`, traceBody(c, null, rerun))),
   ];
 }
 

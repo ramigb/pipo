@@ -2597,6 +2597,7 @@
               "pause",
               "resume",
               "replay",
+              "rerun",
               "push",
               "ack"
             ]

@@ -13,7 +13,7 @@ import { formatPipo } from "./fmt";
 import { generateNode } from "./generate";
 import { cmdLogs, cmdPause, cmdRestart, cmdResume, cmdStart, cmdStatus, cmdStop } from "./lifecycle";
 import { newPipeline } from "./new";
-import { cmdAck, cmdDlq, cmdInspect, cmdPackets, cmdPush } from "./packets";
+import { cmdAck, cmdDlq, cmdInspect, cmdPackets, cmdPush, cmdRerun } from "./packets";
 import { cmdProposals, cmdResolve } from "./proposals";
 import { listTemplates } from "./templates";
 import { cmdTest } from "./test-cmd";
@@ -100,6 +100,8 @@ async function dispatch(command: string, rest: string[]): Promise<number> {
       return cmdInspect(rest);
     case "dlq":
       return cmdDlq(rest);
+    case "rerun":
+      return cmdRerun(rest);
     case "push":
       return cmdPush(rest);
     case "history":

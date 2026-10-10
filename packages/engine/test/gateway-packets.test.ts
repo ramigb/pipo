@@ -118,6 +118,26 @@ describe("packets and dlq over /api", () => {
     expect(state(ids[1] as string)).toBeUndefined();
     expect(written().filter((r) => r.packet_id === ids[0])).toHaveLength(1);
     expect(written()).toHaveLength(2);
+
+    // A rerun from `mark` (D79): the plan, then the rerun; the file output skips the packet_id it already has.
+    const plan = await post(`${api}/rerun`, { from: "mark", ids: [ids[0]], dry: true });
+    expect(await plan.json()).toMatchObject({ rerun: 1, dry: true, path: [{ step: "mark" }, { step: "output" }] });
+    const rerun = await post(`${api}/rerun`, { from: "mark", ids: [ids[0]] });
+    expect(await rerun.json()).toMatchObject({ rerun: 1, packets: [{ packet_id: ids[0] }] });
+    await waitFor(
+      () =>
+        query(journal, "SELECT 1 FROM events WHERE packet_id = ? AND type = 'packet.delivered'", ids[0])?.length === 2,
+      10_000,
+      "rerun packet delivered",
+    );
+    const ev = query(journal, "SELECT detail FROM events WHERE packet_id = ? AND type = 'packet.rerun'", ids[0]);
+    expect(JSON.parse(ev?.[0]?.detail ?? "{}")).toMatchObject({ by: "api", from: "mark" });
+    expect(written()).toHaveLength(2);
+    const unknown = await post(`${api}/rerun`, { from: "mark", ids: [ids[0]], everything: true });
+    expect([unknown.status, ((await unknown.json()) as any).error]).toEqual([400, "unknown key `everything`"]);
+    const dead = await post(`${api}/rerun`, { from: "mark", ids: [ids[2]] });
+    expect(dead.status).toBe(409);
+    expect(((await dead.json()) as any).error).toContain("it is dead-lettered; replay it with pipo dlq replay");
   }, 60_000);
 
   test("once stopped, reads come from the journal and writes say to start the pipeline", async () => {
@@ -139,6 +159,9 @@ describe("packets and dlq over /api", () => {
     expect(body.code).toBe("invalid_state");
     expect(body.hint).toContain("pipo start");
     expect(state(ids[2] as string)).toBe("dead_lettered");
+    const rerun = await post(`${api}/rerun`, { from: "mark", all: true });
+    expect(rerun.status).toBe(409);
+    expect(((await rerun.json()) as any).hint).toContain("pipo start");
 
     const unknown = await get(`${engine.gateway?.url}/api/pipelines/ghost/packets`);
     expect(unknown.status).toBe(404);

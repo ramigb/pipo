@@ -3,6 +3,7 @@
 pub mod ops;
 pub mod protocol;
 pub mod reads;
+pub mod rerun;
 pub mod server;
 pub mod versions;
 

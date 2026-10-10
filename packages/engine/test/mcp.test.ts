@@ -68,7 +68,7 @@ nodes:
 output: { from: shout, to: file, with: { path: ./${NAME}.jsonl, format: jsonl } }
 agent:
   control: true
-  actions: [pause, resume, push]
+  actions: [pause, resume, push, rerun]
   edit: [nodes.tag]
   redact: [data.email]
 `;
@@ -176,6 +176,7 @@ describe("/mcp", () => {
       "inspect_packet",
       "list_dlq",
       "replay",
+      "rerun",
       "push",
       "ack",
       "pause",
@@ -278,6 +279,20 @@ describe("/mcp", () => {
       15_000,
       "delivered",
     );
+
+    // A rerun from `shout`: the plan first, then the rerun, by the token's name (D79).
+    const plan = await call(operator, "rerun", { pipeline: NAME, from: "shout", ids: [id], dry: true });
+    expect(plan.body).toMatchObject({ rerun: 1, dry: true, path: [{ step: "shout" }, { step: "output" }] });
+    expect((await call(operator, "rerun", { pipeline: NAME, from: "shout", ids: [id] })).body.rerun).toBe(1);
+    await waitFor(
+      () =>
+        query(journal, "SELECT state FROM packets WHERE id = ?", id)?.[0]?.state === "delivered" &&
+        query(journal, "SELECT detail FROM events WHERE packet_id = ? AND type = 'packet.rerun'", id)?.length === 1,
+      15_000,
+      "delivered again",
+    );
+    const rerun = query(journal, "SELECT detail FROM events WHERE packet_id = ? AND type = 'packet.rerun'", id);
+    expect(JSON.parse(rerun?.[0]?.detail ?? "{}").by).toBe("operator");
 
     const trace = await call(operator, "inspect_packet", { pipeline: NAME, packet_id: id });
     expect(trace.isError).toBe(false);

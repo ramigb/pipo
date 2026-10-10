@@ -230,6 +230,22 @@ export const COMMANDS: CommandHelp[] = [
     ],
   },
   {
+    name: "rerun",
+    summary: "Run settled packets again from a node to the output, with the data they had there",
+    usage: "pipo rerun <name> --from <node> [ids…|--last n|--since 1h|--all] [--current] [--yes]",
+    flags: [
+      ["--from <node>", "The node to run again from, or output (required)"],
+      ["--last <n>", "The newest n packets that passed the node"],
+      ["--since <duration>", "Packets received in this window (30m, 1h, 7d); with --last, the newest n of them"],
+      ["--all", "Every delivered or filtered packet that passed the node"],
+      ["--current", "Run them on the version in force instead of their own (re-pins them)"],
+      ["--yes, -y", "Run the plan; without it, only print what would run"],
+      ["--home <dir>", "Pipo home (default ~/.pipo, or PIPO_HOME)"],
+      ["--no-engine", "Do not use the engine: talk to the runner's control socket"],
+      JSON_FLAG,
+    ],
+  },
+  {
     name: "push",
     summary: "Push one packet into a running pipeline; prints its packet id once it is journaled",
     usage: "pipo push <name> --data '{…}'|--file f [--source s] [--input i]",
