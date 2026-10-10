@@ -11,9 +11,9 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, HashMap};
 use std::rc::Rc;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError, TryRecvError};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use rquickjs::{
@@ -52,9 +52,11 @@ enum Request {
     Call { version: u32, name: String, data: String, meta: String, reply: Reply<Option<String>> },
 }
 
-/// A handle to the thread that runs `fn` modules. Dropping it stops the thread.
+/// A handle to the thread that runs `fn` modules. The thread starts with the first request, so a pipeline without an
+/// `fn` module never has one. Dropping the handle stops it.
 pub struct JsFns {
-    tx: mpsc::Sender<Request>,
+    tx: OnceLock<mpsc::Sender<Request>>,
+    options: Mutex<Option<JsOptions>>,
 }
 
 impl Default for JsFns {
@@ -75,13 +77,21 @@ impl JsFns {
     }
 
     pub fn with_options(options: JsOptions) -> JsFns {
-        let (tx, rx) = mpsc::channel::<Request>();
-        // If the thread can't start, `rx` is dropped with the closure and every request fails with `gone()`.
-        let _ = std::thread::Builder::new()
-            .name("pipo-jsfn".into())
-            .stack_size(16 * 1024 * 1024)
-            .spawn(move || serve(options, rx));
-        JsFns { tx }
+        JsFns { tx: OnceLock::new(), options: Mutex::new(Some(options)) }
+    }
+
+    /// The channel to the JS thread, starting the thread on first use.
+    fn sender(&self) -> &mpsc::Sender<Request> {
+        self.tx.get_or_init(|| {
+            let options = self.options.lock().ok().and_then(|mut o| o.take()).unwrap_or_default();
+            let (tx, rx) = mpsc::channel::<Request>();
+            // If the thread can't start, `rx` is dropped with the closure and every request fails with `gone()`.
+            let _ = std::thread::Builder::new()
+                .name("pipo-jsfn".into())
+                .stack_size(16 * 1024 * 1024)
+                .spawn(move || serve(options, rx));
+            tx
+        })
     }
 
     /// Load one bundled ES module for `version`, replacing what that version had (once its top-level code settles).
@@ -112,7 +122,7 @@ impl JsFns {
     }
 
     fn send(&self, req: Request) -> Result<(), String> {
-        self.tx.send(req).map_err(|_| gone())
+        self.sender().send(req).map_err(|_| gone())
     }
 }
 

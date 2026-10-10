@@ -130,7 +130,7 @@ async fn serve(stream: UnixStream, runner: std::rc::Weak<Runner>) {
         }
         let Some(r) = runner.upgrade() else { return };
         let (response, after) = answer(&r, &line).await;
-        let text = format!("{}\n", response);
+        let text = format!("{}\n", crate::expr::js_json(&response));
         let wrote = write.write_all(text.as_bytes()).await.is_ok();
         let _ = write.flush().await;
         if let Some(after) = after {

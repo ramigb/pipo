@@ -127,11 +127,11 @@ fn offline(args: &[String]) -> i32 {
     let path = a.home.join("pipelines").join(&a.pipeline).join("journal.db");
     match offline_read(&path, &a.op, &a.args, &a.pipeline) {
         Ok(found) => {
-            println!("{}", found.unwrap_or(serde_json::Value::Null));
+            println!("{}", pipo_runner::expr::js_json(&found.unwrap_or(serde_json::Value::Null)));
             0
         }
         Err(e) => {
-            println!("{}", serde_json::json!({ "error": e.body() }));
+            println!("{}", pipo_runner::expr::js_json(&serde_json::json!({ "error": e.body() })));
             1
         }
     }

@@ -8,8 +8,10 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, params, params_from_iter};
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
+
+use crate::expr::js_json;
 
 pub const IN_FLIGHT: [&str; 4] = ["accepted", "processing", "writing", "verifying"];
 pub const TERMINAL: [&str; 4] = ["delivered", "filtered", "dead_lettered", "rejected"];
@@ -264,27 +266,7 @@ pub fn open_readonly(path: impl AsRef<Path>, ms: u64) -> Result<Connection> {
     .map_err(|e| if is_busy(&e) { locked(path, &e, ms, "recovering it") } else { e })
 }
 
-// ── JSON as journal.ts writes it ────────────────────────────────────────────
-
-/// JSON text as JavaScript's `JSON.stringify` writes it: no spaces, key order kept, integral numbers without `.0`.
-// TODO(merge): use crate::expr::js_json
-fn js_json(v: &Value) -> String {
-    struct Js<'a>(&'a Value);
-    impl Serialize for Js<'_> {
-        fn serialize<S: Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
-            match self.0 {
-                Value::Number(n) if n.is_f64() => {
-                    let f = n.as_f64().unwrap_or(0.0);
-                    if f.fract() == 0.0 && f.abs() < 9.0e15 { s.serialize_i64(f as i64) } else { n.serialize(s) }
-                }
-                Value::Array(a) => s.collect_seq(a.iter().map(Js)),
-                Value::Object(o) => s.collect_map(o.iter().map(|(k, v)| (k, Js(v)))),
-                v => v.serialize(s),
-            }
-        }
-    }
-    serde_json::to_string(&Js(v)).expect("JSON values serialize")
-}
+// ── JSON as journal.ts writes it (JSON.stringify: crate::expr::js_json) ─────
 
 /// SQL value of journal.ts `json(v)`: NULL for undefined (None), else the JSON text (`"null"` for null).
 fn json_opt(v: Option<&Value>) -> Option<String> {
@@ -839,7 +821,7 @@ impl Journal {
                 )
                 .into());
             }
-            let files = audit.files.as_ref().map(serde_json::to_string).transpose()?;
+            let files = audit.files.as_ref().map(|f| serde_json::to_value(f).map(|v| js_json(&v))).transpose()?;
             j.db.prepare_cached(
                 "INSERT INTO versions (version, hash, source, author, reason, created_at, author_kind, proposal, files, compiled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )?
