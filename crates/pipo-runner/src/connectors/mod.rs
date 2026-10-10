@@ -32,7 +32,7 @@ pub enum IntakeResult {
 
 /// Journal writes an input commits in the same transaction as the packet it hands over (an input's cursor), so
 /// the cursor never runs ahead of or behind its packets. Not run when the result is `Unavailable`.
-pub type Commit = Box<dyn FnOnce(&mut Journal) -> Result<(), String>>;
+pub type Commit = Box<dyn FnOnce(&mut Journal) -> crate::journal::Result<()>>;
 
 /// Hands a raw payload to the runner, which validates and journals it before answering.
 pub type Intake = Rc<dyn Fn(Value, Origin, Option<Commit>) -> LocalBoxFuture<'static, IntakeResult>>;
@@ -159,4 +159,18 @@ pub fn make_output(_ctx: &ConnectorContext) -> Result<Box<dyn OutputAdapter>, Co
 /// A tap (`tap: <action>`) or a transform (`transform: <action>`); `log` and `map` are built into the runner.
 pub fn make_step(_kind: &str, _action: &str, _ctx: &ConnectorContext) -> Result<Box<dyn StepAdapter>, ConnectorError> {
     Err(ConnectorError("steps are not ported yet".into()))
+}
+
+/// The program an exec step runs, when it can be found (D71): a path with a slash, relative to the pipeline's
+/// folder, or a name on PATH.
+pub fn find_command(command: &str, dir: &std::path::Path) -> Option<PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    let runnable = |p: &std::path::Path| p.metadata().map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0).unwrap_or(false);
+    if command.contains('/') {
+        let p = dir.join(command);
+        return runnable(&p).then_some(p);
+    }
+    std::env::var_os("PATH")
+        .map(|paths| std::env::split_paths(&paths).map(|d| d.join(command)).find(|p| runnable(p)))
+        .unwrap_or(None)
 }

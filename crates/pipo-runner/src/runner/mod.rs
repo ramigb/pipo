@@ -6,7 +6,7 @@
 // interleaving, and several invariants rely on that ("no await between this check and that insert"). A `RefCell`
 // borrow is never held across an `.await`.
 
-mod apply;
+pub mod apply;
 mod flow;
 
 use crate::agents::{AgentBudget, AgentRuntime, AgentSettings, BudgetCap, EngineCap};
@@ -464,8 +464,17 @@ impl Runner {
         })?;
         *runner.control.borrow_mut() = Some(server);
         // Recorded only now that this runner holds the socket (the start lock), in one transaction (D38).
-        let files = compiled.files.clone();
-        let committed = runner.journal.borrow_mut().commit_start(&start, Some(&files), Some(&compiled.raw));
+        let files = crate::versions::file_hashes(&compiled.files);
+        let planned = crate::journal::PlannedStart {
+            latest: start.latest,
+            append: start.append.as_ref().map(|a| crate::journal::PlannedAppend {
+                hash: a.hash.clone(),
+                source: a.source.clone(),
+                reason: a.reason.clone(),
+                compiled: Some(compiled.raw.clone()),
+            }),
+        };
+        let committed = runner.journal.borrow_mut().commit_start(&planned, &start.file_hash, Some(&files));
         let version = match committed {
             Ok(v) => v,
             Err(e) => {
@@ -983,8 +992,7 @@ impl Runner {
             a.close();
         }
         self.close_control().await;
-        let _ = self.journal.borrow_mut().close();
-        let _ = std::fs::remove_file(&self.registry_path);
+                let _ = std::fs::remove_file(&self.registry_path);
         let _ = self.finished.send(Some(if failed { 2 } else { code }));
     }
 
@@ -999,7 +1007,7 @@ impl Runner {
     fn start_file_warnings(&self, mut versions: Vec<i64>) -> Vec<crate::versions::VersionWarning> {
         versions.sort_unstable();
         versions.dedup();
-        let runs = self.compiled.borrow().files.clone();
+        let runs = crate::versions::file_hashes(&self.compiled.borrow().files);
         let name = self.pipeline().name.clone();
         let mut out = vec![];
         for v in versions {
@@ -1172,7 +1180,7 @@ impl Runner {
 
     /// A journal event; a failed write is logged, never fatal (the TS runner let it throw into the caller).
     pub fn event(&self, kind: &str, detail: Option<Value>, packet_id: Option<&str>, node: Option<&str>) {
-        let r = self.journal.borrow_mut().event(kind, detail, packet_id, node);
+        let r = self.journal.borrow().event(kind, detail.as_ref(), packet_id, node);
         if let Err(e) = r {
             self.log("error", &format!("journal write failed ({kind}): {e}"));
         }
@@ -1220,9 +1228,4 @@ fn error_value(e: &Option<PacketError>) -> Option<Value> {
 
 fn is_terminal(state: &str) -> bool {
     TERMINAL.contains(&state)
-}
-
-#[allow(dead_code)]
-fn _unused(_: HashSet<String>, _: Cell<u8>, _: &str) -> &'static str {
-    ESCALATED
 }

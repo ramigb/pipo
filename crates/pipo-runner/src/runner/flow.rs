@@ -7,7 +7,7 @@ use crate::connectors::{Commit, Intake, IntakeResult, Origin, StepInput, WriteIt
 use crate::crashpoint::crash_point;
 use crate::expr::{evaluate, render, render_string, to_text, truthy};
 use crate::ids::ulid;
-use crate::journal::{BATCH_STEP, BRANCHED, IN_FLIGHT, NewPacket, OUTPUT_STEP, PacketPatch, VERIFY_STEP};
+use crate::journal::{BATCH_STEP, BRANCHED, ExtraEvent, IN_FLIGHT, NewPacket, OUTPUT_STEP, PacketPatch, VERIFY_STEP};
 use crate::pipeline::{NodeKind, fn_ref};
 use crate::policy::{Attempted, ResolvedPolicy, StepError, attempt, resolve_policy};
 use std::time::Instant;
@@ -25,11 +25,11 @@ pub(super) struct Failure {
     pub rule: Option<String>,
 }
 
-type Emitted = Vec<(String, Option<Value>)>;
+type Emitted = Vec<ExtraEvent>;
 
 /// What a step decided for its packet.
 pub(super) enum Transition {
-    Move { to: String, data: Value, iteration: Option<i64>, result: Option<Value>, event: String, extra: Emitted },
+    Move { to: String, data: Value, iteration: Option<u32>, result: Option<Value>, event: String, extra: Emitted },
     /// Fan-out (spec §3.4, D22): the step's result goes to several consumers, one copy each.
     Split { to: Vec<String>, data: Value, event: String, extra: Emitted },
     End { state: &'static str, error: Option<PacketError>, event: String, extra: Emitted },
@@ -209,7 +209,7 @@ impl Runner {
         };
         let id = ulid();
         let received_at = now_ms();
-        let base = PacketRow::new_root(&id, version, payload.clone(), &origin.trigger, &origin.source, received_at);
+        let base = root_row(&id, version, payload.clone(), &origin, received_at);
         let meta = self.meta(&plan, &base, "input", 1);
         let c = ctx(&payload, &meta, &self.env);
 
@@ -221,26 +221,23 @@ impl Runner {
             let error = PacketError { code: failed.code.clone(), message: message.clone(), node: Some("input".into()), attempts: None };
             let to_agent = inv.as_ref().and_then(|i| i.then.as_deref()) == Some("agent");
             let error_json = serde_json::to_value(&error).unwrap_or(Value::Null);
-            let id2 = id.clone();
+            let rule_detail = json!({ "rule": failed.rule });
+            let mut commit = commit;
+            let mut f = |j: &mut Journal| -> crate::journal::Result<()> {
+                if let Some(c) = commit.take() {
+                    c(j)?;
+                }
+                // Never accepted, so it can't wait: the agent is told, in the same transaction (D50).
+                if to_agent {
+                    jev(j, "packet.escalated", Some(json!({ "reason": "rejected", "waiting": false, "error": error_json })), Some(&id), Some("input"))?;
+                }
+                Ok(())
+            };
             let r = self.journal.borrow_mut().insert(
-                NewPacket { state: "rejected".into(), cursor: None, error: Some(error), ..NewPacket::from_row(&base) },
+                &new_packet(&base, "rejected", None, Some(error)),
                 "packet.rejected",
-                Some(json!({ "rule": failed.rule })),
-                Some(Box::new(move |j: &mut Journal| {
-                    if let Some(c) = commit {
-                        c(j)?;
-                    }
-                    // Never accepted, so it can't wait: the agent is told, in the same transaction (D50).
-                    if to_agent {
-                        j.event(
-                            "packet.escalated",
-                            Some(json!({ "reason": "rejected", "waiting": false, "error": error_json })),
-                            Some(&id2),
-                            Some("input"),
-                        )?;
-                    }
-                    Ok(())
-                })),
+                Some(&rule_detail),
+                Some(&mut f),
             );
             if let Err(e) = r {
                 return IntakeResult::Unavailable { reason: format!("journal write failed: {e}") };
@@ -259,12 +256,14 @@ impl Runner {
         }
         let first = plan.next_of("input").to_vec();
         if first.len() == 1 {
-            let r = self.journal.borrow_mut().insert(
-                NewPacket { state: "accepted".into(), cursor: Some(first[0].clone()), error: None, ..NewPacket::from_row(&base) },
-                "packet.accepted",
-                None,
-                commit.map(|c| Box::new(move |j: &mut Journal| c(j)) as Box<dyn FnOnce(&mut Journal) -> Result<(), String>>),
-            );
+            let mut commit = commit;
+            let mut f = |j: &mut Journal| -> crate::journal::Result<()> {
+                match commit.take() {
+                    Some(c) => c(j),
+                    None => Ok(()),
+                }
+            };
+            let r = self.journal.borrow_mut().insert(&new_packet(&base, "accepted", Some(first[0].clone()), None), "packet.accepted", None, Some(&mut f));
             if let Err(e) = r {
                 return IntakeResult::Unavailable { reason: format!("journal write failed: {e}") };
             }
@@ -277,21 +276,15 @@ impl Runner {
             root.cursor = None;
             let copies = copies(&root, &first, &payload, 0);
             let branches: Vec<String> = copies.iter().map(|c| c.branch.clone()).collect();
-            let id2 = id.clone();
-            let root2 = root.clone();
-            let copies2 = copies.clone();
-            let r = self.journal.borrow_mut().insert(
-                NewPacket { state: BRANCHED.into(), cursor: None, error: None, ..NewPacket::from_row(&base) },
-                "packet.accepted",
-                None,
-                Some(Box::new(move |j: &mut Journal| {
-                    if let Some(c) = commit {
-                        c(j)?;
-                    }
-                    j.event("packet.fanned_out", Some(json!({ "branches": branches })), Some(&id2), Some("input"))?;
-                    j.insert_copies(&root2, &copies2, Some("input"))
-                })),
-            );
+            let mut commit = commit;
+            let mut f = |j: &mut Journal| -> crate::journal::Result<()> {
+                if let Some(c) = commit.take() {
+                    c(j)?;
+                }
+                jev(j, "packet.fanned_out", Some(json!({ "branches": branches })), Some(&id), Some("input"))?;
+                j.insert_copies(&root, &copies, Some("input"))
+            };
+            let r = self.journal.borrow_mut().insert(&new_packet(&base, BRANCHED, None, None), "packet.accepted", None, Some(&mut f));
             if let Err(e) = r {
                 return IntakeResult::Unavailable { reason: format!("journal write failed: {e}") };
             }
@@ -409,11 +402,11 @@ impl Runner {
             "pending": stats.pending,
             "duration": format_duration(idle as u64),
             "oldest": {
-                "packet_id": oldest.as_ref().map(|(r, _)| r.root.clone().unwrap_or_else(|| r.id.clone())).unwrap_or_default(),
-                "node": oldest.as_ref().and_then(|(r, _)| r.cursor.clone()).unwrap_or_default(),
-                "age": oldest.as_ref().map(|(r, _)| format_duration((now - r.received_at).max(0) as u64)).unwrap_or_default(),
-                "attempt": oldest.as_ref().map(|(r, _)| r.attempt).unwrap_or(0),
-                "last_error": oldest.as_ref().and_then(|(_, e)| e.clone()).unwrap_or_default(),
+                "packet_id": oldest.as_ref().map(|o| o.row.root.clone().unwrap_or_else(|| o.row.id.clone())).unwrap_or_default(),
+                "node": oldest.as_ref().and_then(|o| o.row.cursor.clone()).unwrap_or_default(),
+                "age": oldest.as_ref().map(|o| format_duration((now - o.row.received_at).max(0) as u64)).unwrap_or_default(),
+                "attempt": oldest.as_ref().map(|o| o.row.attempt).unwrap_or(0),
+                "last_error": oldest.as_ref().and_then(|o| o.last_error.clone()).unwrap_or_default(),
             },
         });
         let c = json!({ "stats": stats.to_value(), "env": self.env, "stall": stall_ctx });
@@ -645,7 +638,7 @@ impl Runner {
                         result,
                         ..Default::default()
                     };
-                    self.journal.borrow_mut().update(id, &patch, &event, Some(&step), None, &extra, ms)?;
+                    upd(&mut self.journal.borrow_mut(), id, &patch, &event, Some(&step), None, &extra, ms)?;
                     // It moved on, so it is no longer stalled (D50).
                     self.s.borrow_mut().hand_over.remove(id);
                     row = self.journal.borrow().get(id)?;
@@ -661,9 +654,9 @@ impl Runner {
         let cs = copies(row, &to, &data, row.hops + 1);
         let branches: Vec<String> = cs.iter().map(|c| c.branch.clone()).collect();
         let mut extra = extra;
-        extra.push((event, None));
+        extra.push(ExtraEvent { kind: event, detail: None });
         let r = self.journal.borrow_mut().atomically(|j| {
-            j.update(
+            upd(j, 
                 &row.id,
                 &PacketPatch {
                     state: Some(BRANCHED.into()),
@@ -699,7 +692,7 @@ impl Runner {
         self.s.borrow_mut().hand_over.remove(id);
         // A copy's end and the settling of the packet it belongs to commit together (D22).
         let settled = self.journal.borrow_mut().atomically(|j| {
-            j.update(
+            upd(j, 
                 id,
                 &PacketPatch { state: Some(state.into()), cursor: Some(None), error: Some(error.clone()), ..Default::default() },
                 &event,
@@ -746,7 +739,7 @@ impl Runner {
         if let Some(s) = &stall {
             detail["stall"] = json!(s);
         }
-        let r = self.journal.borrow_mut().update(
+        let r = upd(&mut self.journal.borrow_mut(), 
             id,
             &PacketPatch {
                 state: Some(ESCALATED.into()),
@@ -811,7 +804,7 @@ impl Runner {
                         Some(c) if c == BATCH_STEP || c == VERIFY_STEP => Some(OUTPUT_STEP.to_string()),
                         other => other.map(str::to_owned),
                     };
-                    j.update(
+                    upd(j, 
                         &row.id,
                         &PacketPatch {
                             state: Some(ESCALATED.into()),
@@ -860,7 +853,6 @@ impl Runner {
                 "a person can resolve them, or turn agent.control on in the pipeline file",
             ));
         }
-        let internal = |e: String| ControlError::new("internal", e, "try again");
         for id in ids {
             let row = self.journal.borrow().get(id).map_err(internal)?;
             let Some(row) = row else {
@@ -901,16 +893,16 @@ impl Runner {
         let reason_r = reason.map(|r| self.secrets.redact(r));
         let result = self.journal.borrow_mut().atomically(|j| {
             for id in ids {
-                let row = j.get(id)?.ok_or_else(|| format!("packet {id} was resolved meanwhile"))?;
+                let row = j.get(id)?.ok_or_else(|| crate::journal::Error::from(format!("packet {id} was resolved meanwhile")))?;
                 if row.state != ESCALATED {
-                    return Err(format!("\u{0}stale:packet {id} was resolved meanwhile"));
+                    return Err(format!("\u{0}stale:packet {id} was resolved meanwhile").into());
                 }
                 // Free text from the caller: a secret pasted into it must never reach the journal.
                 let detail = json!({ "action": action, "by": by_r, "by_kind": by_kind, "reason": reason_r, "error": row.error });
                 if action == "retry" {
                     let state = if row.cursor.as_deref() == Some(OUTPUT_STEP) { "writing" } else { "processing" };
                     let loop_max = row.error.as_ref().map(|e| e.code == "loop.max").unwrap_or(false);
-                    j.update(
+                    upd(j, 
                         id,
                         &PacketPatch {
                             state: Some(state.into()),
@@ -929,13 +921,13 @@ impl Runner {
                     continue;
                 }
                 let state = if action == "drop" { "filtered" } else { "dead_lettered" };
-                j.update(
+                upd(j, 
                     id,
                     &PacketPatch { state: Some(state.into()), cursor: Some(None), ..Default::default() },
                     if action == "drop" { "packet.dropped" } else { "packet.dead_lettered" },
                     row.cursor.as_deref(),
                     error_value(&row.error),
-                    &[("packet.resolved".to_string(), Some(detail))],
+                    &[ExtraEvent { kind: "packet.resolved".to_string(), detail: Some(detail) }],
                     None,
                 )?;
                 settled.push((id.clone(), state.to_string(), row.error.clone()));
@@ -947,7 +939,7 @@ impl Runner {
             Ok(())
         });
         if let Err(e) = result {
-            if let Some(m) = e.strip_prefix("\u{0}stale:") {
+            if let Some(m) = e.to_string().strip_prefix("\u{0}stale:") {
                 return Err(ControlError::new("invalid_state", m, "nothing was resolved; retry"));
             }
             return Err(internal(e));
@@ -1104,7 +1096,7 @@ impl Runner {
             let meta = self.meta(plan, row, id, 1);
             let done = evaluate(&lp.until, &ctx(&data, &meta, &self.env)).map(|v| truthy(&v)).unwrap_or(false);
             if !done {
-                if row.iteration < lp.max as i64 {
+                if row.iteration < lp.max {
                     return Transition::Move {
                         to: lp.back_to.clone(),
                         data,
@@ -1189,17 +1181,17 @@ impl Runner {
         let schema = plan.agent_schemas.get(id).ok_or_else(|| StepError::new(format!("agent node '{id}' has no schema")))?;
         let record = |usage: &crate::agents::AgentUsage| -> u64 {
             let cost = usage.cost_usd.unwrap_or_else(|| price.map(|p| cost_of(p, usage.input_tokens, usage.output_tokens)).unwrap_or(0.0));
-            let r = self.journal.borrow_mut().record_agent_usage(&crate::journal::AgentUsageRow {
+            let r = self.journal.borrow_mut().record_agent_usage(&crate::journal::AgentUsage {
                 at: now_ms(),
                 unit: row.id.clone(),
                 root: root.clone(),
                 node: id.to_string(),
                 provider: name.clone(),
                 model: model.clone(),
-                input_tokens: usage.input_tokens as i64,
-                output_tokens: usage.output_tokens as i64,
+                input_tokens: usage.input_tokens,
+                output_tokens: usage.output_tokens,
                 cost_usd: cost,
-                attempt: attempt_no as i64,
+                attempt: attempt_no,
             });
             if let Err(e) = r {
                 self.log("error", &format!("journal write failed (agent.usage): {e}"));
@@ -1313,7 +1305,7 @@ impl Runner {
             .await
             .map_err(|e| StepError::new(self.secrets.redact(&e)))?;
         for (t, d) in res.events {
-            emitted.borrow_mut().push((t, d.map(|d| self.secrets.redact_value(&d))));
+            emitted.borrow_mut().push(ExtraEvent { kind: t, detail: d.map(|d| self.secrets.redact_value(&d)) });
         }
         Ok(if kind == "transform" { res.data } else { None })
     }
@@ -1484,7 +1476,7 @@ impl Runner {
                     let n = rows.len();
                     let r = self.journal.borrow_mut().atomically(|j| {
                         for (i, row) in rows.iter().enumerate() {
-                            j.update(
+                            upd(j, 
                                 &row.id,
                                 &PacketPatch {
                                     state: Some("verifying".into()),
@@ -1559,9 +1551,9 @@ impl Runner {
         let message = self.secrets.redact(error);
         let r = self.journal.borrow_mut().atomically(|j| {
             for row in rows {
-                j.update(
+                upd(j, 
                     &row.id,
-                    &PacketPatch { attempt: Some(n as i64), ..Default::default() },
+                    &PacketPatch { attempt: Some(n), ..Default::default() },
                     "step.retry",
                     Some("output"),
                     Some(json!({ "attempt": n, "wait": wait, "error": message, "batch": rows.len() })),
@@ -1704,7 +1696,6 @@ impl Runner {
     /// so the ack survives a crash. Repeating an ack is harmless.
     pub async fn ack(&self, id: &str, by: &str) -> Result<Value, ControlError> {
         let name = self.pipeline().name.clone();
-        let internal = |e: String| ControlError::new("internal", e, "try again");
         let found = self.journal.borrow().get(id).map_err(internal)?.ok_or_else(|| {
             ControlError::new(
                 "not_found",
@@ -1763,7 +1754,7 @@ impl Runner {
         }
         let already = self.journal.borrow().latest_event(id, &["packet.acked"]).map_err(internal)?.is_some();
         if !already {
-            self.journal.borrow_mut().event("packet.acked", Some(json!({ "by": by })), Some(id), Some(VERIFY_STEP)).map_err(internal)?;
+            jev(&self.journal.borrow(), "packet.acked", Some(json!({ "by": by })), Some(id), Some(VERIFY_STEP)).map_err(internal)?;
         }
         self.unpark(id);
         Ok(json!({ "packet_id": id, "state": row.state, "acked": true, "already": already }))
@@ -1814,9 +1805,9 @@ impl Runner {
 
     fn retrying(&self, row: &PacketRow, step: &str, error: &str, n: u32, wait: u64) {
         let message = self.secrets.redact(error);
-        let r = self.journal.borrow_mut().update(
+        let r = upd(&mut self.journal.borrow_mut(), 
             &row.id,
-            &PacketPatch { attempt: Some(n as i64), ..Default::default() },
+            &PacketPatch { attempt: Some(n), ..Default::default() },
             "step.retry",
             Some(step),
             Some(json!({ "attempt": n, "wait": wait, "error": message })),
@@ -1849,7 +1840,7 @@ fn stall_escalation(row: &PacketRow, message: &str) -> Transition {
 }
 
 /// The copies a fan-out creates: one per consumer, branch path `<parent branch>/<consumer>` (D22).
-fn copies(parent: &PacketRow, to: &[String], data: &Value, hops: i64) -> Vec<crate::journal::NewCopy> {
+fn copies(parent: &PacketRow, to: &[String], data: &Value, hops: u32) -> Vec<crate::journal::NewCopy> {
     to.iter()
         .map(|cursor| {
             let segment = if cursor == OUTPUT_STEP { "output" } else { cursor.as_str() };
@@ -1865,4 +1856,65 @@ fn copies(parent: &PacketRow, to: &[String], data: &Value, hops: i64) -> Vec<cra
             }
         })
         .collect()
+}
+
+/// `Journal::update` with an owned detail.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn upd(
+    j: &mut Journal,
+    id: &str,
+    patch: &PacketPatch,
+    event: &str,
+    node: Option<&str>,
+    detail: Option<Value>,
+    extra: &[ExtraEvent],
+    ms: Option<f64>,
+) -> crate::journal::Result<()> {
+    j.update(id, patch, event, node, detail.as_ref(), extra, ms)
+}
+
+/// `Journal::event` with an owned detail.
+pub(super) fn jev(j: &Journal, kind: &str, detail: Option<Value>, packet_id: Option<&str>, node: Option<&str>) -> crate::journal::Result<()> {
+    j.event(kind, detail.as_ref(), packet_id, node)
+}
+
+/// A root packet as the input hands it over, before it is journaled.
+fn root_row(id: &str, version: i64, data: Value, origin: &Origin, received_at: i64) -> PacketRow {
+    PacketRow {
+        id: id.to_string(),
+        version,
+        state: "accepted".into(),
+        cursor: None,
+        data,
+        trigger: origin.trigger.clone(),
+        source: origin.source.clone(),
+        attempt: 0,
+        iteration: 0,
+        hops: 0,
+        error: None,
+        result: Value::Null,
+        received_at,
+        updated_at: received_at,
+        root: None,
+        parent: None,
+        branch: String::new(),
+    }
+}
+
+fn new_packet(base: &PacketRow, state: &str, cursor: Option<String>, error: Option<PacketError>) -> NewPacket {
+    NewPacket {
+        id: base.id.clone(),
+        version: base.version,
+        state: state.into(),
+        cursor,
+        data: base.data.clone(),
+        trigger: base.trigger.clone(),
+        source: base.source.clone(),
+        error,
+        received_at: base.received_at,
+    }
+}
+
+fn internal<E: ToString>(e: E) -> ControlError {
+    ControlError::new("internal", e.to_string(), "try again")
 }

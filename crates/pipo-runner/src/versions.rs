@@ -2,6 +2,7 @@
 // live apply may change, and the files each version runs with. A version stores its compiled form (pipeline, fn
 // bundle, schemas), so a version runs the code it was compiled with; files on disk matter only to a new compile.
 
+use crate::journal::FileHashes;
 use crate::pipeline::Pipeline;
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde_json::{Map, Value};
@@ -212,19 +213,17 @@ fn short(h: Option<&str>) -> String {
 /// Compare the files `recorded` with version `of` against those it `runs` with now (D60). `as_` names the version
 /// that runs them when it isn't `of` itself (a rollback runs v<of>'s source as a new version).
 pub fn file_changes(
-    recorded: Option<&Map<String, Value>>,
-    runs: &Map<String, Value>,
+    recorded: Option<&FileHashes>,
+    runs: &FileHashes,
     of: i64,
     pipeline: &str,
     as_: Option<(i64, &str)>,
 ) -> Vec<VersionWarning> {
     let Some(recorded) = recorded else { return vec![] };
-    let mut files: Vec<(&String, &Value)> = recorded.iter().collect();
-    files.sort_by(|a, b| a.0.cmp(b.0));
     let mut out = vec![];
-    for (file, was) in files {
-        let was = was.as_str().unwrap_or_default();
-        let now = runs.get(file).and_then(|v| v.as_str());
+    for (file, was) in recorded {
+        let was = was.as_str();
+        let now = runs.get(file).map(String::as_str);
         if now == Some(was) {
             continue;
         }
@@ -299,4 +298,9 @@ mod tests {
     fn canon_sorts_keys() {
         assert_eq!(canon(&json!({"b": 1, "a": [true, null, "x"]})), r#"{"a":[true,null,"x"],"b":1}"#);
     }
+}
+
+/// D60 file hashes as `pipo compile` gives them (a JSON map) in the journal's form.
+pub fn file_hashes(files: &Map<String, Value>) -> FileHashes {
+    files.iter().filter_map(|(k, v)| v.as_str().map(|h| (k.clone(), h.to_string()))).collect()
 }

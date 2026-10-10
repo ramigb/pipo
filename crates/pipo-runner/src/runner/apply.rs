@@ -176,7 +176,7 @@ impl Runner {
                 ));
             }
         }
-        let number = self.journal.borrow().latest_version().ok().flatten().map(|(v, _)| v).unwrap_or(0) + 1;
+        let number = self.journal.borrow().latest_version().ok().flatten().map(|l| l.version).unwrap_or(0) + 1;
         let compiled = Rc::new(compiled);
         let plan = plan::build(number, compiled.clone(), &self.fns)
             .await
@@ -189,17 +189,13 @@ impl Runner {
         let reason = self.secrets.redact(&how.reason);
         let proposal_id = how.proposal.as_ref().map(|(id, _)| id.clone());
         let result = self.journal.borrow_mut().atomically(|j| {
-            let v = j.add_version(
-                hash,
-                source,
-                &author,
-                Some(&reason),
-                Some((number, previous)),
-                how.author_kind.as_deref(),
-                proposal_id.as_deref(),
-                Some(&compiled.files),
-                Some(&compiled.raw),
-            )?;
+            let audit = crate::journal::VersionAudit {
+                author_kind: how.author_kind.clone(),
+                proposal: proposal_id.clone(),
+                files: Some(crate::versions::file_hashes(&compiled.files)),
+            };
+            let applied = crate::journal::Applied { expect: number, previous };
+            let v = j.add_version(hash, source, &author, Some(&reason), Some(applied), &audit, Some(&compiled.raw))?;
             crash_point("apply.in_transaction");
             if let Some((id, by)) = &how.proposal {
                 crate::proposals::mark_applied_in(j, id, v, by)?;
@@ -237,7 +233,7 @@ impl Runner {
     pub async fn rollback(&self, to: i64, by: &str) -> Result<Value, ControlError> {
         let name = self.pipeline().name.clone();
         let source = self.journal.borrow().version_source(to).map_err(|_| {
-            let latest = self.journal.borrow().latest_version().ok().flatten().map(|(v, _)| v).unwrap_or(0);
+            let latest = self.journal.borrow().latest_version().ok().flatten().map(|l| l.version).unwrap_or(0);
             ControlError::new(
                 "not_found",
                 format!("{name} has no version {to} (versions are v1 to v{latest})"),
@@ -247,7 +243,7 @@ impl Runner {
         let applied = self
             .apply_version(&source, How { author: by.to_string(), reason: format!("rollback to v{to}"), author_kind: None, proposal: None })
             .await?;
-        let runs = self.compiled.borrow().files.clone();
+        let runs = crate::versions::file_hashes(&self.compiled.borrow().files);
         let recorded = self.journal.borrow().version_files(to).ok().flatten();
         let what = if applied.changed { format!("rollback to v{to}") } else { "running".to_string() };
         let as_ = if applied.version == to { None } else { Some((applied.version, what.as_str())) };

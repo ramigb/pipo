@@ -30,3 +30,8 @@ impl Default for Proposals {
         Self::new()
     }
 }
+
+/// Mark a proposal applied inside the transaction that stores its version (D49).
+pub fn mark_applied_in(_j: &mut crate::journal::Journal, id: &str, _version: i64, _by: &str) -> Result<(), crate::journal::Error> {
+    Err(crate::journal::Error::Message(format!("proposal {id}: proposals are not ported yet")))
+}

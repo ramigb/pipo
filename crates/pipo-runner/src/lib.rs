@@ -16,6 +16,7 @@ pub mod jsfn;
 pub mod journal;
 pub mod lifecycle;
 pub mod liveness;
+pub mod output_key;
 pub mod pipeline;
 pub mod plan;
 pub mod policy;
