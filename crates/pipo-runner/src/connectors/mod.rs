@@ -4,7 +4,6 @@
 // The runner is single-threaded (a current-thread tokio runtime with a LocalSet), so connectors use `Rc`,
 // `RefCell` and non-`Send` futures, the way the TS version relies on one event loop.
 
-pub mod cron_port;
 pub mod exec;
 pub mod file_out;
 pub mod http_input;

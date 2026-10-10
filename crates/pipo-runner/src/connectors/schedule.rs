@@ -2,7 +2,7 @@
 // handed to the runner's intake, which journals the packet; only then is the next fire armed. Fires missed while
 // the runner was down or suspended are skipped, not replayed (spec §14).
 
-use super::cron_port::{Cron, next_cron, parse_cron};
+use crate::cron::{Cron, next_cron, parse_cron};
 use super::{InputAdapter, InputRuntime, Intake, IntakeResult, LocalBoxFuture, Log, Origin, Stopper};
 use crate::duration::{format_duration, parse_duration};
 use crate::time::{iso, now_ms};
