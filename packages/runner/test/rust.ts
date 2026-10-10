@@ -52,6 +52,8 @@ export class RustRunner {
       `${name} runner registry entry`,
     ).catch((e) => {
       const kids = Bun.spawnSync(["ps", "--ppid", String(proc.pid), "-o", "pid=,etimes=,args="]).stdout.toString();
+      // Never leave a runner behind when its start is given up on.
+      proc.kill("SIGKILL");
       throw new Error(`${(e as Error).message}\nchildren:\n${kids}\nstderr: ${readFileSync(`${log}.err`, "utf8")}`);
     });
     const client = await ControlClient.connect(entry.socket);
