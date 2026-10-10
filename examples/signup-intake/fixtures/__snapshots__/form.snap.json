@@ -1,0 +1,26 @@
+{
+  "fixture": "form",
+  "outcome": "delivered",
+  "units": [
+    {
+      "unit": "form",
+      "branch": "",
+      "outcome": "delivered",
+      "path": ["clean", "output"],
+      "data": {
+        "email": "ada@example.com",
+        "name": "Ada",
+        "via": "form"
+      },
+      "write": {
+        "key": "form",
+        "to": "pipeline",
+        "with": {
+          "pipeline": "signup-store"
+        }
+      }
+    }
+  ],
+  "taps": [],
+  "calls": []
+}

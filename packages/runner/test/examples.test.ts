@@ -4,7 +4,7 @@ import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homeAgentBudget } from "../src";
-import { copyExampleDir, sandbox, waitFor } from "./helpers";
+import { copyExampleDir, rows, sandbox, waitFor } from "./helpers";
 import { RustRunner } from "./rust";
 
 setDefaultTimeout(30_000);
@@ -132,5 +132,24 @@ describe("examples", () => {
       pipelines: { "ticket-triage": 0.0018 },
     });
     expect(await r.stop()).toBe(0);
+  });
+
+  test("signup-intake hands each form sign-up to signup-store, which writes it once (a chain, D77)", async () => {
+    const box = sandbox();
+    cleanups.push(() => box.cleanup());
+    for (const name of ["signup-intake", "signup-store"]) copyExampleDir(join(EXAMPLES, name), join(box.root, name));
+    const store = await open(box, join(box.root, "signup-store", "signup-store.pipo"), "signup-store");
+    const intake = await open(box, join(box.root, "signup-intake", "signup-intake.pipo"), "signup-intake");
+    const res = await intake.post("/form", { email: " Ada@Example.com ", name: "Ada" });
+    expect(res.status).toBe(202);
+    const { packet_id } = (await res.json()) as { packet_id: string };
+    expect((await intake.settled(packet_id, 15_000)).state).toBe("delivered");
+    const db = join(box.root, "signup-store", "data", "signups.db");
+    expect(rows(db, "SELECT email, name, via, from_pipeline FROM signups")).toEqual([
+      { email: "ada@example.com", name: "Ada", via: "form", from_pipeline: "signup-intake" },
+    ]);
+    const fix = await store.request("push", { input: "manual", data: { email: "ada@example.com", name: "Ada L." } });
+    expect((await store.settled(fix.packet_id)).state).toBe("delivered");
+    expect(rows(db, "SELECT name, via FROM signups")).toEqual([{ name: "Ada L.", via: "manual" }]);
   });
 });

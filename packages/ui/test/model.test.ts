@@ -342,3 +342,63 @@ describe("data shapes (D70)", () => {
     ]);
   });
 });
+
+describe("several inputs (D76)", () => {
+  test("adding an input moves input: to inputs: in its place; removing back to one named input undoes it", () => {
+    const blank = M.blankPipeline("multi");
+    expect(M.inputsOf(blank)).toEqual([["input", { via: "push" }]]);
+    const { p, id } = M.addInput(blank, "http");
+    expect(id).toBe("webhook");
+    expect(Object.keys(p)).toEqual(["pipo", "name", "description", "inputs", "output"]);
+    expect(p.inputs).toEqual({ input: { via: "push" }, webhook: { via: "http", with: { path: "/" } } });
+    expect(
+      M.blocks(p)
+        .filter((b: any) => b.kind === "input")
+        .map((b: any) => b.id),
+    ).toEqual(["input", "webhook"]);
+    expect(M.isInput(p, "webhook")).toBe(true);
+    expect(M.inputPath(p, "webhook")).toEqual(["inputs", "webhook"]);
+    expect(M.outPorts(p, "webhook")).toEqual([null]);
+    const wired = M.connect(p, "webhook", "output");
+    expect(wired.output.from).toEqual(["input", "webhook"]);
+    expect(M.connectProblem(wired, "input", "webhook")).toContain("an input");
+    const back = M.removeNode(wired, "webhook");
+    expect(back.input).toEqual({ via: "push" });
+    expect(back.inputs).toBeUndefined();
+    expect(back.output.from).toBe("input");
+    expect(Object.keys(back)).toEqual(["pipo", "name", "description", "input", "output"]);
+    // The last input stays.
+    expect(M.removeNode(blank, "input")).toBe(blank);
+  });
+
+  test("inputs and nodes share names; renaming the shorthand input moves it into inputs:", () => {
+    let { p } = M.addInput(M.blankPipeline("n"), "schedule");
+    expect(M.freshId(p, "schedule")).toBe("schedule_2");
+    expect(M.renameProblem(p, "input", "schedule")).toContain("an input called 'schedule'");
+    p = M.renameNode(p, "schedule", "nightly");
+    expect(Object.keys(p.inputs)).toEqual(["input", "nightly"]);
+    const single = M.renameNode(M.blankPipeline("r"), "input", "hook");
+    expect(single.input).toBeUndefined();
+    expect(single.inputs).toEqual({ hook: { via: "push" } });
+    expect(single.output.from).toBe("hook");
+    expect(M.setInput(single, "http", "hook").inputs.hook).toEqual({ via: "http", with: { path: "/" } });
+    expect(M.addNode(single, "tap", "log").p.nodes.log.from).toBe("hook");
+  });
+
+  test("diagnostics and data shapes find their input", () => {
+    const by = M.diagnosticsByBlock([{ path: ["inputs", "hook", "with"] }, { path: ["input", "via"] }]);
+    expect([...by.keys()]).toEqual(["hook", "input"]);
+    const p = {
+      pipo: 1,
+      name: "s",
+      inputs: { tick: { via: "schedule", with: { every: "1m", payload: { a: 1 } } } },
+      output: { from: "tick", to: "stdout" },
+    };
+    expect(M.shapeIn(p, "output", { inputs: {}, schemaOf: () => null })).toEqual({ a: 1 });
+  });
+
+  test("starter blocks for chains", () => {
+    expect(M.starterInput("pipeline")).toEqual({ via: "pipeline", with: { from: ["other-pipeline"] } });
+    expect(M.starterOutput("pipeline")).toEqual({ to: "pipeline", with: { pipeline: "next-pipeline" } });
+  });
+});

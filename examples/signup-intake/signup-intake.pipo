@@ -1,0 +1,43 @@
+# Sign-ups come in two ways: a web form and a nightly import. Both are cleaned the same way, then handed to
+# signup-store, which writes and verifies them (a chain, docs/spec.md §3.14). Several inputs, one output (§3.3.1).
+#   bun pipo start examples/signup-store/signup-store.pipo
+#   bun pipo start examples/signup-intake/signup-intake.pipo --listen 8790
+#   curl -X POST localhost:8790/in/signup-intake/form -H 'content-type: application/json' \
+#     -d '{"email": " Ada@Example.com ", "name": "Ada"}'
+pipo: 1
+name: signup-intake
+description: Sign-ups from a web form and a nightly import, cleaned and handed to signup-store.
+
+inputs:
+  form:
+    via: http
+    with: {path: /form}
+    validate:
+      - exists(data.email)
+  nightly:
+    via: schedule
+    with:
+      cron: "0 3 * * *"
+      payload: {email: import@example.com, name: Nightly import}
+
+nodes:
+  clean:
+    from: [form, nightly]
+    transform: map
+    with:
+      data:
+        email: "${lower(trim(data.email))}"
+        name: "${trim(default(data.name, ''))}"
+        via: "${meta.input}"
+
+output:
+  from: clean
+  to: pipeline
+  with: {pipeline: signup-store}
+  on_error: {retry: 10, backoff: exponential, delay: 1s, max_delay: 30s}
+
+# Delivered only once signup-store has written and verified it, not just received it.
+delivered:
+  check: downstream
+  within: 1m
+  on_fail: {then: dead_letter}

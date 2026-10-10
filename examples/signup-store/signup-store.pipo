@@ -1,0 +1,36 @@
+# Keeps one row per sign-up email in ./data/signups.db. It takes packets from signup-intake (`to: pipeline`) and
+# from `pipo push` for manual fixes, and checks each row landed (docs/spec.md §3.3.1, §3.14).
+#   bun pipo start examples/signup-store/signup-store.pipo
+#   bun pipo push signup-store --input manual --data '{"email": "grace@example.com", "name": "Grace"}'
+pipo: 1
+name: signup-store
+description: One row per sign-up, fed by signup-intake and by hand.
+
+inputs:
+  intake:
+    via: pipeline
+    with: {from: [signup-intake]}
+  manual:
+    via: push
+    validate:
+      - exists(data.email)
+
+output:
+  from: [intake, manual]
+  to: sqlite
+  with:
+    path: ./data/signups.db
+    table: signups
+    create: true
+    mode: upsert
+    key: email
+    columns:
+      email: "${data.email}"
+      name: "${data.name}"
+      via: "${default(data.via, meta.input)}"
+      from_pipeline: "${default(meta.upstream.pipeline, '')}"
+
+delivered:
+  check: record_exists
+  with:
+    where: {email: "${data.email}"}

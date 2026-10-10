@@ -93,7 +93,7 @@ Done:
 Next:
 
 - More connectors: `postgres`, `mqtt`, `s3`, queues.
-- Join and window nodes, multiple outputs (`outputs:`), and batch mode for `http`.
+- Join and window nodes, and batch mode for `http`. (Several inputs and chains are built: spec §3.3.1, §3.14. Multiple outputs are not planned: one output by design, spec D78.)
 - A connector SDK and a template registry, with sandboxing for `fn` modules (§11).
 - Distributed sub-engines: runners placed on other machines, controlled from one engine.
 - OpenTelemetry export (`engine.otlp`, D41).

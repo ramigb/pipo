@@ -404,7 +404,7 @@ function flow(e) {
   const svg = document.querySelector("svg.graph-svg");
   if (!svg || svg.dataset.pipeline !== e.pipeline) return;
   let from = null;
-  if (e.type === "packet.accepted") from = "input";
+  if (e.type === "packet.accepted") from = e.node ?? "input";
   else if (e.type === "node.done" || e.type === "node.looped") from = e.node;
   if (!from) return;
   const branch = e.detail?.branch;
@@ -510,6 +510,17 @@ function loadWorkspaceFiles() {
     });
 }
 
+/** Who a pipeline feeds and who feeds it (chains, §3.14, D77), or null. */
+function chainLine(chain) {
+  if (!chain || (!chain.feeds && !chain.fed_by?.length)) return null;
+  return h(
+    "div",
+    { class: "pcard-meta muted small", title: "chained pipelines: to: pipeline → via: pipeline" },
+    chain.fed_by?.length ? h("span", null, `🔗 from ${chain.fed_by.join(", ")}`) : null,
+    chain.feeds ? h("span", null, `🔗 feeds ${chain.feeds}`) : null,
+  );
+}
+
 async function listView() {
   loadWorkspaceFiles();
   const [{ pipelines }, info] = await Promise.all([api("/pipelines"), api("/engine")]);
@@ -534,6 +545,7 @@ async function listView() {
         h("span", null, "⏱️ ", lifetimeCell(p.lifetime)),
         st?.oldest_ms ? h("span", null, `🐢 oldest ${fmtAge(st.oldest_ms)}`) : null,
       ),
+      chainLine(p.chain),
       h(
         "div",
         { class: "minis" },

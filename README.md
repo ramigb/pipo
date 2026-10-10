@@ -78,7 +78,7 @@ Pipo is built for local and self-hosted developer workflows: continuous data mov
 
 | Concept | Role |
 |---|---|
-| **`.pipo` file** | The named pipeline definition: one input, nodes, one output and an optional delivery check. The builder edits this file too. |
+| **`.pipo` file** | The named pipeline definition: one or more inputs, nodes, one output and an optional delivery check. One pipeline's output can feed another's input (a chain). The builder edits this file too. |
 | **Packet** | One accepted unit of data, with a `packet_id` and a pinned pipeline version. |
 | **Runner** | One process per pipeline, executing its graph and owning its schedules, lifetime and recovery. |
 | **Journal** | The runner's durable SQLite log of packets, committed transitions, errors, versions and dead-lettered packets. |
@@ -92,17 +92,18 @@ Control can move from a human to an agent and back while the pipeline remains th
 
 Phase 1 (the MVP in spec §12) is done, and Phase 2 has started: the visual builder is built, agent nodes can run through coding-agent CLIs on your machine, pipelines can talk through Telegram bots, and steps can run installed programs. Pipo runs on Linux and macOS. Working today:
 
-- The `.pipo` language, validated by `pipo check` (P001–P058).
+- The `.pipo` language, validated by `pipo check` (P001–P064).
 - The runner: durable journal, crash recovery, error policies, batching, fan-out, loops, lifetime and stall detection, retention clean-up, version pinning.
 - Inputs `http`, `schedule`, `watch` (a glob, or a plain folder for every file below it), `system`, `push`, `telegram`; taps, transforms and outputs for `http`, `file`, `sqlite`, `stdout`, `telegram`; delivery checks including `external`.
 - Exec steps that run a program installed on the machine, such as `ffmpeg` or `pandoc` (see [Running programs](#running-programs)).
 - Telegram bots as an input, a tap and an output (see [Telegram bots](#telegram-bots)).
+- Several inputs per pipeline (`inputs:`, spec §3.3.1), and chains: one pipeline's output (`to: pipeline`) feeds another's `via: pipeline` input exactly once, with an end-to-end `downstream` delivery check (spec §3.14; see `examples/signup-intake`).
 - Agent nodes, through the Anthropic API or a local CLI (see [Agents](#agents)), with schemas, timeouts and `agent_budget` (per packet, per day, and engine-wide).
 - The MCP endpoint `/mcp` and the change protocol for agents (proposals, validation, dry run, apply as a new version).
 - The engine (`pipod`): supervisor, gateway, SSE events, detached runners and reattach, per-node latency and oldest-pending metrics, and CPU and memory per pipeline.
 - The CLI (including `pipo test` and `pipo proposals`), the dashboard with its drag-and-drop builder, and the VS Code extension.
 
-Still to come in Phase 2: more connectors (`postgres`, `mqtt`, `s3`, queues), join and window nodes, multiple outputs, a connector SDK and template registry, distributed sub-engines, OpenTelemetry export, `fn` sandboxing and a language server. See the [roadmap](docs/roadmap.md).
+Still to come in Phase 2: more connectors (`postgres`, `mqtt`, `s3`, queues), join and window nodes, a connector SDK and template registry, distributed sub-engines, OpenTelemetry export, `fn` sandboxing and a language server. See the [roadmap](docs/roadmap.md).
 
 ## Running through the engine
 

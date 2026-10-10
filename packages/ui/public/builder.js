@@ -11,6 +11,7 @@ import { ApiError, api, EngineDown, h, s, toast } from "./dom.js";
 import { autoLayout } from "./layout.js";
 import { badge, connectorEmoji, fmtJson, kindEmoji, mascot } from "./look.js";
 import {
+  addInput,
   addNode,
   blankPipeline,
   blocks,
@@ -21,8 +22,13 @@ import {
   disconnect,
   edges,
   exampleOf,
+  firstInput,
   getPath,
   History,
+  inputOf,
+  inputPath,
+  inputsOf,
+  isInput,
   outPorts,
   parseRef,
   refOf,
@@ -349,7 +355,7 @@ function geometry() {
         x: at.x + w,
         y: at.y + (ports.length === 1 ? hh / 2 : 20 + i * PORT_GAP),
       })),
-      inPort: b.id === "input" ? null : { x: at.x, y: at.y + hh / 2 },
+      inPort: b.kind === "input" ? null : { x: at.x, y: at.y + hh / 2 },
     });
   }
   return g;
@@ -665,13 +671,34 @@ function palette() {
   ];
 }
 
-/** Add a palette item: a node joins in before the output (or after the selected block); ends are swapped. */
+/**
+ * Add a palette item: a node joins in before the output (or after the selected block); the output is swapped. An
+ * input swaps the selected input's connector, else it is added, feeding what the first input feeds (D76).
+ */
 function place(item, at) {
   let p = P();
   if (item.kind === "input") {
-    commit(setInput(p, item.connector));
-    select({ type: "block", id: "input" });
-    return toast(`Input is now ${connectorEmoji(item.connector)} ${item.connector}`);
+    const sel = B.selected?.type === "block" && isInput(p, B.selected.id) ? B.selected.id : null;
+    if (sel) {
+      commit(setInput(p, item.connector, sel));
+      select({ type: "block", id: sel });
+      return toast(`${sel} is now ${connectorEmoji(item.connector)} ${item.connector}`);
+    }
+    const first = firstInput(p);
+    const fed = edges(p)
+      .filter((e) => e.ref === first)
+      .map((e) => e.to);
+    let id;
+    ({ p, id } = addInput(p, item.connector));
+    for (const to of fed) p = connect(p, id, to);
+    const from = B.pos.get(first);
+    if (at) B.drop = at;
+    else if (from) B.drop = makeRoom(from.x, from.y + H + 40);
+    commit(p);
+    select({ type: "block", id });
+    return toast(
+      `Added ${connectorEmoji(item.connector)} ${id}, feeding what ${first} feeds; select an input to swap it instead`,
+    );
   }
   if (item.kind === "output") {
     commit(setOutput(p, item.connector));
@@ -693,7 +720,7 @@ function place(item, at) {
     if (!at && from) at = makeRoom(from.x + W + 70, from.y);
   } else {
     // Slotted in before the output: it takes the output's feeds, and feeds the output.
-    ({ p, id } = addNode(p, item.kind, item.connector, p.output?.from ?? "input", {
+    ({ p, id } = addNode(p, item.kind, item.connector, p.output?.from ?? firstInput(p), {
       model: starterModel(item.connector),
     }));
     p = setPath(p, "output.from", refOf(id, outPorts(p, id)[0] ?? null));
@@ -771,7 +798,7 @@ function draw() {
     const bad = errorsOf(problems).length;
     const sel = B.selected?.type === "block" && B.selected.id === b.id;
     const t = B.trace.get(b.id);
-    const node = b.id === "input" ? p.input : b.id === "output" ? p.output : p.nodes?.[b.id];
+    const node = b.kind === "input" ? inputOf(p, b.id) : b.id === "output" ? p.output : p.nodes?.[b.id];
     const sub = b.kind === "filter" ? node?.filter : b.kind === "route" ? `${b.ports.length} paths` : b.connector;
     kids.push(
       s(
@@ -1045,7 +1072,7 @@ function deleteSelected() {
     side();
     return toast("Snip ✂️");
   }
-  if (sel.id === "input" || sel.id === "output")
+  if (sel.id === "output" || (isInput(P(), sel.id) && inputsOf(P()).length < 2))
     return toast("The input and output always stay; drop another one from the palette to swap it 🔁", "warn");
   removeBlock(sel.id);
 }
@@ -1159,7 +1186,7 @@ function fixFor(d) {
   if (d.code !== "P014" || path.at(-1) !== "schema") return null;
   const rel = getPath(P(), path);
   if (typeof rel !== "string") return null;
-  const purpose = path[0] === "input" ? "input" : "agent";
+  const purpose = path[0] === "input" || path[0] === "inputs" ? "input" : "agent";
   return h(
     "button",
     { type: "button", class: "btn small primary fix", onclick: () => writeSchema(rel, starterSchema(rel, purpose)) },
@@ -1560,7 +1587,8 @@ function inspector() {
   const id = sel.id;
   const p = P();
   const here = h("div", { class: "b-problems-here" }, problemList(diagnosticsByBlock(B.diagnostics).get(id) ?? []));
-  if (id === "input") return [heading("input", p.input.via, "input"), here, dataFold(id), inputForm()];
+  if (isInput(p, id))
+    return [heading("input", inputsOf(p).length > 1 ? id : inputOf(p, id).via, id), here, dataFold(id), inputForm(id)];
   if (id === "output") return [heading("output", p.output.to, "output"), here, dataFold(id), outputForm()];
   const node = p.nodes?.[id];
   if (!node) return pipelineForm();
@@ -1585,8 +1613,8 @@ function dataFold(id) {
       return st?.exists ? (st.schema ?? null) : null;
     },
   };
-  const shape = id === "input" ? shapeOut(P(), id, ctx) : shapeIn(P(), id, ctx);
-  const title = id === "input" ? "📦 Data it sends" : "📦 Data coming in";
+  const shape = isInput(P(), id) ? shapeOut(P(), id, ctx) : shapeIn(P(), id, ctx);
+  const title = isInput(P(), id) ? "📦 Data it sends" : "📦 Data coming in";
   if (shape === null)
     return fold(
       title,
@@ -1637,7 +1665,7 @@ function heading(kind, title, id) {
     { class: "b-head" },
     h("span", { class: "b-head-emoji" }, kindEmoji(kind)),
     h("div", null, h("h3", null, title), h("div", { class: "muted small" }, BLURB[kind] ?? "")),
-    id !== "input" && id !== "output"
+    id !== "output" && !(isInput(P(), id) && inputsOf(P()).length < 2)
       ? h(
           "button",
           {
@@ -1682,8 +1710,8 @@ function feedsField(path) {
   );
 }
 
-function nodeForm(id, node, kind) {
-  const base = ["nodes", id];
+/** The name field of a node or an input: other blocks refer to it by this name, so a rename fixes their refs. */
+function nameField(id, hint) {
   const idInput = h("input", {
     class: "code",
     value: id,
@@ -1704,8 +1732,13 @@ function nodeForm(id, node, kind) {
       commit(renameNode(P(), id, next));
     },
   });
+  return field("id", idInput, hint);
+}
+
+function nodeForm(id, node, kind) {
+  const base = ["nodes", id];
   const parts = [
-    field("id", idInput, "other blocks refer to it by this name"),
+    nameField(id, "other blocks refer to it by this name"),
     field("label", bound([...base, "label"], "text", { placeholder: "a few words for humans" })),
     feedsField([...base, "from"]),
   ];
@@ -1897,18 +1930,25 @@ function routeForm(id, node) {
   );
 }
 
-function inputForm() {
+function inputForm(id) {
   const p = P();
-  const m = catalog.inputs[p.input.via];
+  const input = inputOf(p, id);
+  const at = inputPath(p, id);
+  const m = catalog.inputs[input.via];
   return [
-    feedsHint("Packets enter the pipeline here."),
+    feedsHint(
+      inputsOf(p).length > 1
+        ? "Packets enter the pipeline here; meta.input tells them apart from the other inputs' packets."
+        : "Packets enter the pipeline here. Drop another input from the palette to take packets from two places.",
+    ),
+    nameField(id, "nodes take packets from it by this name (from:)"),
     field(
       "comes from",
       h(
         "select",
-        { onchange: (e) => commit(setInput(P(), e.target.value)) },
+        { onchange: (e) => commit(setInput(P(), e.target.value, id)) },
         Object.keys(catalog.inputs).map((n) =>
-          h("option", { value: n, selected: p.input.via === n ? true : null }, `${connectorEmoji(n)} ${n}`),
+          h("option", { value: n, selected: input.via === n ? true : null }, `${connectorEmoji(n)} ${n}`),
         ),
       ),
       m?.description,
@@ -1917,32 +1957,35 @@ function inputForm() {
       "div",
       { class: "fold-plain" },
       h("div", { class: "field-label" }, "⚙️ settings"),
-      schemaForm(m?.with, ["input", "with"]),
+      schemaForm(m?.with, [...at, "with"]),
     ),
-    p.input.via === "http" && window.pipoEngine?.listen
+    input.via === "http" && window.pipoEngine?.listen
       ? h(
           "p",
           { class: "muted small wrapany" },
           "📮 Once it runs, send packets to ",
-          h("code", null, `http://127.0.0.1:${window.pipoEngine.listen}/in/${p.name}${p.input.with?.path ?? "/"}`),
+          h("code", null, `http://127.0.0.1:${window.pipoEngine.listen}/in/${p.name}${input.with?.path ?? "/"}`),
         )
+      : null,
+    input.via === "pipeline"
+      ? feedsHint("Other pipelines feed it with `to: pipeline`; list the ones allowed in `from`.")
       : null,
     fold(
       "🛂 Checks at the door",
-      !!(p.input.validate || p.input.schema || p.input.format),
-      field("format", bound(["input", "format"], "select", { options: ["json", "text", "csv", "form", "bytes"] })),
+      !!(input.validate || input.schema || input.format),
+      field("format", bound([...at, "format"], "select", { options: ["json", "text", "csv", "form", "bytes"] })),
       field(
         "schema",
-        bound(["input", "schema"], "code", { placeholder: "./person.schema.json" }),
+        bound([...at, "schema"], "code", { placeholder: "./person.schema.json" }),
         "a JSON Schema file next to the pipeline",
       ),
-      schemaFold(p.input.schema, "input"),
+      schemaFold(input.schema, "input"),
       field(
         "validate",
-        bound(["input", "validate"], "lines", { placeholder: "data.email != null", expr: true }),
+        bound([...at, "validate"], "lines", { placeholder: "data.email != null", expr: true }),
         "one rule per line; all must hold",
       ),
-      field("if invalid", bound(["input", "on_invalid", "then"], "select", { options: catalog.then })),
+      field("if invalid", bound([...at, "on_invalid", "then"], "select", { options: catalog.then })),
     ),
   ];
 }
@@ -2263,7 +2306,7 @@ async function dryRun(fixtures) {
 function traceOf(f) {
   const trace = new Map();
   if (!f) return trace;
-  if (f.outcome === "rejected") return trace.set("input", { status: "bad", via: new Set() });
+  if (f.outcome === "rejected") return trace.set(f.input ?? firstInput(P()), { status: "bad", via: new Set() });
   const mark = (id, status) => {
     const cur = trace.get(id) ?? { status: "ok", via: new Set() };
     if (status !== "ok") cur.status = status;
@@ -2333,7 +2376,7 @@ function testResult(r) {
                       h(
                         "span",
                         { class: "mono" },
-                        `${kindEmoji(st.step === "input" ? "input" : st.step === "output" ? "output" : blocks(P()).find((b) => b.id === parseRef(st.step).node)?.kind)} ${st.step}`,
+                        `${kindEmoji(isInput(P(), st.step) ? "input" : st.step === "output" ? "output" : blocks(P()).find((b) => b.id === parseRef(st.step).node)?.kind)} ${st.step}`,
                       ),
                     ),
                     h("pre", null, fmtJson(st.data)),

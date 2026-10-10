@@ -29,6 +29,24 @@ export function blankPipeline(name = "my-pipeline") {
   };
 }
 
+/** The inputs as [name, input] in file order: `input:` is the one input named `input` (§3.3.1, D76). */
+export function inputsOf(p) {
+  if (p?.inputs && typeof p.inputs === "object") return Object.entries(p.inputs);
+  return p?.input ? [["input", p.input]] : [];
+}
+
+/** Whether `id` names one of the pipeline's inputs. */
+export const isInput = (p, id) => inputsOf(p).some(([n]) => n === id);
+
+/** Where input `name` lives in the value: `["input"]` for the shorthand, else `["inputs", name]`. */
+export const inputPath = (p, name) => (p?.inputs ? ["inputs", name] : ["input"]);
+
+/** Input `name`'s block, or undefined. */
+export const inputOf = (p, name) => inputsOf(p).find(([n]) => n === name)?.[1];
+
+/** The first input's name, where a new block takes its packets from by default. */
+export const firstInput = (p) => inputsOf(p)[0]?.[0] ?? "input";
+
 /** The kind of a node value (`tap`, `transform`, …), or null. */
 export const kindOf = (node) => NODE_KINDS.find((k) => node?.[k] !== undefined) ?? null;
 
@@ -41,9 +59,9 @@ export function connectorOf(node) {
   return String(node[k]);
 }
 
-/** Every block on the canvas, in definition order: input, the nodes, output. */
+/** Every block on the canvas, in definition order: the inputs, the nodes, output. */
 export function blocks(p) {
-  const out = [{ id: "input", kind: "input", connector: p.input?.via ?? null, from: [] }];
+  const out = inputsOf(p).map(([id, i]) => ({ id, kind: "input", connector: i?.via ?? null, from: [] }));
   for (const [id, n] of Object.entries(p.nodes ?? {})) {
     out.push({
       id,
@@ -74,7 +92,7 @@ export function edges(p) {
 /** The out-ports of a block: a route's branches, nothing for the output, one plain port otherwise. */
 export function outPorts(p, id) {
   if (id === "output") return [];
-  if (id === "input") return [null];
+  if (isInput(p, id)) return [null];
   const n = p.nodes?.[id];
   if (n?.route && typeof n.route === "object") return Object.keys(n.route);
   return [null];
@@ -88,7 +106,8 @@ export function freshId(p, base) {
     .replace(/[^A-Za-z0-9_-]/g, "_")
     .replace(/^[^A-Za-z_]+/, "");
   if (!stem || RESERVED.has(stem)) stem = `${stem || "node"}_1`;
-  const taken = new Set([...Object.keys(p.nodes ?? {}), ...RESERVED]);
+  // Inputs and nodes share one set of names (P061).
+  const taken = new Set([...Object.keys(p.nodes ?? {}), ...inputsOf(p).map(([n]) => n), ...RESERVED]);
   if (!taken.has(stem)) return stem;
   for (let i = 2; ; i++) if (!taken.has(`${stem}_${i}`)) return `${stem}_${i}`;
 }
@@ -141,6 +160,7 @@ export const starterInput = (via) =>
     watch: { via: "watch", with: { path: "./inbox" } },
     system: { via: "system", with: { every: "30s", metrics: ["cpu", "memory"] } },
     telegram: { via: "telegram" },
+    pipeline: { via: "pipeline", with: { from: ["other-pipeline"] } },
   })[via] ?? { via };
 
 export function starterOutput(to, name = "pipeline") {
@@ -153,6 +173,8 @@ export function starterOutput(to, name = "pipeline") {
       return { to, with: { url: "https://example.com/ingest", method: "POST", body: "${data}" } };
     case "telegram":
       return { to, with: { text: "${data.text}" } };
+    case "pipeline":
+      return { to, with: { pipeline: "next-pipeline" } };
     default:
       return { to, with: { format: "jsonl" } };
   }
@@ -165,7 +187,7 @@ export function addNode(p, kind, connector, from, opts = {}) {
     next,
     connector && !connector.startsWith("fn.") && kind !== "filter" && kind !== "route" ? connector : kind,
   );
-  const node = { ...(from ? { from } : { from: "input" }), ...starterNode(kind, connector, opts) };
+  const node = { ...(from ? { from } : { from: firstInput(next) }), ...starterNode(kind, connector, opts) };
   next.nodes = { ...(next.nodes ?? {}), [id]: node };
   return { p: next, id };
 }
@@ -187,33 +209,54 @@ export function switchAgent(p, id, agent, withSchema, model) {
   return next;
 }
 
-/** Replace the input with a new connector, keeping what still applies (format, schema, validate). */
-export function setInput(p, via) {
+/** Replace input `name`'s connector, keeping what still applies (format, schema, validate). */
+export function setInput(p, via, name = firstInput(p)) {
+  if (!isInput(p, name) && inputsOf(p).length) return p;
   const next = clone(p);
-  const { with: _w, via: _v, ...rest } = next.input ?? {};
-  next.input = { ...starterInput(via), ...rest };
+  const { with: _w, via: _v, ...rest } = inputOf(next, name) ?? {};
+  const value = { ...starterInput(via), ...rest };
+  if (next.inputs) next.inputs[name] = value;
+  else next.input = value;
   return next;
 }
 
-/** Replace the output connector, keeping its `from`, batch and policies. */
-export function setOutput(p, to) {
-  const next = clone(p);
-  const { with: _w, to: _t, ...rest } = next.output ?? {};
-  next.output = { ...rest, ...starterOutput(to, next.name) };
-  if (next.output.from === undefined) next.output.from = "input";
-  // keep `from` first, as people write it
-  const { from, ...others } = next.output;
-  next.output = { from, ...others };
+/**
+ * Add an input (D76); returns {p, id}. A pipeline with one `input:` moves to `inputs:`, its input keeping the name
+ * `input`, so every `from: input` still holds.
+ */
+export function addInput(p, via) {
+  const next = p.inputs || !p.input ? clone(p) : toInputsMap(clone(p));
+  const id = freshId(next, via === "http" ? "webhook" : via);
+  next.inputs = { ...(next.inputs ?? {}), [id]: starterInput(via) };
+  return { p: next, id };
+}
+
+/**
+ * Remove an input and the edges out of it. The last input stays (a pipeline needs one), and when one input named
+ * `input` is left, the file goes back to `input:` (D76).
+ */
+export function removeInput(p, id) {
+  if (!p.inputs || !(id in p.inputs) || Object.keys(p.inputs).length < 2) return p;
+  let next = clone(p);
+  delete next.inputs[id];
+  next = dropRefs(next, id);
+  const names = Object.keys(next.inputs);
+  if (names.length === 1 && names[0] === "input") {
+    const entries = Object.entries(next).map(([k, v]) => (k === "inputs" ? ["input", v.input] : [k, v]));
+    next = Object.fromEntries(entries);
+  }
   return next;
 }
 
-/** Remove a node and every edge into or out of it (refs to it, loop targets on it). */
-export function removeNode(p, id) {
-  if (RESERVED.has(id) || !p.nodes?.[id]) return p;
-  const next = clone(p);
-  delete next.nodes[id];
+/** `input:` written as `inputs: {input: …}`, in the place `input` had. */
+function toInputsMap(p) {
+  return Object.fromEntries(Object.entries(p).map(([k, v]) => (k === "input" ? ["inputs", { input: v }] : [k, v])));
+}
+
+/** Every ref to block `id` gone: from lists (a node left with none loses `from`), loop targets on it. */
+function dropRefs(next, id) {
   const drop = (from) => asList(from).filter((r) => parseRef(r).node !== id);
-  for (const n of Object.values(next.nodes)) {
+  for (const n of Object.values(next.nodes ?? {})) {
     const kept = drop(n.from);
     n.from = kept.length ? tidy(kept) : undefined;
     if (n.from === undefined) delete n.from;
@@ -224,6 +267,28 @@ export function removeNode(p, id) {
     next.output.from = kept.length ? tidy(kept) : undefined;
     if (next.output.from === undefined) delete next.output.from;
   }
+  return next;
+}
+
+/** Replace the output connector, keeping its `from`, batch and policies. */
+export function setOutput(p, to) {
+  const next = clone(p);
+  const { with: _w, to: _t, ...rest } = next.output ?? {};
+  next.output = { ...rest, ...starterOutput(to, next.name) };
+  if (next.output.from === undefined) next.output.from = firstInput(next);
+  // keep `from` first, as people write it
+  const { from, ...others } = next.output;
+  next.output = { from, ...others };
+  return next;
+}
+
+/** Remove a node and every edge into or out of it (refs to it, loop targets on it). */
+export function removeNode(p, id) {
+  if (isInput(p, id)) return removeInput(p, id);
+  if (RESERVED.has(id) || !p.nodes?.[id]) return p;
+  const next = clone(p);
+  delete next.nodes[id];
+  dropRefs(next, id);
   if (!Object.keys(next.nodes).length) delete next.nodes;
   return next;
 }
@@ -234,14 +299,20 @@ export function renameProblem(p, old, id) {
   if (!ID.test(id)) return "use letters, digits, _ and -, starting with a letter or _";
   if (RESERVED.has(id)) return "'input' and 'output' are taken by the pipeline's ends";
   if (p.nodes?.[id]) return `there is already a node called '${id}'`;
+  if (isInput(p, id)) return `there is already an input called '${id}'`;
   return null;
 }
 
 /** Rename a node, keeping its place in the file and every ref to it (`old`, `old.branch`, loop targets). */
 export function renameNode(p, old, id) {
-  if (old === id || renameProblem(p, old, id) || !p.nodes?.[old]) return p;
+  // Renaming the `input:` shorthand's input moves it into `inputs:` under its new name (D76).
+  if (!p.inputs && p.input && old === "input" && old !== id && !renameProblem(p, old, id)) p = toInputsMap(p);
+  const input = p.inputs && old in p.inputs;
+  if (old === id || renameProblem(p, old, id) || !(input || p.nodes?.[old])) return p;
   const next = clone(p);
-  next.nodes = Object.fromEntries(Object.entries(next.nodes).map(([k, v]) => [k === old ? id : k, v]));
+  const swap = (m) => Object.fromEntries(Object.entries(m).map(([k, v]) => [k === old ? id : k, v]));
+  if (input) next.inputs = swap(next.inputs);
+  else next.nodes = swap(next.nodes);
   const fix = (from) => {
     if (from === undefined) return from;
     const list = asList(from).map((r) => {
@@ -250,7 +321,7 @@ export function renameNode(p, old, id) {
     });
     return Array.isArray(from) ? list : list[0];
   };
-  for (const n of Object.values(next.nodes)) {
+  for (const n of Object.values(next.nodes ?? {})) {
     if (n.from !== undefined) n.from = fix(n.from);
     if (n.loop?.back_to === old) n.loop.back_to = id;
   }
@@ -261,7 +332,7 @@ export function renameNode(p, old, id) {
 /** Why an edge from `ref` into `to` can't be drawn, or null. */
 export function connectProblem(p, ref, to) {
   const { node } = parseRef(ref);
-  if (to === "input") return "nothing flows into the input";
+  if (isInput(p, to)) return "nothing flows into an input";
   if (node === "output") return "the output is the end of the line";
   if (node === to) return "a block can't feed itself (use a loop for that)";
   const t = target(p, to);
@@ -351,8 +422,8 @@ export function getPath(p, path) {
 }
 
 /**
- * Diagnostics grouped by the block they belong to: `input`, `output`, a node id, or `pipeline` for the rest (their
- * `path` says where; `delivered` counts as the output's).
+ * Diagnostics grouped by the block they belong to: an input's name, `output`, a node id, or `pipeline` for the rest
+ * (their `path` says where; `delivered` counts as the output's).
  */
 export function diagnosticsByBlock(diagnostics) {
   const out = new Map();
@@ -360,6 +431,7 @@ export function diagnosticsByBlock(diagnostics) {
     const path = d.path ?? [];
     let key = "pipeline";
     if (path[0] === "input") key = "input";
+    else if (path[0] === "inputs" && typeof path[1] === "string") key = path[1];
     else if (path[0] === "output" || path[0] === "delivered") key = "output";
     else if (path[0] === "nodes" && typeof path[1] === "string") key = path[1];
     if (!out.has(key)) out.set(key, []);
@@ -467,11 +539,12 @@ export function exampleOf(schema, depth = 0) {
  * schemaOf(path) → the JSON Schema in that file, or null}.
  */
 export function shapeOut(p, id, ctx, seen = new Set()) {
-  if (id === "input") {
-    const schema = typeof p.input?.schema === "string" ? ctx.schemaOf(p.input.schema) : null;
+  const input = inputOf(p, id);
+  if (input) {
+    const schema = typeof input.schema === "string" ? ctx.schemaOf(input.schema) : null;
     if (schema) return exampleOf(schema);
-    if (p.input?.via === "schedule") return p.input.with?.payload ?? {};
-    return ctx.inputs?.[p.input?.via]?.sample ?? null;
+    if (input.via === "schedule") return input.with?.payload ?? {};
+    return ctx.inputs?.[input.via]?.sample ?? null;
   }
   const node = p.nodes?.[id];
   if (!node) return null;

@@ -1572,8 +1572,10 @@ export function createCity(o) {
   function playTrace(tr) {
     if (reduced.matches) return;
     const now = performance.now();
-    const at = new Map([["input", now]]);
-    const queue = ["input"];
+    // Packets set off from the inputs the fixture went through (several inputs, D76).
+    const starts = scene.buildings.filter((b) => b.kind === "input" && tr.has(b.id)).map((b) => b.id);
+    const queue = starts.length ? starts : ["input"];
+    const at = new Map(queue.map((id) => [id, now]));
     const seen = new Set();
     while (queue.length) {
       const id = queue.shift();
@@ -1918,7 +1920,7 @@ export function createCity(o) {
     /** A live journal event of this pipeline: packets set off, and failures and deliveries show where they happen. */
     event(e) {
       if (!scene || root.hidden) return;
-      if (e.type === "packet.accepted") send("input", null);
+      if (e.type === "packet.accepted") send(e.node ?? "input", null);
       else if (e.type === "node.done" || e.type === "node.looped") send(e.node, e.detail?.branch ?? null);
       else if (e.type === "node.failed") {
         flashes.set(e.node, { t0: performance.now(), color: "#f5a623" });
@@ -1929,7 +1931,7 @@ export function createCity(o) {
       } else if (e.type === "packet.delivered") note("output", "✅");
       else if (e.type === "packet.filtered" && e.node) note(e.node, "🧹");
       else if (e.type === "packet.escalated" && e.node) note(e.node, "🙋");
-      else if (e.type === "packet.rejected") note("input", "⛔");
+      else if (e.type === "packet.rejected") note(e.node ?? "input", "⛔");
       kick();
     },
   };
