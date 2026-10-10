@@ -874,7 +874,10 @@ mod tests {
     fn stop_lets_a_request_in_flight_finish() {
         local(async {
             let dir = TempDir::new();
-            let intake: Intake = Rc::new(|_, _, _| {
+            let arrived = Rc::new(std::cell::Cell::new(false));
+            let seen = arrived.clone();
+            let intake: Intake = Rc::new(move |_, _, _| {
+                seen.set(true);
                 Box::pin(async {
                     tokio::time::sleep(Duration::from_millis(300)).await;
                     accepted(1)
@@ -882,7 +885,10 @@ mod tests {
             });
             let (input, url) = started(opts("json"), intake, runtime(&dir)).await;
             let req = tokio::task::spawn_local(async move { post(&url, "{}", &[]).await.0 });
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            // Stop only once the request is in flight (a fixed sleep raced the connection under load).
+            while !arrived.get() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
             input.stop().await;
             assert_eq!(req.await.unwrap(), 202);
         });

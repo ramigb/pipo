@@ -169,6 +169,7 @@ impl Store {
             home: tmp.0.join("home"),
             redact: redact.clone(),
             now: Rc::new(pipo_runner::time::now_ms),
+            env: serde_json::json!({}),
         };
         Store { store: Proposals::new(journal.clone(), opts), journal, tmp, redact }
     }
@@ -524,9 +525,6 @@ async fn agent_verify_requires_a_verified_dry_run_before_apply() {
     let t = setup(&src(with_agent(&policy))).await;
     let p = t.store.propose(&agent(&src(Opts { message: Some("hello"), ..with_agent(&policy) }))).await.unwrap();
     assert_eq!(p.verify.as_deref(), Some("last 5"));
-    let needs = t.store.dry_run_if_required(&p.id).await.unwrap_err();
-    assert_eq!(needs.code, "unavailable");
-    assert!(needs.message.starts_with("the dry run is not ported yet"));
     let hash = sha256(p.source.as_bytes());
     let refused = control_tx(&mut t.journal.borrow_mut(), |j| {
         let v = j.add_version(&hash, &p.source, "human", None, None, &VersionAudit::default(), None).unwrap();
@@ -535,15 +533,17 @@ async fn agent_verify_requires_a_verified_dry_run_before_apply() {
     .unwrap_err();
     assert!(refused.message.contains("needs a dry run"), "{}", refused.message);
     assert_eq!(t.latest(), 1);
-    let v = t.store.mark_verified(&p.id, "runner", Some(json!({ "replayed": 5, "diverged": 0 })), Some("5 of 5 match".into())).unwrap();
-    assert_eq!((v.state.as_str(), v.decision.as_deref()), ("verified", Some("5 of 5 match")));
-    assert_eq!(v.verification, json!({ "replayed": 5, "diverged": 0 }));
+    // Nothing was delivered yet, so the dry run has nothing to replay and passes.
+    let v = t.store.dry_run_if_required(&p.id).await.unwrap();
+    assert_eq!(v.state, "verified");
+    assert_eq!(v.decision.as_deref(), Some("dry run passed (last 5): no delivered packets to replay"));
+    assert_eq!(v.verification["replayed"], json!(0));
     assert_eq!(t.store.dry_run_if_required(&p.id).await.unwrap().state, "verified");
     let twice = t.store.mark_verified(&p.id, "runner", None, None).unwrap_err();
     assert!(twice.message.contains("is verified"));
     let r = t.store.mark_rejected(&p.id, "cli", "not now", None).unwrap();
     assert_eq!((r.state.as_str(), r.decision.as_deref(), r.decided_by.as_deref()), ("rejected", Some("not now"), Some("cli")));
-    assert_eq!(r.verification, json!({ "replayed": 5, "diverged": 0 }));
+    assert_eq!(r.verification["verify"], json!("last 5"));
     let kinds: Vec<String> = t.events().into_iter().map(|e| e.0).collect();
     assert_eq!(kinds, ["proposal.validated", "proposal.verified", "proposal.rejected"]);
     // A human's proposal has no dry-run requirement.
@@ -702,7 +702,7 @@ fn propose_apply_and_reject_over_the_ops() {
 }
 
 #[test]
-fn a_proposal_that_needs_the_dry_run_is_stored_and_says_why_it_was_not_applied() {
+fn an_agent_proposal_is_dry_run_then_applied() {
     if !compiler() {
         return;
     }
@@ -711,13 +711,14 @@ fn a_proposal_that_needs_the_dry_run_is_stored_and_says_why_it_was_not_applied()
         let tmp = Tmp::new();
         let r = runner(&tmp, &po("one", "jsonl", true)).await;
         let p = op(&r, "propose", propose_args(&po("two", "jsonl", true), json!({ "author_kind": "agent" }))).await.unwrap();
-        assert_eq!((p["state"].as_str(), p["verify"].as_str()), (Some("validated"), Some("last 5")));
-        assert_eq!(p["apply_error"]["code"], "unavailable");
-        assert_eq!(r.version(), 1);
+        // The dry run runs first (nothing delivered yet, so it passes), then the proposal applies.
+        assert_eq!((p["state"].as_str(), p["verify"].as_str()), (Some("applied"), Some("last 5")));
+        assert!(p["decision"].as_str().unwrap_or_default().starts_with("dry run passed (last 5)"));
+        assert_eq!(r.version(), 2);
         let e = op(&r, "apply_proposal", json!({ "id": p["id"], "by": "ada" })).await.unwrap_err();
-        assert_eq!(e.code, "unavailable");
+        assert_eq!(e.code, "invalid_state");
         // A human's proposal needs no dry run.
-        let h = op(&r, "propose", propose_args(&po("two", "jsonl", true), json!({ "author": "ada" }))).await.unwrap();
+        let h = op(&r, "propose", propose_args(&po("three", "jsonl", true), json!({ "author": "ada", "base_version": 2 }))).await.unwrap();
         assert_eq!(h["state"], "applied");
         r.stop(0).await;
     });
