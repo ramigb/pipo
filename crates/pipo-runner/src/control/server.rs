@@ -143,7 +143,7 @@ async fn serve(stream: UnixStream, runner: std::rc::Weak<Runner>) {
     }
 }
 
-type After = Box<dyn FnOnce(Rc<Runner>)>;
+pub type After = Box<dyn FnOnce(Rc<Runner>)>;
 
 async fn answer(r: &Rc<Runner>, line: &str) -> (Value, Option<After>) {
     let error = |id: Value, e: ControlError| -> (Value, Option<After>) {
