@@ -76,5 +76,7 @@ test("GET /api/pipelines/<name>/graph draws the definition with counters", async
   expect(graph.nodes.map((n: any) => n.id)).toEqual(["input", "shout", "output"]);
   expect(graph.nodes[1]).toMatchObject({ kind: "transform", from: [{ node: "input", branch: null }] });
   expect(graph.nodes[1].counts.ok).toBe(1);
+  // The parsed definition, for the City view (D75).
+  expect(graph.definition).toMatchObject({ name: "ui-graph", nodes: { shout: { from: "input", transform: "map" } } });
   expect((await fetch(`${base}/api/pipelines/nope/graph`)).status).toBe(404);
 });

@@ -20,6 +20,8 @@ export interface Graph {
   version: number | null;
   source: "journal" | "file";
   nodes: GraphNode[];
+  /** The parsed definition the graph is drawn from, for the dashboard's City view (D75). */
+  definition: Pipeline;
 }
 
 const ref = (r: string) => {
@@ -100,5 +102,5 @@ export function pipelineGraph(name: string, file: string, journal: string, versi
     from: asList(p.output.from).map(ref),
     counts: { in: ok + failed, ok, failed, filtered: 0 },
   });
-  return { name, version, source: from, nodes };
+  return { name, version, source: from, nodes, definition: p };
 }

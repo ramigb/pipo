@@ -924,7 +924,8 @@ const keep = (key, value) => {
 
 /**
  * The City view. `o.state()` returns what to draw ({p, selected, diagnostics, trace}); `o.select`, `o.wire(ref, to)`,
- * `o.hint(text)` and `o.focus()` hand interaction back to the builder.
+ * `o.hint(text)` and `o.focus()` hand interaction back to the builder. With `o.readOnly` (a running pipeline's page)
+ * there are no ports to lay lanes from: buildings can still be moved between lots and clicked.
  */
 export function createCity(o) {
   const canvas = h("canvas", {
@@ -1624,7 +1625,8 @@ export function createCity(o) {
         `${b.kind} ${b.id}${b.bad ? `, ${b.bad} problem${b.bad > 1 ? "s" : ""}` : ""}${b.trace ? `, dry run: ${b.trace.status}` : ""}`,
       );
       label.title =
-        b.problems.map((d) => `${d.code} ${d.message}`).join("\n") || `${b.id}: drag to move, click to edit`;
+        b.problems.map((d) => `${d.code} ${d.message}`).join("\n") ||
+        `${b.id}: drag to move, click ${o.readOnly ? "for its counters" : "to edit"}`;
       label.replaceChildren(
         ...clean([
           h("span", { class: "city-emoji", "aria-hidden": "true" }, b.emoji),
@@ -1635,8 +1637,9 @@ export function createCity(o) {
             : null,
         ]),
       );
-      while (entry.ports.length > b.ports.length) entry.ports.pop().remove();
-      b.ports.forEach((q, i) => {
+      const ports = o.readOnly ? [] : b.ports;
+      while (entry.ports.length > ports.length) entry.ports.pop().remove();
+      ports.forEach((q, i) => {
         let el = entry.ports[i];
         if (!el) {
           el = h("button", { type: "button", class: "city-port" });
@@ -1687,9 +1690,10 @@ export function createCity(o) {
     for (const b of scene.buildings) {
       const entry = labels.get(b.id);
       if (!entry) continue;
-      b.ports.forEach((q, i) => {
+      entry.ports.forEach((el, i) => {
+        const q = b.ports[i];
         const [px, py] = toScreen(iso(q.u, q.v, LANE_Z));
-        entry.ports[i].style.transform = `translate(${Math.round(px)}px, ${Math.round(py)}px)`;
+        el.style.transform = `translate(${Math.round(px)}px, ${Math.round(py)}px)`;
       });
     }
   }

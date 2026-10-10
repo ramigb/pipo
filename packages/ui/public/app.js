@@ -1033,7 +1033,61 @@ async function pipelineView(name) {
     ),
     body,
   );
+  if (tab === "overview") placeCity();
 }
+
+// The overview draws the pipeline as a graph or as a town (city.js, D75), remembered per browser. One City per page,
+// kept across live refreshes: its placeholder carries data-keep, so morph leaves the canvas alone.
+const runMode = () => {
+  try {
+    return localStorage.getItem("pipo-run-view") === "city" ? "city" : "graph";
+  } catch {
+    return "graph";
+  }
+};
+let runCity = null;
+const NO_TRACE = new Map();
+async function cityFor(name, info, graph) {
+  if (runCity?.name !== name) {
+    const { createCity } = await import("./city.js");
+    const rc = { name, def: graph.definition };
+    rc.city = createCity({
+      key: info.file ?? `pipeline:${name}`,
+      readOnly: true,
+      state: () => ({
+        p: rc.def,
+        selected: pipelineView.picked ? { type: "block", id: pipelineView.picked } : null,
+        diagnostics: [],
+        trace: NO_TRACE,
+      }),
+      select: (sel) => {
+        const id = sel?.type === "block" ? sel.id : null;
+        if (id === pipelineView.picked) return;
+        pipelineView.picked = id;
+        refresh?.();
+      },
+      wire: () => {},
+      hint: () => {},
+      focus: () => {},
+    });
+    runCity = rc;
+  }
+  runCity.def = graph.definition;
+  return runCity;
+}
+/** After a render: put the City's canvas in its placeholder (once) and redraw it with the latest state. */
+function placeCity() {
+  const slot = document.querySelector(".run-city");
+  if (!slot || !runCity || slot.dataset.pipeline !== runCity.name) return;
+  if (runCity.city.el.parentNode !== slot) {
+    slot.append(runCity.city.el);
+    runCity.city.show(true);
+  } else runCity.city.draw();
+}
+// The live stream sends packets down the City's lanes, as it moves dots along the graph's edges.
+addEventListener("pipo:event", (ev) => {
+  if (runCity && ev.detail?.pipeline === runCity.name && runCity.city.el.isConnected) runCity.city.event(ev.detail);
+});
 
 async function overviewTab(name, info, base) {
   const [graph, page, escalated] = await Promise.all([
@@ -1049,19 +1103,51 @@ async function overviewTab(name, info, base) {
   for (const p of escalated.packets ?? []) if (p.node) held.set(p.node, (held.get(p.node) ?? 0) + 1);
   const picked = pipelineView.picked;
   const pickedNode = graph.nodes.find((n) => n.id === picked);
+  const mode = graph.definition ? runMode() : "graph";
+  if (mode === "city") await cityFor(name, info, graph);
+  const setMode = (m) => {
+    try {
+      localStorage.setItem("pipo-run-view", m);
+    } catch {}
+    refresh?.();
+  };
   return [
     h(
       "div",
-      { class: "card graph" },
-      graphSvg(
-        graph,
-        (id) => {
-          pipelineView.picked = id === pipelineView.picked ? null : id;
-          refresh?.();
-        },
-        picked,
-        held,
-      ),
+      { class: `card graph${mode === "city" ? " is-city" : ""}` },
+      graph.definition
+        ? h(
+            "div",
+            { class: "b-views run-views", role: "group", "aria-label": "pipeline view" },
+            [
+              ["graph", "🔀 Graph", "Blocks and wires, with their counters"],
+              ["city", "🏙️ City", "The same pipeline as a little town: buildings and data lanes"],
+            ].map(([m, label, title]) =>
+              h(
+                "button",
+                {
+                  type: "button",
+                  title,
+                  class: m === mode ? "on" : "",
+                  "aria-pressed": String(m === mode),
+                  onclick: () => setMode(m),
+                },
+                label,
+              ),
+            ),
+          )
+        : null,
+      mode === "city"
+        ? h("div", { class: "run-city", "data-keep": "", "data-pipeline": name })
+        : graphSvg(
+            graph,
+            (id) => {
+              pipelineView.picked = id === pipelineView.picked ? null : id;
+              refresh?.();
+            },
+            picked,
+            held,
+          ),
       pickedNode
         ? h(
             "div",
@@ -1076,7 +1162,9 @@ async function overviewTab(name, info, base) {
         : h(
             "div",
             { class: "picked muted" },
-            "👆 Tap a block to see its counters. Packets hop along the lines as they flow.",
+            mode === "city"
+              ? "👆 Tap a building to see its counters. Packets ride the coloured lanes as little vans."
+              : "👆 Tap a block to see its counters. Packets hop along the lines as they flow.",
           ),
     ),
     pushCard(name, info, base),

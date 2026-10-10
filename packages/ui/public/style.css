@@ -611,6 +611,22 @@ button:disabled {
   display: block;
   margin: 0 auto;
 }
+/* The City view on a pipeline's page (D75): the builder's view switch, in the card's flow, over a fixed-height town. */
+.b-views.run-views {
+  position: static;
+  width: fit-content;
+  margin-bottom: 10px;
+}
+.graph.is-city {
+  overflow: hidden;
+}
+.run-city {
+  position: relative;
+  height: clamp(320px, 55vh, 560px);
+  border-radius: 14px;
+  background: #cdeef0;
+  overflow: hidden;
+}
 .picked {
   margin-top: 8px;
   font-size: 13px;
