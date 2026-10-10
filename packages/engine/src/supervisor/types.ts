@@ -120,14 +120,17 @@ export interface SupervisorOptions {
   onEvent?: (event: EngineEvent) => void;
   /** Poll interval for adopted runners' liveness and for new events (ms). Default 500. */
   pollMs?: number;
-  /** Called once the engine shut itself down (§7.5, D31): it slept after `engine.idle`, or `engine.ttl` expired. */
+  /** Called once the engine shut itself down (§7.5, D31), or stopped when asked over the API. */
   onEnd?: (reason: EndReason) => void;
   /** Where the dashboard's builder may save new `.pipo` files (§8, D61); defaults to the engine's working directory. */
   workspace?: string;
 }
 
-/** Why the engine ended itself: nothing to do for `engine.idle` or `engine.ttl` expired (D31), or it handed over to a new engine (D65). */
-export type EndReason = "idle" | "ttl" | "restart";
+/**
+ * Why the engine ended: nothing to do for `engine.idle` or `engine.ttl` expired (D31), it handed over to a new
+ * engine (D65), or it was asked to stop over the API (`POST /api/engine/stop`, the dashboard's button).
+ */
+export type EndReason = "idle" | "ttl" | "restart" | "stop";
 
 /** A runner this engine did not start: no exit to await, so a poll of its pid resolves `exited`. */
 export interface Adopted {

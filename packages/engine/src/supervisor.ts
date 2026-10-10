@@ -500,6 +500,20 @@ export class Supervisor extends SupervisorDiscovery {
     return { pid: child.pid as number, listen, pipelines: again.map((r) => r.name) };
   }
 
+  /**
+   * Stop as on SIGTERM, once the API has answered (`POST /api/engine/stop`): pipelines drain, detached runners keep
+   * running (D30), and crashed pipelines are remembered, since the engine didn't give up on its own.
+   */
+  stopOnRequest(): { pipelines: string[]; detached: string[] } {
+    const live = this.list().filter((r) => LIVE.includes(r.state));
+    if (!this.closing) setTimeout(() => void this.shutdown().then(() => this.opts.onEnd?.("stop")), 300);
+    this.log("info", "stopping: asked over the API");
+    return {
+      pipelines: live.filter((r) => !r.detached).map((r) => r.name),
+      detached: live.filter((r) => r.detached).map((r) => r.name),
+    };
+  }
+
   private end(reason: EndReason) {
     this.endReason = reason;
     void this.shutdown().then(() => this.opts.onEnd?.(reason));

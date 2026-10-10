@@ -248,3 +248,28 @@ test("an open /events stream (the dashboard) keeps an idle engine awake; it slee
   expect(ended[0]?.reason).toBe("idle");
   expect((ended[0]?.at as number) - closedAt).toBeGreaterThanOrEqual(500);
 }, 30_000);
+
+test("POST /api/engine/stop answers first, then drains its pipelines and ends with reason stop (the dashboard's button)", async () => {
+  const home = join(box.root, "stop-home");
+  const ended: { reason: EndReason; at: number }[] = [];
+  const engine = await Supervisor.open({
+    home,
+    config: { ...testConfig(), listen: 0 },
+    log: () => {},
+    onEnd: (reason) => ended.push({ reason, at: Date.now() }),
+  });
+  engines.push(engine);
+  const info = await engine.start(pushFile("stoppy"));
+  runnerPids.push(info.pid as number);
+  const res = await fetch(`${engine.gateway?.url}/api/engine/stop`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  });
+  expect(res.status).toBe(202);
+  expect(await res.json()).toMatchObject({ stopping: true, pid: process.pid, pipelines: ["stoppy"], detached: [] });
+  await waitFor(() => ended.length > 0, 20_000, "the engine to stop");
+  expect(ended[0]?.reason).toBe("stop");
+  expect(isAlive(info.pid as number)).toBe(false);
+  expect(readEngineEntry(home)).toBeNull();
+}, 60_000);

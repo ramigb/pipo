@@ -236,6 +236,32 @@ async function restartEngine() {
   }, 1000);
 }
 
+// Stop the engine from the dashboard, as `pipo engine stop` does: pipelines drain, detached runners keep running.
+let stopped = false;
+async function stopEngine() {
+  const live = await api("/pipelines")
+    .then((r) => r.pipelines.filter((p) => p.state === "running"))
+    .catch(() => []);
+  const drained = live.filter((p) => !p.detached).length;
+  const detached = live.length - drained;
+  const ok = confirm(
+    `Stop the engine?\n\n${
+      drained ? `Your ${plural(drained, "running pipeline")} finish what's in flight and stop. ` : ""
+    }${detached ? `${plural(detached, "detached runner")} keep running on their own. ` : ""}The dashboard goes offline until you run pipo ui again.`,
+  );
+  if (!ok) return;
+  try {
+    await api("/engine/stop", {});
+  } catch (e) {
+    if (e instanceof EngineDown) return napping();
+    return toast(`Couldn't stop the engine: ${e.message}`, "bad", e.hint);
+  }
+  stopped = true;
+  toast("Stopping the engine 👋 pipelines are draining");
+}
+const stopEngineBtn = (cls = "btn") =>
+  h("button", { type: "button", class: `${cls} danger`, onclick: stopEngine }, "⏻ Stop engine");
+
 // A page left open across an update learns about it too.
 setInterval(async () => {
   if (down) return;
@@ -286,11 +312,13 @@ function napping() {
       "div",
       { class: "nap" },
       mascot("sleepy", 140),
-      h("h1", null, "The engine is napping 😴"),
+      h("h1", null, stopped ? "The engine is stopped 👋" : "The engine is napping 😴"),
       h(
         "p",
         { class: "muted" },
-        "It went to sleep or stopped, so there's nothing to show right now. Wake it up from a terminal:",
+        stopped
+          ? "You stopped it, so there's nothing to show right now. Start it again from a terminal:"
+          : "It went to sleep or stopped, so there's nothing to show right now. Wake it up from a terminal:",
       ),
       h("pre", { class: "cmd" }, "pipo ui"),
       h(
@@ -310,6 +338,7 @@ function napping() {
       clearInterval(wake);
       wake = null;
       down = false;
+      stopped = false;
       toast("The engine is back! 🌞");
       render();
     } catch {}
@@ -649,6 +678,7 @@ async function topView() {
           `${plural(live.length, "runner")} · ${Math.round(cpu * 10) / 10}% cpu · ${fmtBytes(rss)} memory · live every 2 s`,
         ),
       ),
+      stopEngineBtn(),
     ),
     pipelines.length
       ? wrap(
@@ -1588,7 +1618,8 @@ const FROM = {
 };
 
 async function settingsView(browse) {
-  const cfg = await api("/settings");
+  const [cfg, engine] = await Promise.all([api("/settings"), api("/engine")]);
+  setEngine(engine);
   const at = await api(`/folders?path=${encodeURIComponent(browse || cfg.workspace)}`).catch(() => api("/folders"));
   const go = (path) => {
     location.hash = `#/settings/${encodeURIComponent(path)}`;
@@ -1618,6 +1649,31 @@ async function settingsView(browse) {
         { class: "hero-text" },
         h("h1", null, "Settings ⚙️"),
         h("p", { class: "muted" }, "Where your pipes live. The builder saves new pipelines in the workspace folder."),
+      ),
+    ),
+    section(
+      "🔌 Engine",
+      h(
+        "div",
+        { class: "card" },
+        h(
+          "p",
+          null,
+          `pid ${engine.pid}`,
+          engine.listen ? ` · 127.0.0.1:${engine.listen}` : "",
+          engine.started_at ? ` · up since ${fmtTime(Date.parse(engine.started_at))}` : "",
+        ),
+        h(
+          "p",
+          { class: "muted small" },
+          "Stopping drains your pipelines first; detached runners keep running and the next engine picks them up.",
+        ),
+        h(
+          "div",
+          { class: "toolbar" },
+          h("button", { type: "button", class: "btn", onclick: restartEngine }, "🔄 Restart engine"),
+          stopEngineBtn(),
+        ),
       ),
     ),
     section(

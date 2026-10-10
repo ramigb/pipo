@@ -59,6 +59,7 @@ const HOP_BY_HOP = [
 const ROUTES = [
   "GET  /api/engine",
   "POST /api/engine/restart",
+  "POST /api/engine/stop",
   "GET  /api/agent-budget",
   "GET  /api/settings",
   "POST /api/settings/workspace {path, create?}",
@@ -560,6 +561,12 @@ export class Gateway {
       only("POST");
       await readBody(req);
       return json(202, { restarting: true, from: process.pid, ...engine.restart() });
+    }
+    if (route === "engine/stop") {
+      // Stop the engine as `pipo engine stop` does (the dashboard's button): it answers first, then drains and exits.
+      only("POST");
+      await readBody(req);
+      return json(202, { stopping: true, pid: process.pid, ...engine.stopOnRequest() });
     }
     if (route === "agent-budget") {
       // Today's agent spend of every pipeline of the home vs engine.agent_budget.per_day (§3.11, D58), from the journals.
