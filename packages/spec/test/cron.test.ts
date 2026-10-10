@@ -1,5 +1,7 @@
+// Cron expressions (docs/spec.md §3.3): `pipo check` parses them for P038. The runner's own copy is
+// crates/pipo-runner/src/cron.rs, which runs these same cases.
 import { describe, expect, test } from "bun:test";
-import { nextCron, parseCron } from "../src/connectors/cron";
+import { nextCron, parseCron } from "../src/cron";
 
 const at = (iso: string) => Date.parse(iso);
 const next = (expr: string, after: string) => {

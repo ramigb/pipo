@@ -1,14 +1,21 @@
-import { afterEach, describe, expect, test } from "bun:test";
+// Telegram input, tap and output end to end (docs/spec.md §3.3, §3.6): the Rust runner binary against a fake Bot API
+// set as the bots' `api` in bots.json. Settings, file downloads and token redaction are also unit-tested in
+// crates/pipo-runner/src/connectors/telegram.rs.
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { load, type Pipeline } from "@pipo/spec";
-import { gaps, Runner } from "../src";
 import { type BotsFile, readBots, writeBots } from "../src/bots";
 import { sandbox, waitFor } from "./helpers";
+import { RustRunner } from "./rust";
 
-let cleanups: (() => Promise<void> | void)[] = [];
+setDefaultTimeout(30_000);
+
+let running: RustRunner[] = [];
+let cleanups: (() => void)[] = [];
 afterEach(async () => {
-  for (const c of cleanups.reverse()) await c();
+  for (const r of running) if (r.proc.exitCode === null) await r.kill();
+  for (const c of cleanups) c();
+  running = [];
   cleanups = [];
 });
 
@@ -80,25 +87,16 @@ function setup(tg: ReturnType<typeof fakeTelegram>, bots: BotsFile["telegram"]["
   cleanups.push(() => box.cleanup());
   for (const b of Object.values(bots)) b.api = tg.api;
   writeBots(box.home, { telegram: { default: def, bots } });
-  const lines: string[] = [];
+  const write = (name: string, body: string) => box.write(`${name}.pipo`, `pipo: 1\nname: ${name}\n${body}`);
   const open = async (name: string, body: string) => {
-    const file = box.write(`${name}.pipo`, `pipo: 1\nname: ${name}\n${body}`);
-    const runner = await Runner.open({ file, home: box.home, log: (l) => lines.push(l) });
-    await runner.start();
-    cleanups.push(() => runner.stop());
-    return runner;
+    const r = await RustRunner.start(box, write(name, body), name, { listen: null });
+    running.push(r);
+    return r;
   };
-  return { box, lines, open };
+  return { box, open, write };
 }
 
 describe("telegram", () => {
-  test("has no gaps", () => {
-    const p = load(
-      "pipo: 1\nname: t\ninput: { via: telegram }\nnodes: { n: { from: input, tap: telegram } }\noutput: { from: n, to: telegram }\n",
-    ).value as Pipeline;
-    expect(gaps(p)).toEqual([]);
-  });
-
   test("bots.json is written 0600 and validated", () => {
     const box = sandbox();
     cleanups.push(() => box.cleanup());
@@ -117,7 +115,7 @@ describe("telegram", () => {
     const s = setup(tg, { main: { token: MAIN, allow: [42] } });
     const body =
       "input: { via: telegram }\noutput: { from: input, to: telegram, with: { text: 'echo: ${data.text}' } }\n";
-    let runner = await s.open("echo", body);
+    const r = await s.open("echo", body);
     tg.message(7, { text: "let me in" });
     tg.message(42, { text: "hi" });
     await waitFor(() => tg.sends().length === 1, 5000, "the reply");
@@ -126,15 +124,22 @@ describe("telegram", () => {
       method: "sendMessage",
       body: { chat_id: "42", text: "echo: hi" },
     });
-    expect(s.lines.some((l) => l.includes("ignored a message from @ann (user id 7, chat id 7)"))).toBe(true);
+    await waitFor(
+      () => r.lines().some((l) => l.includes("ignored a message from @ann (user id 7, chat id 7)")),
+      5000,
+      "the ignored line",
+    );
     expect(JSON.parse(readFileSync(join(s.box.home, "run", "echo.json"), "utf8")).telegram_bot).toBe("111");
-    expect(s.lines.join("\n")).not.toContain(MAIN);
-    await runner.stop();
+    const [packet] = r.query<{ trigger: string; state: string }>("SELECT trigger, state FROM packets");
+    expect(packet).toEqual({ trigger: "telegram", state: "delivered" });
+    expect(await r.stop()).toBe(0);
+    expect(r.lines().join("\n") + r.stderr()).not.toContain(MAIN);
 
     tg.offsets.length = 0;
-    runner = await s.open("echo", body);
+    await s.open("echo", body);
     await waitFor(() => tg.offsets.length > 0, 5000, "a poll");
     expect(tg.offsets[0]).toBe(3);
+    await Bun.sleep(200);
     expect(tg.sends().length).toBe(1);
   });
 
@@ -174,18 +179,20 @@ describe("telegram", () => {
   test("refuses to start without a bot, and a second poller of the same bot", async () => {
     const tg = fakeTelegram();
     const s = setup(tg, {}, null);
-    const file = s.box.write(
-      "nobot.pipo",
-      "pipo: 1\nname: nobot\ninput: { via: telegram }\noutput: { from: input, to: stdout }\n",
-    );
-    await expect(Runner.open({ file, home: s.box.home })).rejects.toThrow(/no bot is set up/);
+    const body = "input: { via: telegram }\noutput: { from: input, to: stdout }\n";
+    const nobot = await RustRunner.refuse(s.box, s.write("nobot", body));
+    expect(nobot.code).toBe(1);
+    expect(nobot.stderr).toMatch(/no bot is set up/);
 
     writeBots(s.box.home, { telegram: { default: "main", bots: { main: { token: MAIN, allow: [42], api: tg.api } } } });
-    await s.open("one", "input: { via: telegram }\noutput: { from: input, to: stdout }\n");
-    const two = s.box.write(
-      "two.pipo",
-      "pipo: 1\nname: two\ninput: { via: telegram }\noutput: { from: input, to: stdout }\n",
-    );
-    await expect(Runner.open({ file: two, home: s.box.home })).rejects.toThrow(/already polled by pipeline 'one'/);
+    const one = await s.open("one", body);
+    const two = await RustRunner.refuse(s.box, s.write("two", body));
+    expect(two.code).toBe(1);
+    expect(two.stderr).toMatch(new RegExp(`already polled by pipeline 'one' \\(pid ${one.pid}\\)`));
+    expect(two.stderr).not.toContain(MAIN);
+
+    // Once the first poller is gone, the bot is free.
+    expect(await one.stop()).toBe(0);
+    await s.open("two", body);
   });
 });

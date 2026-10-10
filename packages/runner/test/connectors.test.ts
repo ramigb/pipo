@@ -1,115 +1,37 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+// File and http outputs end to end (docs/spec.md §3.6): the Rust runner binary with an http input. The adapters' own
+// logic (formats, dedupe, crash recovery of the key log, status matching) is unit-tested in
+// crates/pipo-runner/src/connectors/{file_out,http_out}.rs.
+import { afterAll, afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { load } from "@pipo/spec";
-import { gaps } from "../src";
-import { inputs, outputs } from "../src/connectors";
-import { FileOutput } from "../src/connectors/file-output";
-import { HttpOutput, statusMatcher } from "../src/connectors/http-output";
-import { sandbox, settled, startRunner } from "./helpers";
+import { sandbox } from "./helpers";
+import { RustRunner } from "./rust";
 
-let cleanups: (() => Promise<void> | void)[] = [];
+setDefaultTimeout(30_000);
+
+const box = sandbox();
+let running: RustRunner[] = [];
+let servers: ReturnType<typeof Bun.serve>[] = [];
 afterEach(async () => {
-  for (const c of cleanups.reverse()) await c();
-  cleanups = [];
+  for (const r of running) if (r.proc.exitCode === null) await r.kill();
+  for (const s of servers) s.stop(true);
+  running = [];
+  servers = [];
 });
-function setup() {
-  const box = sandbox();
-  cleanups.push(() => box.cleanup());
-  return box;
+afterAll(() => box.cleanup());
+
+async function start(name: string, body: string, env: Record<string, string> = {}) {
+  const file = box.write(`${name}.pipo`, `pipo: 1\nname: ${name}\ninput: { via: http }\n${body}`);
+  const r = await RustRunner.start(box, file, name, { env });
+  running.push(r);
+  return r;
 }
-const item = (id: string, data: unknown, w: Record<string, unknown>) => ({ packetId: id, data, with: w });
 
-describe("registry", () => {
-  test("support derives from registry; file and http outputs have no gaps", () => {
-    expect(Object.keys(outputs).sort()).toEqual(["file", "http", "sqlite", "stdout", "telegram"]);
-    expect(Object.keys(inputs).sort()).toEqual(["http", "push", "schedule", "system", "telegram", "watch"]);
-    for (const to of ["file", "http"]) {
-      const p = load(
-        `pipo: 1\nname: x\ninput: { via: http }\noutput: { from: input, to: ${to}, with: { path: a, url: "http://x" } }\n`,
-        "x.pipo",
-      ).value as any;
-      expect(gaps(p)).toEqual([]);
-    }
-  });
-});
-
-describe("file output", () => {
-  test("jsonl append skips a repeated packet_id, even with a fresh adapter", async () => {
-    const box = setup();
-    const w = { path: "out/a.jsonl" };
-    const out = new FileOutput(box.root);
-    await out.write([item("p1", { n: 1 }, w), item("p2", { n: 2 }, w), item("p1", { n: 1 }, w)]);
-    await new FileOutput(box.root).write([item("p2", { n: 2 }, w), item("p3", { n: 3 }, w)]);
-    const lines = readFileSync(join(box.root, "out/a.jsonl"), "utf8")
-      .trim()
-      .split("\n")
-      .map((l) => JSON.parse(l));
-    expect(lines).toEqual([
-      { packet_id: "p1", data: { n: 1 } },
-      { packet_id: "p2", data: { n: 2 } },
-      { packet_id: "p3", data: { n: 3 } },
-    ]);
-  });
-
-  test("json append keeps an array and dedupes; json write replaces", async () => {
-    const box = setup();
-    const out = new FileOutput(box.root);
-    const w = { path: "a.json", format: "json" };
-    await out.write([item("p1", 1, w), item("p1", 1, w), item("p2", 2, w)]);
-    expect(JSON.parse(readFileSync(join(box.root, "a.json"), "utf8"))).toEqual([
-      { packet_id: "p1", data: 1 },
-      { packet_id: "p2", data: 2 },
-    ]);
-    const ww = { path: "b.json", format: "json", mode: "write" };
-    await out.write([item("p1", { a: 1 }, ww), item("p2", { a: 2 }, ww)]);
-    expect(JSON.parse(readFileSync(join(box.root, "b.json"), "utf8"))).toEqual({ a: 2 });
-  });
-
-  test("csv append writes one header, quotes cells, dedupes", async () => {
-    const box = setup();
-    const out = new FileOutput(box.root);
-    const w = { path: "a.csv", format: "csv" };
-    await out.write([item("p1", { name: 'A "x", y', n: 1 }, w), item("p2", { name: "B", n: 2 }, w), item("p1", {}, w)]);
-    expect(readFileSync(join(box.root, "a.csv"), "utf8")).toBe('name,n\n"A ""x"", y",1\nB,2\n');
-    await out.write([item("p3", { n: 3, name: "C" }, w)]);
-    expect(readFileSync(join(box.root, "a.csv"), "utf8")).toBe('name,n\n"A ""x"", y",1\nB,2\nC,3\n');
-  });
-
-  test("text append and write", async () => {
-    const box = setup();
-    const out = new FileOutput(box.root);
-    await out.write([
-      item("p1", "hello", { path: "a.txt", format: "text" }),
-      item("p2", "world", { path: "a.txt", format: "text" }),
-    ]);
-    expect(readFileSync(join(box.root, "a.txt"), "utf8")).toBe("hello\nworld\n");
-    await out.write([item("p3", "only", { path: "w.txt", format: "text", mode: "write" })]);
-    await out.write([item("p4", "last", { path: "w.txt", format: "text", mode: "write" })]);
-    expect(readFileSync(join(box.root, "w.txt"), "utf8")).toBe("last\n");
-  });
-
-  test("text append recovers from a crash between file write and key log", async () => {
-    const box = setup();
-    const path = join(box.root, "c.txt");
-    const w = { path: "c.txt", format: "text" };
-    await new FileOutput(box.root).write([item("p1", "one", w)]);
-    // crash after the data landed, before "done" was logged
-    writeFileSync(`${path}.pipo-keys`, `${readFileSync(`${path}.pipo-keys`, "utf8").split("\n")[0]}\n`);
-    await new FileOutput(box.root).write([item("p1", "one", w)]);
-    expect(readFileSync(path, "utf8")).toBe("one\n");
-    // crash mid-append: partial data, begin logged
-    appendFileSync(`${path}.pipo-keys`, `${JSON.stringify(["begin", "p2", 4, 4])}\n`);
-    appendFileSync(path, "tw");
-    await new FileOutput(box.root).write([item("p2", "two", w)]);
-    expect(readFileSync(path, "utf8")).toBe("one\ntwo\n");
-  });
-
-  test("path is templated by the runner and empty path is an error", async () => {
-    const box = setup();
-    await expect(new FileOutput(box.root).write([item("p", 1, { path: "" })])).rejects.toThrow("path is empty");
-  });
-});
+async function post(r: RustRunner, body: unknown): Promise<string> {
+  const res = await r.post("/", body);
+  expect(res.status).toBe(202);
+  return ((await res.json()) as { packet_id: string }).packet_id;
+}
 
 describe("http output", () => {
   function server(handler: (req: Request) => Response | Promise<Response>) {
@@ -121,50 +43,16 @@ describe("http output", () => {
         return handler(req);
       },
     });
-    cleanups.push(() => srv.stop(true));
+    servers.push(srv);
     return { calls, url: `http://127.0.0.1:${srv.port}/hook` };
   }
 
-  test("sends Idempotency-Key, headers and data as JSON by default", async () => {
-    const s = server(() => new Response("ok"));
-    await new HttpOutput().write([item("pk1", { a: 1 }, { url: s.url, headers: { "X-Auth": "t" } })]);
-    const c = s.calls[0];
-    expect(c?.method).toBe("POST");
-    expect(c?.headers.get("idempotency-key")).toBe("pk1");
-    expect(c?.headers.get("x-auth")).toBe("t");
-    expect(c?.headers.get("content-type")).toBe("application/json");
-    expect(JSON.parse(c?.body ?? "")).toEqual({ a: 1 });
-  });
-
-  test("non-success throws; custom success list is honoured", async () => {
-    const s = server(() => new Response("nope", { status: 202 }));
-    await expect(new HttpOutput().write([item("p", 1, { url: s.url })])).resolves.toBeDefined();
-    await expect(new HttpOutput().write([item("p", 1, { url: s.url, success: [200] })])).rejects.toThrow("202");
-    await expect(new HttpOutput().write([item("p", 1, { url: s.url, success: ["2xx"] })])).resolves.toBeDefined();
-    const e = server(() => new Response("bad", { status: 500 }));
-    await expect(new HttpOutput().write([item("p", 1, { url: e.url })])).rejects.toThrow("500");
-    await expect(new HttpOutput().write([item("p", 1, { url: e.url, success: [500] })])).resolves.toBeDefined();
-  });
-
-  test("statusMatcher", () => {
-    expect(statusMatcher(undefined)(204)).toBe(true);
-    expect(statusMatcher(undefined)(301)).toBe(false);
-    expect(statusMatcher([201, "3xx", "400-404"])(403)).toBe(true);
-    expect(() => statusMatcher(["abc"])).toThrow("invalid success status");
-  });
-
-  test("runner retries a failing endpoint per policy and keeps the secret out of logs", async () => {
-    const box = setup();
+  test("retries a failing endpoint per policy, with one Idempotency-Key, and keeps the secret out of logs", async () => {
     let n = 0;
     const s = server(() => (++n < 3 ? new Response("down", { status: 503 }) : new Response("ok")));
-    process.env.PIPO_TEST_HOOK_TOKEN = "s3cret-token-value";
-    cleanups.push(() => void delete process.env.PIPO_TEST_HOOK_TOKEN);
-    const file = box.write(
-      "h.pipo",
-      `pipo: 1
-name: hookout
-secrets: { tok: env:PIPO_TEST_HOOK_TOKEN }
-input: { via: http }
+    const r = await start(
+      "hookout",
+      `secrets: { tok: env:PIPO_TEST_HOOK_TOKEN }
 output:
   from: input
   to: http
@@ -173,49 +61,51 @@ output:
     headers: { Authorization: "Bearer \${secrets.tok}" }
   on_error: { retry: 3, delay: 10ms }
 `,
+      { PIPO_TEST_HOOK_TOKEN: "s3cret-token-value" },
     );
-    const lines: string[] = [];
-    const r = await startRunner(file, box.home, lines);
-    cleanups.push(() => r.runner.stop());
-    const res = await r.post("/", { x: 1 });
-    const id = ((await res.json()) as any).packet_id;
-    const row = await settled(r.runner, id);
-    expect(row.state).toBe("delivered");
+    const id = await post(r, { x: 1 });
+    expect((await r.settled(id)).state).toBe("delivered");
     expect(s.calls).toHaveLength(3);
-    expect(s.calls.every((c) => c.headers.get("idempotency-key") === id)).toBe(true);
+    expect(s.calls.every((c) => c.method === "POST" && c.headers.get("idempotency-key") === id)).toBe(true);
     expect(s.calls[2]?.headers.get("authorization")).toBe("Bearer s3cret-token-value");
-    expect(lines.join("\n")).not.toContain("s3cret-token-value");
+    expect(s.calls[2]?.headers.get("content-type")).toBe("application/json");
+    expect(JSON.parse(s.calls[2]?.body ?? "")).toEqual({ x: 1 });
+    expect(r.lines().join("\n") + r.stderr()).not.toContain("s3cret-token-value");
+    const trail = JSON.stringify(r.query("SELECT detail FROM events WHERE packet_id = ?", id));
+    expect(trail).not.toContain("s3cret-token-value");
+  });
+
+  test("a status outside the success list dead-letters with the status", async () => {
+    const s = server(() => new Response("nope", { status: 202 }));
+    const r = await start("strict", `output: { from: input, to: http, with: { url: "${s.url}", success: [200] } }\n`);
+    const row = await r.settled(await post(r, {}));
+    expect(row.state).toBe("dead_lettered");
+    expect(row.error?.message).toContain("202");
   });
 });
 
-describe("runner: http input to file output", () => {
-  test("delivers jsonl with a templated path", async () => {
-    const box = setup();
-    const file = box.write(
-      "f.pipo",
-      `pipo: 1
-name: tofile
-input: { via: http }
-output:
+describe("file output", () => {
+  test("delivers jsonl to a templated path, one line per packet", async () => {
+    const r = await start(
+      "tofile",
+      `output:
   from: input
   to: file
   with: { path: "./out/\${data.kind}.jsonl" }
 `,
     );
-    const r = await startRunner(file, box.home);
-    cleanups.push(() => r.runner.stop());
     const ids: string[] = [];
-    for (const kind of ["a", "b", "a"]) {
-      const res = await r.post("/", { kind });
-      ids.push(((await res.json()) as any).packet_id);
-    }
-    for (const id of ids) await settled(r.runner, id);
+    for (const kind of ["a", "b", "a"]) ids.push(await post(r, { kind }));
+    for (const id of ids) expect((await r.settled(id)).state).toBe("delivered");
     const read = (k: string) =>
       readFileSync(join(box.root, `out/${k}.jsonl`), "utf8")
         .trim()
         .split("\n")
         .map((l) => JSON.parse(l));
-    expect(read("a").map((x) => x.packet_id)).toEqual([ids[0], ids[2]]);
+    expect(read("a")).toEqual([
+      { packet_id: ids[0], data: { kind: "a" } },
+      { packet_id: ids[2], data: { kind: "a" } },
+    ]);
     expect(read("b")).toHaveLength(1);
     expect(existsSync(join(box.root, "out/a.jsonl.pipo-keys"))).toBe(false);
   });
