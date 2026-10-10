@@ -24,8 +24,8 @@ bun install
 bun run verify        # cargo build --release + cargo test + clippy, then typecheck + lint + all tests. Must pass before every commit
 cargo build --release -p pipo-runner   # the binary the engine, CLI and TS tests run (target/release/pipo-runner); pipo and `bun install` also build it when it's missing or older than the crate (binary.ts, spec D73)
 cargo test -p pipo-runner              # Rust unit and integration tests; cargo fmt uses rustfmt.toml (120 columns)
-bun test              # all tests
-bun test packages/runner/test/recovery.test.ts   # one file
+bun run test          # all TS tests, files in parallel (scripts/test.ts; --jobs N, or a path to narrow it)
+bun test packages/runner/test/recovery.test.ts   # one file, in one process
 bun run typecheck     # tsc --noEmit (TypeScript 7)
 bun run lint          # biome check; `bun run format` to fix formatting
 bun pipo check examples          # or: bun packages/cli/src/main.ts check …
