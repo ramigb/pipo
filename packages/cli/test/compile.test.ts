@@ -132,6 +132,18 @@ test("a `typeof` guard and a local named like a host global are fine", async () 
   expect(out.fn.code).toContain("typeof require");
 });
 
+test("timers are fine: the runner's QuickJS has setTimeout, clearTimeout, setInterval and clearInterval", async () => {
+  const dir = project({
+    "c.pipo": PIPE("fn: ./c.fn.ts\n"),
+    "c.fn.ts":
+      "const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));\nexport async function shout(d: unknown) { clearTimeout(setTimeout(() => {}, 5)); clearInterval(setInterval(() => {}, 5)); await sleep(1); return d; }\n",
+  });
+  const { code, out } = await compile(join(dir, "c.pipo"));
+  expect(out.diagnostics).toEqual([]);
+  expect(code).toBe(0);
+  expect(out.fn.code).toContain("setTimeout(r, ms)");
+});
+
 test("schemas and file hashes: exactly what the runner records (D60)", async () => {
   const dir = join(sb.root, "triage");
   copyExampleDir(join(ROOT, "examples/ticket-triage"), dir);
