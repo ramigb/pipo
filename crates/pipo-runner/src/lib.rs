@@ -1,6 +1,7 @@
 // The Pipo runner: the data plane for one pipeline (docs/spec.md §7.1, docs/rust-runner.md).
 
 pub mod agents;
+pub mod bots;
 pub mod compile;
 pub mod connectors;
 pub mod control;
@@ -9,6 +10,7 @@ pub mod cron;
 pub mod dryrun;
 pub mod duration;
 pub mod expr;
+pub mod format;
 pub mod ids;
 pub mod jsfn;
 pub mod journal;
@@ -17,6 +19,7 @@ pub mod liveness;
 pub mod pipeline;
 pub mod plan;
 pub mod policy;
+pub mod proc;
 pub mod proposals;
 pub mod retention;
 pub mod runner;
@@ -24,4 +27,5 @@ pub mod secrets;
 pub mod stats;
 pub mod support;
 pub mod testing;
+pub mod time;
 pub mod versions;
