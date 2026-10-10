@@ -62,13 +62,19 @@ export class RustRunner {
 
   /** Start a file that must fail to start; resolves with the exit code and stderr. */
   static async refuse(box: { root: string; home: string }, file: string, o: StartOptions = {}) {
-    const log = join(box.root, `refused-${Date.now()}.log`);
+    const log = join(box.root, `refused-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.log`);
     const proc = Bun.spawn([runnerBinary(), file, "--home", box.home, ...(o.args ?? [])], {
       stdout: Bun.file(log),
       stderr: Bun.file(`${log}.err`),
       env: runnerEnv(o.env),
     });
-    const code = await proc.exited;
+    // A start that succeeds would never exit: stop it and say so.
+    const ms = o.timeoutMs ?? 30_000;
+    const code = await Promise.race([proc.exited, Bun.sleep(ms).then(() => null)]);
+    if (code === null) {
+      proc.kill("SIGKILL");
+      throw new Error(`expected the start to be refused, but the runner was still up after ${ms}ms`);
+    }
     return { code, stderr: readFileSync(`${log}.err`, "utf8"), stdout: readFileSync(log, "utf8") };
   }
 
