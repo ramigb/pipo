@@ -121,8 +121,26 @@ fn report(e: &pipo_runner::runner::StartError) {
     }
 }
 
+/// `pipo-runner test`: `pipo test` and the dashboard's test run (§10.3), options as JSON on stdin.
+fn main_test() -> i32 {
+    use std::io::Read;
+    let mut input = String::new();
+    if let Err(e) = std::io::stdin().read_to_string(&mut input) {
+        eprintln!("pipo-runner test: can't read stdin: {e}");
+        return 64;
+    }
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("tokio runtime");
+    let local = tokio::task::LocalSet::new();
+    let (out, code) = local.block_on(&rt, pipo_runner::testing::main_test(&input));
+    println!("{}", pipo_runner::expr::js_json(&out));
+    code
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("test") {
+        std::process::exit(main_test());
+    }
     let opts = match parse_args(&args) {
         Ok(o) => o,
         Err(e) => {
