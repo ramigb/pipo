@@ -100,8 +100,33 @@ pub async fn compile(file: &Path, home: &Path, source: Option<&str>) -> Result<C
     compile_with(&compiler_argv()?, file, home, source).await
 }
 
-/// `compile` with an explicit compiler argv.
+/// How long one compile may take before it counts as hung: Bun under WSL now and then spins forever loading modules
+/// before any code runs (the engine restarts such runners for the same reason). `PIPO_COMPILE_TIMEOUT` (ms) overrides.
+const ATTEMPT_MS: u64 = 8000;
+const ATTEMPTS: u32 = 3;
+
+/// `compile` with an explicit compiler argv. A compiler that hangs is killed and run again, up to three times.
 pub async fn compile_with(
+    argv: &[String],
+    file: &Path,
+    home: &Path,
+    source: Option<&str>,
+) -> Result<Compiled, String> {
+    let ms = std::env::var("PIPO_COMPILE_TIMEOUT").ok().and_then(|v| v.parse().ok()).unwrap_or(ATTEMPT_MS);
+    for attempt in 1..=ATTEMPTS {
+        match tokio::time::timeout(std::time::Duration::from_millis(ms), compile_once(argv, file, home, source)).await {
+            Ok(result) => return result,
+            Err(_) if attempt < ATTEMPTS => continue,
+            Err(_) => {}
+        }
+    }
+    Err(format!(
+        "pipo compile (`{}`) did not answer within {ms} ms, {ATTEMPTS} times; run it by hand to see why, or raise PIPO_COMPILE_TIMEOUT",
+        argv.join(" ")
+    ))
+}
+
+async fn compile_once(
     argv: &[String],
     file: &Path,
     home: &Path,

@@ -38,7 +38,7 @@ export class RustRunner {
       env: runnerEnv(o.env),
     });
     const registry = join(box.home, "run", `${name}.json`);
-    const entry = await waitFor(
+    const entry = await waitFor<{ listen: number | null; socket: string } | null>(
       () => {
         if (proc.exitCode !== null) {
           const err = existsSync(`${log}.err`) ? readFileSync(`${log}.err`, "utf8") : "";
@@ -50,7 +50,10 @@ export class RustRunner {
       },
       o.timeoutMs ?? 15_000,
       `${name} runner registry entry`,
-    );
+    ).catch((e) => {
+      const kids = Bun.spawnSync(["ps", "--ppid", String(proc.pid), "-o", "pid=,etimes=,args="]).stdout.toString();
+      throw new Error(`${(e as Error).message}\nchildren:\n${kids}\nstderr: ${readFileSync(`${log}.err`, "utf8")}`);
+    });
     const client = await ControlClient.connect(entry.socket);
     return new RustRunner(proc, name, box.home, log, entry.listen, client);
   }
@@ -135,15 +138,22 @@ export class RustRunner {
   }
 
   /** Wait until a packet reaches a terminal state and return it. */
-  settled(id: string, timeoutMs = 10_000): Promise<PacketRow> {
-    return waitFor(
-      () => {
-        const row = this.packet(id);
-        return row && TERMINAL.includes(row.state) ? row : null;
-      },
-      timeoutMs,
-      `packet ${id} to settle`,
-    );
+  async settled(id: string, timeoutMs = 4000): Promise<PacketRow> {
+    try {
+      return await waitFor(
+        () => {
+          const row = this.packet(id);
+          return row && TERMINAL.includes(row.state) ? row : null;
+        },
+        timeoutMs,
+        `packet ${id} to settle`,
+      );
+    } catch (e) {
+      const trail = this.query("SELECT packet_id, type, node, at FROM events ORDER BY seq");
+      throw new Error(
+        `${(e as Error).message}\nrow: ${JSON.stringify(this.packet(id))}\nevents: ${JSON.stringify(trail)}\nlog:\n${this.lines().join("\n")}\n${this.stderr()}`,
+      );
+    }
   }
 
   status(): Promise<Record<string, any>> {

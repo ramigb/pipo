@@ -1,8 +1,11 @@
 // The Rust runner's core semantics end to end (docs/spec.md §2.1, §3.4, §3.9, §7.3): the binary, driven over its
 // control socket with a push input and a stdout output, `fn` code in its embedded QuickJS.
-import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { sandbox, waitFor } from "./helpers";
 import { RustRunner } from "./rust";
+
+// A runner start compiles through Bun, which can hang once in a while under WSL and is then retried (compile.rs).
+setDefaultTimeout(30_000);
 
 const box = sandbox();
 let running: RustRunner[] = [];
@@ -122,6 +125,7 @@ ${outputFrom("d")}`);
   test("then: agent escalates; resolve retry and dead_letter", async () => {
     const r = await start(`nodes:
   x: { from: input, transform: fn.boom, on_error: { then: agent } }
+agent: { control: true }
 ${outputFrom("x")}`);
     const a = await r.push({ a: 1 });
     const b = await r.push({ b: 1 });
@@ -149,7 +153,8 @@ ${outputFrom("never")}`);
     const row = await r.settled(p.packet_id);
     expect(row.state).toBe("dead_lettered");
     expect(row.error?.code).toBe("loop.max");
-    expect(row.data).toMatchObject({ n: 6 });
+    // `iteration` is per unit, not per loop: the second loop starts where the first one's count ended (as in TS).
+    expect(row.data).toMatchObject({ n: 3 });
   });
 });
 
