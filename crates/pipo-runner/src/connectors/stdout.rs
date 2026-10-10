@@ -3,10 +3,9 @@
 use super::{LocalBoxFuture, OutputAdapter, WriteItem};
 use crate::expr::{js_json, to_text};
 use serde_json::{Map, Value, json};
-use std::rc::Rc;
 
 pub struct StdoutOutput {
-    pub print: Option<Rc<dyn Fn(&str)>>,
+    pub print: Option<super::Print>,
 }
 
 impl StdoutOutput {
