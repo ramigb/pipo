@@ -179,7 +179,10 @@ ${outputFrom("[a, b]")}`);
 describe("lifecycle", () => {
   test("pause holds packets; resume delivers them", async () => {
     const r = await start(outputFrom("input"));
-    expect(await r.request("pause", { reason: "manual" })).toEqual({ state: "paused", already: false });
+    expect(await r.request<Record<string, unknown>>("pause", { reason: "manual" })).toEqual({
+      state: "paused",
+      already: false,
+    });
     const p = await r.push({ a: 1 });
     await Bun.sleep(200);
     expect(r.packet(p.packet_id)?.state).toBe("accepted");
