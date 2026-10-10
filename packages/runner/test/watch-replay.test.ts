@@ -1,15 +1,21 @@
 // Watch input restart behaviour (docs/spec.md §14.3): the snapshot lives in the journal, so files
-// created, changed or deleted while the runner was down are emitted exactly once on the next start.
-import { Database } from "bun:sqlite";
-import { afterAll, afterEach, describe, expect, test } from "bun:test";
+// created, changed or deleted while the runner was down are emitted exactly once on the next start. The Rust runner
+// binary, restarted for real; the snapshot's transaction is unit-tested in crates/pipo-runner/tests/journal.rs
+// (input_state_joins_the_intake_transaction) and crates/pipo-runner/src/connectors/watch.rs.
+import { afterAll, afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { Journal, Runner } from "../src";
 import { rows, sandbox, spawnRunner as spawn, waitFor } from "./helpers";
+import { RustRunner } from "./rust";
 
-let cleanups: (() => Promise<void> | void)[] = [];
+setDefaultTimeout(30_000);
+
+let running: RustRunner[] = [];
+let cleanups: (() => void)[] = [];
 afterEach(async () => {
-  for (const c of cleanups.reverse()) await c();
+  for (const r of running) if (r.proc.exitCode === null) await r.kill();
+  for (const c of cleanups) c();
+  running = [];
   cleanups = [];
 });
 
@@ -35,11 +41,14 @@ function project(name: string, events = "[create, change, delete]", glob = "./dr
           return { event: d.event, name: d.name, size: d.size };
         })
       : [];
+  const start = async () => {
+    const r = await RustRunner.start(box, join(box.root, `${name}.pipo`), name, { listen: null });
+    running.push(r);
+    return r;
+  };
   /** Start, let the replay scan run (it fires straight after start), then stop. */
   const cycle = async (expectCount: number) => {
-    const runner = await Runner.open({ file: join(box.root, `${name}.pipo`), home: box.home, log: () => {} });
-    await runner.start();
-    cleanups.push(() => (runner.state === "stopped" ? undefined : runner.stop()));
+    const r = await start();
     await waitFor(() => packets().length >= expectCount, 10_000, `${expectCount} packets`);
     await Bun.sleep(300); // nothing extra arrives
     await waitFor(
@@ -51,10 +60,9 @@ function project(name: string, events = "[create, change, delete]", glob = "./dr
       10_000,
       "packets settled",
     );
-    await runner.stop();
-    return runner;
+    expect(await r.stop()).toBe(0);
   };
-  return { box, db, file, packets, cycle, pipo };
+  return { box, db, file, packets, start, cycle, pipo };
 }
 
 const sorted = (e: Event[]) => [...e].sort((a, b) => `${a.name}${a.event}`.localeCompare(`${b.name}${b.event}`));
@@ -85,18 +93,17 @@ describe("watch replay", () => {
 
     await t.cycle(3); // restart again: nothing re-emitted
     expect(t.packets()).toHaveLength(3);
-  }, 30_000);
+  }, 60_000);
 
   test("live events are persisted too, so a restart does not repeat them", async () => {
     const t = project("wl");
-    const runner = await Runner.open({ file: join(t.box.root, "wl.pipo"), home: t.box.home, log: () => {} });
-    await runner.start();
+    const r = await t.start();
     writeFileSync(t.file("live.txt"), "live");
     await waitFor(() => t.packets().length === 1, 10_000, "live create");
-    await runner.stop();
+    expect(await r.stop()).toBe(0);
     await t.cycle(1);
     expect(t.packets()).toEqual([{ event: "create", name: "live.txt", size: 4 }]);
-  }, 30_000);
+  }, 60_000);
 
   test("an empty folder is still a baseline: files created while down are replayed", async () => {
     const t = project("we");
@@ -104,7 +111,7 @@ describe("watch replay", () => {
     writeFileSync(t.file("a.txt"), "a");
     await t.cycle(1);
     expect(t.packets()).toEqual([{ event: "create", name: "a.txt", size: 1 }]);
-  }, 30_000);
+  }, 60_000);
 
   test("unsubscribed events still move the snapshot; a changed glob starts a new baseline", async () => {
     const t = project("wf", "[create]");
@@ -123,56 +130,7 @@ describe("watch replay", () => {
     t.pipo("[create, change, delete]", "./drop/*"); // different glob: a fresh baseline, no replay
     await t.cycle(1);
     expect(t.packets()).toHaveLength(1);
-  }, 30_000);
-
-  test("the snapshot write shares the packet's transaction", () => {
-    const box = sandbox();
-    cleanups.push(() => box.cleanup());
-    const j = new Journal(join(box.home, "j.db"));
-    const v = j.version("h", "src");
-    const s = j.inputState("watch:/x/*.txt");
-    expect(s.load()).toBeNull();
-    s.baseline(new Map([["/x/a.txt", { mtimeMs: 1, size: 1 }]]));
-    const row = (id: string) => ({
-      id,
-      version: v,
-      state: "accepted" as const,
-      cursor: "$output",
-      data: {},
-      trigger: "watch",
-      source: "s",
-      error: null,
-      received_at: Date.now(),
-    });
-    j.insert(row("p1"), "packet.accepted", undefined, () => s.put("/x/b.txt", { mtimeMs: 2, size: 2 }));
-    // A failing commit rolls back the packet; a failing packet insert rolls back the commit.
-    expect(() =>
-      j.insert(row("p2"), "packet.accepted", undefined, () => {
-        s.put("/x/c.txt", { mtimeMs: 3, size: 3 });
-        throw new Error("boom");
-      }),
-    ).toThrow("boom");
-    expect(() => j.insert(row("p1"), "packet.accepted", undefined, () => s.put("/x/a.txt", undefined))).toThrow();
-    expect(j.get("p2")).toBeNull();
-    expect([...(s.load() as Map<string, unknown>).keys()].sort()).toEqual(["/x/a.txt", "/x/b.txt"]);
-    // A new scope replaces the old one (one input per pipeline).
-    j.inputState("watch:/y/*").baseline(new Map());
-    expect(s.load()).toBeNull();
-    j.close();
-  });
-
-  test("journals from before input state existed still open", () => {
-    const box = sandbox();
-    cleanups.push(() => box.cleanup());
-    const path = join(box.home, "old.db");
-    new Journal(path).close();
-    const db = new Database(path);
-    db.exec("DROP TABLE input_state; DROP TABLE input_scopes;");
-    db.close();
-    const j = new Journal(path);
-    expect(j.inputState("watch:/x").load()).toBeNull();
-    j.close();
-  });
+  }, 60_000);
 });
 
 // ── end to end: SIGKILL in the middle of a replay ─────────────────────────────
@@ -180,10 +138,10 @@ describe("watch replay", () => {
 const box = sandbox();
 const spawned: ReturnType<typeof Bun.spawn>[] = [];
 afterAll(() => {
-  for (const p of spawned) p.kill("SIGKILL");
+  for (const p of spawned) if (p.exitCode === null) p.kill("SIGKILL");
   box.cleanup();
 });
-const spawnRunner = (file: string, n: number) => spawn(box, spawned, "watchy", file, n, [], 15_000).then((r) => r.proc);
+const spawnRunner = (file: string, n: number) => spawn(box, spawned, "watchy", file, n, []).then((r) => r.proc);
 const JOURNAL = join(box.home, "pipelines", "watchy", "journal.db");
 
 // buffer.max 2 with a slow node throttles intake, so the replay is still running when it is killed.
@@ -216,7 +174,7 @@ function snapshot(): Map<string, { size: number }> {
 }
 
 test("SIGKILL mid-replay: every downtime change is emitted exactly once after restart", async () => {
-  box.write("fns.ts", "export const slow = async (d) => { await Bun.sleep(100); return d; };");
+  box.write("fns.ts", "export const slow = async (d) => { await new Promise((r) => setTimeout(r, 100)); return d; };");
   const file = box.write("watchy.pipo", E2E);
   const drop = join(box.root, "drop");
   mkdirSync(drop);
@@ -224,10 +182,10 @@ test("SIGKILL mid-replay: every downtime change is emitted exactly once after re
   for (let i = 0; i < 3; i++) writeFileSync(at(`m${i}.txt`), "m");
   for (let i = 0; i < 3; i++) writeFileSync(at(`d${i}.txt`), "d");
 
-  // Run 1 (in-process) takes the baseline and stops cleanly.
-  const first = await Runner.open({ file, home: box.home, log: () => {} });
-  await first.start();
-  await first.stop();
+  // Run 1 takes the baseline and stops cleanly.
+  const first = await RustRunner.start(box, file, "watchy", { listen: null });
+  spawned.push(first.proc);
+  expect(await first.stop()).toBe(0);
   expect(journaled()).toEqual([]);
 
   // While down: 8 creates, 3 changes (new sizes), 3 deletes.
@@ -245,7 +203,7 @@ test("SIGKILL mid-replay: every downtime change is emitted exactly once after re
     expected.set(at(`d${i}.txt`), { event: "delete", size: null });
   }
 
-  // Run 2 (a process) starts replaying and is killed part-way through.
+  // Run 2 starts replaying and is killed part-way through.
   const second = await spawnRunner(file, 2);
   await waitFor(() => journaled().length >= 4, 15_000, "replay under way");
   second.kill("SIGKILL");
@@ -261,7 +219,7 @@ test("SIGKILL mid-replay: every downtime change is emitted exactly once after re
     expect({ path, advanced }).toEqual({ path, advanced: done.has(path) });
   }
 
-  // Run 3 (a process) finishes the replay without repeating anything.
+  // Run 3 finishes the replay without repeating anything.
   const third = await spawnRunner(file, 3);
   await waitFor(
     () => {
@@ -274,11 +232,11 @@ test("SIGKILL mid-replay: every downtime change is emitted exactly once after re
   third.kill("SIGTERM");
   expect(await third.exited).toBe(0);
 
-  // Run 4 (in-process): a clean restart re-emits nothing.
-  const fourth = await Runner.open({ file, home: box.home, log: () => {} });
-  await fourth.start();
+  // Run 4: a clean restart re-emits nothing.
+  const fourth = await RustRunner.start(box, file, "watchy", { listen: null });
+  spawned.push(fourth.proc);
   await Bun.sleep(1200); // the replay scan and one poll
-  await fourth.stop();
+  expect(await fourth.stop()).toBe(0);
 
   const all = journaled();
   expect(all).toHaveLength(expected.size);
