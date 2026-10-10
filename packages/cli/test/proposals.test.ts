@@ -1,15 +1,17 @@
 // `pipo proposals` and `pipo resolve` (docs/spec.md §6, §9.3, D50, D51): in-process with --no-engine against a runner
 // started in the test: list, propose (applied, or held with --hold), show, apply, reject; then reads from the journal
 // once it stopped; errors say what to do.
-import { afterAll, expect, test } from "bun:test";
-import { Runner } from "@pipo/runner";
+import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { sandbox } from "../../runner/test/helpers";
+import { RustRunner } from "../../runner/test/rust";
 import { main } from "../src/cli";
 
+setDefaultTimeout(60_000);
 const sb = sandbox();
-const runners: Runner[] = [];
+const runners: RustRunner[] = [];
+const version = async (r: RustRunner) => (await r.status()).version as number;
 afterAll(async () => {
-  for (const r of runners) await r.stop().catch(() => {});
+  for (const r of runners) await r.kill().catch(() => {});
   sb.cleanup();
 });
 
@@ -55,9 +57,8 @@ const two = sb.write("two.pipo", SRC("two"));
 const three = sb.write("three.pipo", SRC("three"));
 
 test("propose, hold, show, apply and reject; then reads from the journal", async () => {
-  const runner = await Runner.open({ file, home: sb.home, log: () => {} });
+  const runner = await RustRunner.start(sb, file, "prop", { listen: null, timeoutMs: 30_000 });
   runners.push(runner);
-  await runner.start();
 
   const none = await pipo("proposals", "prop", ...N);
   expect(none.stdout).toContain("prop has no change proposals");
@@ -68,12 +69,12 @@ test("propose, hold, show, apply and reject; then reads from the journal", async
     ok: true,
     proposal: { state: "applied", applied_version: 2, author: "ada", author_kind: "human" },
   });
-  expect(runner.version).toBe(2);
+  expect(await version(runner)).toBe(2);
 
   // --hold stores it; apply applies it.
   const held = await json("proposals", "prop", "propose", three, "--reason", "use three", "--hold");
   expect(held.proposal.state).toBe("validated");
-  expect(runner.version).toBe(2);
+  expect(await version(runner)).toBe(2);
   const text = await pipo("proposals", "prop", "show", held.proposal.id, ...N);
   expect(text.stdout).toContain(`${held.proposal.id}  validated  against v2`);
   expect(text.stdout).toContain("+  tag: { from: input, transform: fn.three }");
@@ -81,7 +82,7 @@ test("propose, hold, show, apply and reject; then reads from the journal", async
   expect(shown.proposal).toMatchObject({ id: held.proposal.id, state: "validated", reason: "use three" });
   const applied = await pipo("proposals", "prop", "apply", held.proposal.id, ...N);
   expect(applied.stdout).toContain(`applied proposal ${held.proposal.id}: new packets use v3`);
-  expect(runner.version).toBe(3);
+  expect(await version(runner)).toBe(3);
 
   // Reject needs a reason; a held proposal is rejected; a decided one can't be.
   const again = await json("proposals", "prop", "propose", two, "--reason", "back", "--hold");
@@ -119,7 +120,7 @@ test("propose, hold, show, apply and reject; then reads from the journal", async
   expect(gone.stderr).toContain("no packet '01NOPE' in prop");
 
   // Stopped: reads come from the journal; propose needs the runner.
-  await runner.stop();
+  expect(await runner.stop()).toBe(0);
   const off = await json("proposals", "prop");
   expect(off).toMatchObject({ source: "journal" });
   expect(off.proposals).toHaveLength(3);
@@ -133,9 +134,8 @@ test("propose exits 1 with the reason and a hint when the proposal is rejected; 
   const f2 = sb.write("prop2.pipo", src("one"));
   const good = sb.write("prop2-good.pipo", src("two"));
   const bad = sb.write("prop2-bad.pipo", src("two").replace("from: input", "from: nowhere"));
-  const runner = await Runner.open({ file: f2, home: sb.home, log: () => {} });
+  const runner = await RustRunner.start(sb, f2, "prop2", { listen: null, timeoutMs: 30_000 });
   runners.push(runner);
-  await runner.start();
 
   const rejected = await pipo("proposals", "prop2", "propose", bad, "--reason", "broken", ...N);
   expect(rejected.code).toBe(1);
@@ -144,11 +144,11 @@ test("propose exits 1 with the reason and a hint when the proposal is rejected; 
   expect(rejected.stderr).toContain("hint:");
   const rejectedJson = await pipo("proposals", "prop2", "propose", bad, "--reason", "broken", ...N, "--json");
   expect(rejectedJson.code).toBe(1);
-  expect(runner.version).toBe(1);
+  expect(await version(runner)).toBe(1);
 
   const ok = await pipo("proposals", "prop2", "propose", good, "--reason", "fine", ...N);
   expect(ok.code).toBe(0);
-  expect(runner.version).toBe(2);
+  expect(await version(runner)).toBe(2);
   const held = await pipo("proposals", "prop2", "propose", f2, "--reason", "held", "--hold", ...N);
   expect(held.code).toBe(0);
 
