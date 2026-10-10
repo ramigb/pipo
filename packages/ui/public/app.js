@@ -358,6 +358,7 @@ function connect(pipeline = null) {
       e = JSON.parse(m.data);
     } catch {}
     flow(e);
+    dispatchEvent(new CustomEvent("pipo:event", { detail: e }));
     if (relevant(e)) schedule();
   };
   es.addEventListener("state", () => schedule());

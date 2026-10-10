@@ -3,7 +3,10 @@
 // `.pipo` file stays the source of truth: the canvas edits the parsed value, the engine writes it back as YAML
 // (keeping the opened file's comments), and saving writes the file. A running pipeline is changed through a human
 // proposal (§9.3), then its file is saved. The 🧪 panel dry-runs the draft against sample packets (outputs and taps
-// mocked, nothing written). Routes: #/build (new), #/build/f/<file>, #/build/p/<pipeline>.
+// mocked, nothing written). The canvas shows the pipeline as a graph or as a small town (city.js, D75); both edit the
+// same value. Routes: #/build (new), #/build/f/<file>, #/build/p/<pipeline>.
+
+import { createCity } from "./city.js";
 import { ApiError, api, EngineDown, h, s, toast } from "./dom.js";
 import { autoLayout } from "./layout.js";
 import { badge, connectorEmoji, fmtJson, kindEmoji, mascot } from "./look.js";
@@ -148,6 +151,7 @@ function start(key, opened) {
     selected: null,
     pos: new Map(Object.entries(store.get(`pipo-pos:${opened?.file ?? key}`) ?? {})),
     view: { x: 40, y: 40, k: 1 },
+    mode: store.get("pipo-builder-view") === "city" ? "city" : "graph",
     panel: "inspect",
     dirty: restored,
     // The packet starts as the file's first fixture, so a dry run tries what its tests try.
@@ -192,7 +196,7 @@ function start(key, opened) {
   layoutMissing();
   ctx.show(frame());
   fit();
-  draw();
+  setMode(B.mode);
   side();
   top();
   check();
@@ -370,16 +374,58 @@ function frame() {
   el.world = s("g", { class: "b-world" });
   el.svg = s("svg", { class: "b-svg", role: "application", "aria-label": "pipeline canvas" }, el.world);
   el.hint = h("div", { class: "b-hint muted small" });
+  const b = B;
+  el.city = createCity({
+    key: B.file ?? B.key,
+    state: () => ({ p: b.hist.value, selected: b.selected, diagnostics: b.diagnostics, trace: b.trace }),
+    select: (sel) => still(b) && select(sel),
+    wire: (ref, to) => still(b) && wireTo(ref, to),
+    hint: (text) => {
+      el.hint.textContent = text ?? CITY_HINT;
+    },
+    focus: () => el.canvas.focus({ preventScroll: true }),
+  });
+  el.views = h(
+    "div",
+    { class: "b-views", role: "group", "aria-label": "canvas view" },
+    [
+      ["graph", "🔀 Graph", "Blocks and wires"],
+      ["city", "🏙️ City", "The same pipeline as a little town: buildings and data lanes"],
+    ].map(([mode, label, title]) =>
+      h("button", { type: "button", "data-mode": mode, title, onclick: () => setMode(mode) }, label),
+    ),
+  );
+  const city = () => B.mode === "city";
   el.canvas = h(
     "div",
     { class: "b-canvas card flush", tabindex: 0 },
     el.svg,
+    el.city.el,
+    el.views,
     el.hint,
     h(
       "div",
       { class: "b-zoom" },
-      h("button", { type: "button", class: "icon-btn", title: "Zoom in", onclick: () => zoomBy(1.2) }, "➕"),
-      h("button", { type: "button", class: "icon-btn", title: "Zoom out", onclick: () => zoomBy(1 / 1.2) }, "➖"),
+      h(
+        "button",
+        {
+          type: "button",
+          class: "icon-btn",
+          title: "Zoom in",
+          onclick: () => (city() ? el.city.zoomBy(1.2) : zoomBy(1.2)),
+        },
+        "➕",
+      ),
+      h(
+        "button",
+        {
+          type: "button",
+          class: "icon-btn",
+          title: "Zoom out",
+          onclick: () => (city() ? el.city.zoomBy(1 / 1.2) : zoomBy(1 / 1.2)),
+        },
+        "➖",
+      ),
       h(
         "button",
         {
@@ -387,6 +433,7 @@ function frame() {
           class: "icon-btn",
           title: "Fit to screen",
           onclick: () => {
+            if (city()) return el.city.fit();
             fit();
             draw();
           },
@@ -402,7 +449,26 @@ function frame() {
   return B.root;
 }
 
+/** Show the canvas as a graph or as a town; the choice is remembered per browser. */
+function setMode(mode) {
+  B.mode = mode;
+  store.set("pipo-builder-view", mode);
+  for (const btn of el.views.children) {
+    btn.className = btn.dataset.mode === mode ? "on" : "";
+    btn.setAttribute("aria-pressed", String(btn.dataset.mode === mode));
+  }
+  el.svg.style.display = mode === "city" ? "none" : "";
+  el.canvas.classList.toggle("is-city", mode === "city");
+  el.city.show(mode === "city");
+  if (mode === "graph" && !B.graphFitted) fit();
+  draw();
+}
+
 function tidyUp() {
+  if (B.mode === "city") {
+    el.city.tidy();
+    return toast("Tidied up the town ✨");
+  }
   B.pos.clear();
   layoutMissing();
   fit();
@@ -662,8 +728,15 @@ function visible(id) {
 
 // ── canvas drawing ────────────────────────────────────────────────────────────────────────────────────────────────
 
+const CITY_HINT = "🏗️ Drag buildings between lots · pull from a ● port to lay a lane · scroll to zoom · drag to pan";
+
 function draw() {
   if (!B) return;
+  if (B.mode === "city") {
+    el.city.draw();
+    el.hint.textContent = B.selected?.type === "edge" ? "✂️ Press Delete to close this lane" : CITY_HINT;
+    return;
+  }
   const p = P();
   const g = geometry();
   const diag = diagnosticsByBlock(B.diagnostics);
@@ -820,6 +893,11 @@ function wireCanvas() {
     const raw = ev.dataTransfer.getData("application/x-pipo");
     if (!raw) return;
     ev.preventDefault();
+    if (B.mode === "city") {
+      const { onto } = el.city.dropAt(ev);
+      B.selected = onto && onto !== "output" ? { type: "block", id: onto } : null;
+      return place(JSON.parse(raw), null);
+    }
     const at = toWorld(ev);
     // dropped onto a block: it feeds the new one
     const g = geometry();
@@ -846,6 +924,11 @@ function wireCanvas() {
     if (ev.key === "Escape") select(null);
   };
 }
+// A running pipeline's live events (app.js relays the /events stream) send packets through the City view.
+addEventListener("pipo:event", (ev) => {
+  if (B?.mode === "city" && B.root?.isConnected && B.running && ev.detail?.pipeline === B.running.name)
+    el.city.event(ev.detail);
+});
 // Undo/redo also work while the canvas isn't focused (but never steal them from a text field).
 addEventListener("keydown", (ev) => {
   if (!B?.root?.isConnected || ev.target.closest?.("input, textarea, select, .b-canvas")) return;
@@ -884,6 +967,7 @@ function fit() {
     Math.max(0.35, Math.min((r.width - 80) / (maxX - minX || 1), (r.height - 80) / (maxY - minY || 1))),
   );
   B.view = { k, x: (r.width - (maxX - minX) * k) / 2 - minX * k, y: (r.height - (maxY - minY) * k) / 2 - minY * k };
+  B.graphFitted = true;
 }
 
 function startDrag(ev, id) {
@@ -929,14 +1013,19 @@ function startWire(ev, id, port) {
       (b) => b.id !== id && at.x >= b.x - 12 && at.x <= b.x + b.w && at.y >= b.y - 8 && at.y <= b.y + b.h + 8,
     );
     if (!onto) return draw();
-    const problem = connectProblem(P(), ref, onto.id);
-    if (problem) {
-      draw();
-      return toast(`Can't wire that: ${problem}`, "warn");
-    }
-    commit(connect(P(), ref, onto.id));
-    toast(`Wired ${ref} → ${onto.id} 🔗`);
+    wireTo(ref, onto.id);
   };
+}
+
+/** Wire an out-port to a block, or say why it can't be. */
+function wireTo(ref, to) {
+  const problem = connectProblem(P(), ref, to);
+  if (problem) {
+    draw();
+    return toast(`Can't wire that: ${problem}`, "warn");
+  }
+  commit(connect(P(), ref, to));
+  toast(`Wired ${ref} → ${to} 🔗`);
 }
 
 function select(sel) {
@@ -1610,6 +1699,7 @@ function nodeForm(id, node, kind) {
         B.pos.delete(id);
         savePos();
       }
+      el.city.rename(id, next);
       B.selected = { type: "block", id: next };
       commit(renameNode(P(), id, next));
     },
