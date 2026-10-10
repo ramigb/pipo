@@ -1,0 +1,1220 @@
+{
+  "diffs": [
+    {
+      "before": "",
+      "after": "",
+      "context": 3,
+      "expected": {
+        "diff": "",
+        "added": 0,
+        "removed": 0
+      }
+    },
+    {
+      "before": "a\n",
+      "after": "a\n",
+      "context": 3,
+      "expected": {
+        "diff": "",
+        "added": 0,
+        "removed": 0
+      }
+    },
+    {
+      "before": "a",
+      "after": "a\n",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n(only the newline at the end of the file differs)",
+        "added": 0,
+        "removed": 0
+      }
+    },
+    {
+      "before": "a\n",
+      "after": "a",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n(only the newline at the end of the file differs)",
+        "added": 0,
+        "removed": 0
+      }
+    },
+    {
+      "before": "",
+      "after": "y\n",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -0,0 +1,1 @@\n+y",
+        "added": 1,
+        "removed": 0
+      }
+    },
+    {
+      "before": "x\n",
+      "after": "",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,1 +0,0 @@\n-x",
+        "added": 0,
+        "removed": 1
+      }
+    },
+    {
+      "before": "x\n",
+      "after": "y\n",
+      "context": 1,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,1 +1,1 @@\n-x\n+y",
+        "added": 1,
+        "removed": 1
+      }
+    },
+    {
+      "before": "a\nb\nc\nd\ne\nf\ng\nh\n",
+      "after": "A\nb\nc\nd\ne\nf\ng\nH\n",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,8 +1,8 @@\n-a\n+A\n b\n c\n d\n e\n f\n g\n-h\n+H",
+        "added": 2,
+        "removed": 2
+      }
+    },
+    {
+      "before": "a\nb\nc\nd\ne\nf\ng\nh\ni\n",
+      "after": "A\nb\nc\nd\ne\nf\ng\nh\nI\n",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,4 +1,4 @@\n-a\n+A\n b\n c\n d\n@@ -6,4 +6,4 @@\n f\n g\n h\n-i\n+I",
+        "added": 2,
+        "removed": 2
+      }
+    },
+    {
+      "before": "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n",
+      "after": "A\nb\nc\nd\ne\nf\ng\nh\ni\nJ\n",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,4 +1,4 @@\n-a\n+A\n b\n c\n d\n@@ -7,4 +7,4 @@\n g\n h\n i\n-j\n+J",
+        "added": 2,
+        "removed": 2
+      }
+    },
+    {
+      "before": "\n\n\n",
+      "after": "\n\n",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,3 +1,2 @@\n \n \n-",
+        "added": 0,
+        "removed": 1
+      }
+    },
+    {
+      "before": "a\r\nb\r\n",
+      "after": "a\r\nc\r\n",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,2 +1,2 @@\n a\r\n-b\r\n+c\r",
+        "added": 1,
+        "removed": 1
+      }
+    },
+    {
+      "before": "héllo\nwörld\n",
+      "after": "héllo\nwürld\n",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,2 +1,2 @@\n héllo\n-wörld\n+würld",
+        "added": 1,
+        "removed": 1
+      }
+    },
+    {
+      "before": "a\nb\nb\nd\nc\ne\nc\nd\nd\nc\nd",
+      "after": "a\nb\nb\nd\nz\ne\nc\ne\nz\nd",
+      "context": 1,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -4,8 +4,7 @@\n d\n+z\n+e\n c\n e\n-c\n-d\n-d\n-c\n+z\n d",
+        "added": 3,
+        "removed": 4
+      }
+    },
+    {
+      "before": "",
+      "after": "e\nz",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -0,0 +1,2 @@\n+e\n+z",
+        "added": 2,
+        "removed": 0
+      }
+    },
+    {
+      "before": "e\na\nb\nc\nd\nb\na\na",
+      "after": "a\ny\na\nb\nz\nd\na\na",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,8 +1,8 @@\n-e\n+a\n+y\n a\n b\n-c\n+z\n d\n-b\n a\n a",
+        "added": 3,
+        "removed": 3
+      }
+    },
+    {
+      "before": "a\nd\ne\ne",
+      "after": "a\ne\nd\ne\nc\ne",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,4 +1,6 @@\n a\n+e\n d\n e\n+c\n e",
+        "added": 2,
+        "removed": 0
+      }
+    },
+    {
+      "before": "",
+      "after": "c",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -0,0 +1,1 @@\n+c",
+        "added": 1,
+        "removed": 0
+      }
+    },
+    {
+      "before": "a\nb\nc\nc\nc\nb",
+      "after": "e\na\nb\nc\nc\nc\nb\ny",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,6 +1,8 @@\n+e\n a\n b\n c\n c\n c\n b\n+y",
+        "added": 2,
+        "removed": 0
+      }
+    },
+    {
+      "before": "a\nd",
+      "after": "a",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,2 +1,1 @@\n a\n-d",
+        "added": 0,
+        "removed": 1
+      }
+    },
+    {
+      "before": "d\nb\nc\ne\nb\ne\nc\ne\ne\ne\na\nb",
+      "after": "d\nb\ny\ne\nc\nb\ne\nc\ne\ne\ne\na\nb",
+      "context": 1,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -2,4 +2,5 @@\n b\n+y\n+e\n c\n-e\n b",
+        "added": 2,
+        "removed": 1
+      }
+    },
+    {
+      "before": "c\ne\ne\nd",
+      "after": "c\ne\ne\nd\na\ne",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -2,3 +2,5 @@\n e\n e\n d\n+a\n+e",
+        "added": 2,
+        "removed": 0
+      }
+    },
+    {
+      "before": "a\nb\na\na\nb\na\nc\nb\nc\na",
+      "after": "e\na\nb\na\nc\na\nb\ny\nc\ne\nb\nc\na",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,10 +1,13 @@\n+e\n a\n b\n a\n+c\n a\n b\n-a\n+y\n c\n+e\n b\n c\n a",
+        "added": 4,
+        "removed": 1
+      }
+    },
+    {
+      "before": "a\nb\nb\nb",
+      "after": "e\na\nc\nb\nb",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,4 +1,5 @@\n+e\n a\n-b\n+c\n b\n b",
+        "added": 2,
+        "removed": 1
+      }
+    },
+    {
+      "before": "d\na\na\na\na\ne\nb\nb\ne\nb\ne\nd",
+      "after": "a\na\na\na\na\ne\nb\nb\ne\nb\ne\nd",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,4 +1,4 @@\n-d\n+a\n a\n a\n a",
+        "added": 1,
+        "removed": 1
+      }
+    },
+    {
+      "before": "e\nc\ne\na",
+      "after": "c\ne\ny\ne\na",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,4 +1,5 @@\n+c\n e\n-c\n+y\n e\n a",
+        "added": 2,
+        "removed": 1
+      }
+    },
+    {
+      "before": "b\na\nc\nc",
+      "after": "b\nc\nc\na\nx",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,4 +1,5 @@\n b\n-a\n c\n c\n+a\n+x",
+        "added": 2,
+        "removed": 1
+      }
+    },
+    {
+      "before": "d\nb\nc\ne",
+      "after": "d\nb\ne\nc",
+      "context": 1,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -2,3 +2,3 @@\n b\n+e\n c\n-e",
+        "added": 1,
+        "removed": 1
+      }
+    },
+    {
+      "before": "",
+      "after": "y",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -0,0 +1,1 @@\n+y",
+        "added": 1,
+        "removed": 0
+      }
+    },
+    {
+      "before": "b\nb\nd\nd",
+      "after": "b\nb\ny\nd",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,4 +1,4 @@\n b\n b\n-d\n+y\n d",
+        "added": 1,
+        "removed": 1
+      }
+    },
+    {
+      "before": "e\nb",
+      "after": "c\nb",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,2 +1,2 @@\n-e\n+c\n b",
+        "added": 1,
+        "removed": 1
+      }
+    },
+    {
+      "before": "e\ne\nc\ne\nb\nc\na\ne\nb\ne\nd\nc",
+      "after": "e\nc\ny\nb\na\ne\nb\nd\nc",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,12 +1,9 @@\n e\n-e\n c\n-e\n+y\n b\n-c\n a\n e\n b\n-e\n d\n c",
+        "added": 1,
+        "removed": 4
+      }
+    },
+    {
+      "before": "",
+      "after": "",
+      "context": 3,
+      "expected": {
+        "diff": "",
+        "added": 0,
+        "removed": 0
+      }
+    },
+    {
+      "before": "",
+      "after": "a\nx\ny",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -0,0 +1,3 @@\n+a\n+x\n+y",
+        "added": 3,
+        "removed": 0
+      }
+    },
+    {
+      "before": "e\na\ne\nc\nc\na",
+      "after": "a\ny\na\nx\nc\nc",
+      "context": 1,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,6 +1,6 @@\n-e\n+a\n+y\n a\n-e\n+x\n c\n c\n-a",
+        "added": 3,
+        "removed": 3
+      }
+    },
+    {
+      "before": "b\nc",
+      "after": "c\nc\nc",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,2 +1,3 @@\n-b\n+c\n+c\n c",
+        "added": 2,
+        "removed": 1
+      }
+    },
+    {
+      "before": "",
+      "after": "c\ne\na\nx",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -0,0 +1,4 @@\n+c\n+e\n+a\n+x",
+        "added": 4,
+        "removed": 0
+      }
+    },
+    {
+      "before": "",
+      "after": "a\ny",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -0,0 +1,2 @@\n+a\n+y",
+        "added": 2,
+        "removed": 0
+      }
+    },
+    {
+      "before": "a\na\ne\ne\nb\ne\ne\ne",
+      "after": "a\na\ne\ne\nb\ne\na\ne\ne\nc\ne",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -4,5 +4,8 @@\n e\n b\n e\n+a\n e\n+e\n+c\n e",
+        "added": 3,
+        "removed": 0
+      }
+    },
+    {
+      "before": "e\na",
+      "after": "y\na",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,2 +1,2 @@\n-e\n+y\n a",
+        "added": 1,
+        "removed": 1
+      }
+    },
+    {
+      "before": "e\nc\nd\nc\nc\na\nc\nb\nc\nd",
+      "after": "a\ne\nc\nd\nc\nc\na\nc\nb\nx\nd\na",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,3 +1,4 @@\n+a\n e\n c\n d\n@@ -6,5 +7,6 @@\n a\n c\n b\n-c\n+x\n d\n+a",
+        "added": 3,
+        "removed": 1
+      }
+    },
+    {
+      "before": "b\ne\ne\ne\nd\na",
+      "after": "b\ne\ne\ne\nz",
+      "context": 1,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -4,3 +4,2 @@\n e\n-d\n-a\n+z",
+        "added": 1,
+        "removed": 2
+      }
+    },
+    {
+      "before": "e\nd\nb\na\nb\nc\ne\ne\nd\nb\nb\nb",
+      "after": "e\nd\na\na\nb\nc\nx\ne\nd\nb\nb\nb\nz",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,12 +1,13 @@\n e\n d\n-b\n+a\n a\n b\n c\n+x\n e\n-e\n d\n b\n b\n b\n+z",
+        "added": 3,
+        "removed": 2
+      }
+    },
+    {
+      "before": "c\nb\nb\nd",
+      "after": "c\nb\nb",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,4 +1,3 @@\n c\n b\n b\n-d",
+        "added": 0,
+        "removed": 1
+      }
+    },
+    {
+      "before": "d\na\nc\ne",
+      "after": "x\na\ne\nc\ne",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,4 +1,5 @@\n-d\n+x\n a\n+e\n c\n e",
+        "added": 2,
+        "removed": 1
+      }
+    },
+    {
+      "before": "e\nc\nd\nc",
+      "after": "",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,4 +0,0 @@\n-e\n-c\n-d\n-c",
+        "added": 0,
+        "removed": 4
+      }
+    },
+    {
+      "before": "c\nd\na\na\ne\nc\nc\nc",
+      "after": "c\nd\na\na\ne\nc\nc\ne\nc",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -5,4 +5,5 @@\n e\n c\n c\n+e\n c",
+        "added": 1,
+        "removed": 0
+      }
+    },
+    {
+      "before": "e\nd\nb\nc\na\nc\ne\nb\na\nc\nd\ne",
+      "after": "z\nd\nb\nc\na\nx\ne\na\nc\nd\ne",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,11 +1,10 @@\n-e\n+z\n d\n b\n c\n a\n-c\n+x\n e\n-b\n a\n c\n d",
+        "added": 2,
+        "removed": 3
+      }
+    },
+    {
+      "before": "d\nc\nd\nd\ne\na\nd\na",
+      "after": "d\nc\nd\ne\na\nd\na",
+      "context": 1,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -3,3 +3,2 @@\n d\n-d\n e",
+        "added": 0,
+        "removed": 1
+      }
+    },
+    {
+      "before": "c\ne\nb\na\nb\nb",
+      "after": "a\ne\nb\na\nb\nb",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,4 +1,4 @@\n-c\n+a\n e\n b\n a",
+        "added": 1,
+        "removed": 1
+      }
+    },
+    {
+      "before": "a\nb\ne\nb\na\nd\ne\ne\na\ne",
+      "after": "e\ne\na\ne\ne\na\ne",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,9 +1,6 @@\n-a\n-b\n+e\n e\n-b\n a\n-d\n e\n e\n a",
+        "added": 1,
+        "removed": 4
+      }
+    },
+    {
+      "before": "",
+      "after": "a\nx",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -0,0 +1,2 @@\n+a\n+x",
+        "added": 2,
+        "removed": 0
+      }
+    },
+    {
+      "before": "",
+      "after": "a",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -0,0 +1,1 @@\n+a",
+        "added": 1,
+        "removed": 0
+      }
+    },
+    {
+      "before": "d\na\na\na\nd\nd\nc\nc\na\ne",
+      "after": "d\na\na\na\nc\nd\nc\nc\na\ne",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -2,7 +2,7 @@\n a\n a\n a\n-d\n+c\n d\n c\n c",
+        "added": 1,
+        "removed": 1
+      }
+    },
+    {
+      "before": "",
+      "after": "y",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -0,0 +1,1 @@\n+y",
+        "added": 1,
+        "removed": 0
+      }
+    },
+    {
+      "before": "b\nb\nd\nb\nc\nd\nc\nc\nb\nc\nb\nb",
+      "after": "b\nb\nb\nx\nc\nb\nc\nb\nb",
+      "context": 1,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -2,7 +2,4 @@\n b\n-d\n b\n-c\n-d\n-c\n+x\n c",
+        "added": 1,
+        "removed": 4
+      }
+    },
+    {
+      "before": "",
+      "after": "",
+      "context": 3,
+      "expected": {
+        "diff": "",
+        "added": 0,
+        "removed": 0
+      }
+    },
+    {
+      "before": "e\nd\nb\nb\na\na\nd\nd",
+      "after": "a\nc\ne\nd\nb\nb\na\na\nc\nd",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,8 +1,10 @@\n+a\n+c\n e\n d\n b\n b\n a\n a\n-d\n+c\n d",
+        "added": 3,
+        "removed": 1
+      }
+    },
+    {
+      "before": "e\nd\ne\nd",
+      "after": "a\ny\ne\nd",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,4 +1,4 @@\n-e\n-d\n+a\n+y\n e\n d",
+        "added": 2,
+        "removed": 2
+      }
+    },
+    {
+      "before": "e\ne\nb\nb\nc\ne\nc\ne\nc\ne\nc\na",
+      "after": "e\ne\ny\nb\nc\ny\nc\ne\nc\nc\ne\nc\na",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,11 +1,12 @@\n e\n e\n+y\n b\n-b\n+c\n+y\n c\n e\n c\n-e\n c\n e\n c",
+        "added": 3,
+        "removed": 2
+      }
+    },
+    {
+      "before": "a\nb\nb\nb\nc\nc\nb\nd",
+      "after": "a\nb\nb\nb\na\nc\nc\nb\nd",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -2,6 +2,7 @@\n b\n b\n b\n+a\n c\n c\n b",
+        "added": 1,
+        "removed": 0
+      }
+    },
+    {
+      "before": "c\ne\nb\nb",
+      "after": "c\ne\nb\ny",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,4 +1,4 @@\n c\n e\n b\n-b\n+y",
+        "added": 1,
+        "removed": 1
+      }
+    },
+    {
+      "before": "e\nb\nb\nc\nc\nc\nb\na",
+      "after": "b\nc\nc\nc\nx",
+      "context": 1,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,4 +1,2 @@\n-e\n b\n-b\n c\n@@ -6,3 +4,2 @@\n c\n-b\n-a\n+x",
+        "added": 1,
+        "removed": 4
+      }
+    },
+    {
+      "before": "",
+      "after": "c",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -0,0 +1,1 @@\n+c",
+        "added": 1,
+        "removed": 0
+      }
+    },
+    {
+      "before": "d\nd",
+      "after": "c\nd\nd",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,2 +1,3 @@\n+c\n d\n d",
+        "added": 1,
+        "removed": 0
+      }
+    },
+    {
+      "before": "c\nc\ne\nc\nb\na\na\nd\nc\nc",
+      "after": "x\nx\nc\ne\nc\nb\na\nd\nc",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,10 +1,9 @@\n+x\n+x\n c\n-c\n e\n c\n b\n a\n-a\n d\n-c\n c",
+        "added": 2,
+        "removed": 3
+      }
+    },
+    {
+      "before": "a\ne\na\ne\na\na",
+      "after": "a\ne\na\na\na",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,6 +1,5 @@\n a\n e\n a\n-e\n a\n a",
+        "added": 0,
+        "removed": 1
+      }
+    },
+    {
+      "before": "a\nd",
+      "after": "a\nz\nz",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,2 +1,3 @@\n a\n-d\n+z\n+z",
+        "added": 2,
+        "removed": 1
+      }
+    },
+    {
+      "before": "c\nb\ne\nc\nb\nd\ne\nc\nb\na\nb\nb",
+      "after": "x\nb\ne\nc\nb\nd\ne\nc\nb\nb\nb",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,4 +1,4 @@\n-c\n+x\n b\n e\n c\n@@ -7,6 +7,5 @@\n e\n c\n b\n-a\n b\n b",
+        "added": 1,
+        "removed": 2
+      }
+    },
+    {
+      "before": "b\nd\nc\ne\nd\nb\nd\na",
+      "after": "a\nb\nc\nd\nc\ne\nb\nd\na",
+      "context": 1,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,2 +1,4 @@\n+a\n b\n+c\n d\n@@ -4,3 +6,2 @@\n e\n-d\n b",
+        "added": 2,
+        "removed": 1
+      }
+    },
+    {
+      "before": "a\nb\ne\nd\ne\na\nc\nc",
+      "after": "c\na\nc\nb\na\ne\nd\ne\na\nc",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,8 +1,10 @@\n+c\n a\n+c\n b\n+a\n e\n d\n e\n a\n-c\n c",
+        "added": 3,
+        "removed": 1
+      }
+    },
+    {
+      "before": "e\na\ne\na\na\ne\ne\nb\nb\ne\nb\ne",
+      "after": "a\ne\na\na\na\ne\nz\nb\nb\nb\ne",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,12 +1,11 @@\n+a\n e\n a\n-e\n a\n a\n e\n-e\n+z\n b\n b\n-e\n b\n e",
+        "added": 2,
+        "removed": 3
+      }
+    },
+    {
+      "before": "c\na\na\ne\nb\ne\nb\nd\na\ne\nb\ne",
+      "after": "a\na\ne\na\nb\ne\ne\nb\nd\na\ne\nx\nc\ne",
+      "context": 3,
+      "expected": {
+        "diff": "--- p v1\n+++ p v2\n@@ -1,12 +1,14 @@\n-c\n a\n a\n e\n+a\n b\n e\n+e\n b\n d\n a\n e\n-b\n+x\n+c\n e",
+        "added": 4,
+        "removed": 2
+      }
+    }
+  ],
+  "large": [
+    {
+      "n": 5000,
+      "added": 4950,
+      "removed": 4950,
+      "lines": 9955,
+      "sha256": "9b6c9f87ae7d1d0265d1ebe19260e183a1f95187770ab07214528b48d9e2c9c7"
+    },
+    {
+      "n": 5003,
+      "added": 5002,
+      "removed": 5002,
+      "lines": 10010,
+      "sha256": "9ee0baefa53ad5d906b5baa73cd0cb74edff29351ba7660fd6fb2868cdf5e061"
+    }
+  ],
+  "changed": [
+    {
+      "before": {
+        "a": {
+          "b": 1,
+          "c": [1, 2]
+        },
+        "d": 1
+      },
+      "after": {
+        "d": 1,
+        "a": {
+          "c": [1, 3],
+          "b": 1
+        }
+      },
+      "expected": [["a", "c"]]
+    },
+    {
+      "before": {
+        "a": 1
+      },
+      "after": {
+        "a": 1,
+        "b": {
+          "c": 2
+        }
+      },
+      "expected": [["b"]]
+    },
+    {
+      "before": {
+        "a": {
+          "x": 1
+        }
+      },
+      "after": {
+        "a": 2
+      },
+      "expected": [["a"]]
+    },
+    {
+      "before": {
+        "a": [
+          {
+            "k": 1,
+            "j": 2
+          }
+        ]
+      },
+      "after": {
+        "a": [
+          {
+            "j": 2,
+            "k": 1
+          }
+        ]
+      },
+      "expected": []
+    },
+    {
+      "before": {
+        "a": null
+      },
+      "after": {},
+      "expected": [["a"]]
+    },
+    {
+      "before": {
+        "a": null
+      },
+      "after": {
+        "a": null
+      },
+      "expected": []
+    },
+    {
+      "before": {
+        "a": 1
+      },
+      "after": {
+        "a": 1.5
+      },
+      "expected": [["a"]]
+    },
+    {
+      "before": {
+        "a": "1"
+      },
+      "after": {
+        "a": 1
+      },
+      "expected": [["a"]]
+    },
+    {
+      "before": {
+        "a": {}
+      },
+      "after": {
+        "a": []
+      },
+      "expected": [["a"]]
+    },
+    {
+      "before": 1,
+      "after": 2,
+      "expected": [[]]
+    },
+    {
+      "before": {
+        "a": 1
+      },
+      "after": null,
+      "expected": [[]]
+    },
+    {
+      "before": {},
+      "after": {},
+      "expected": []
+    },
+    {
+      "before": {
+        "Zeta": 1,
+        "alpha": 1,
+        "a_b": 1,
+        "aB": 1,
+        "a-b": 1,
+        "a1": 1,
+        "A": {
+          "b": 1
+        },
+        "ab": {
+          "c": 1
+        }
+      },
+      "after": {
+        "Zeta": 2,
+        "alpha": 2,
+        "a_b": 2,
+        "aB": 2,
+        "a-b": 2,
+        "a1": 2,
+        "A": {
+          "b": 2
+        },
+        "ab": {
+          "c": 2
+        }
+      },
+      "expected": [["a_b"], ["a-b"], ["a1"], ["aB"], ["A", "b"], ["ab", "c"], ["alpha"], ["Zeta"]]
+    },
+    {
+      "before": {
+        "nodes": {
+          "b": {
+            "with": {
+              "x": 1
+            }
+          },
+          "a": {
+            "with": {
+              "x": 1,
+              "y": [1]
+            }
+          }
+        },
+        "output": {
+          "to": "file"
+        }
+      },
+      "after": {
+        "nodes": {
+          "a": {
+            "with": {
+              "x": 2,
+              "y": [2]
+            }
+          },
+          "c": {
+            "from": "a"
+          }
+        },
+        "output": {
+          "to": "http"
+        },
+        "agent": {
+          "control": true
+        }
+      },
+      "expected": [
+        ["agent"],
+        ["nodes", "a", "with", "x"],
+        ["nodes", "a", "with", "y"],
+        ["nodes", "b"],
+        ["nodes", "c"],
+        ["output", "to"]
+      ]
+    },
+    {
+      "before": {
+        "x.y": {
+          "z": 1
+        },
+        "x": {
+          "y": 1
+        }
+      },
+      "after": {
+        "x.y": {
+          "z": 2
+        },
+        "x": {
+          "y": 2
+        }
+      },
+      "expected": [["x.y", "z"], ["x", "y"]]
+    }
+  ],
+  "covers": [
+    {
+      "pattern": "nodes.*.with.message",
+      "path": ["nodes", "note", "with", "message"],
+      "expected": true
+    },
+    {
+      "pattern": "nodes.*.with.message",
+      "path": ["nodes", "a", "b", "with", "message"],
+      "expected": false
+    },
+    {
+      "pattern": "nodes.normalize",
+      "path": ["nodes", "normalize", "with", "data", "tag"],
+      "expected": true
+    },
+    {
+      "pattern": "nodes.normalize.with",
+      "path": ["nodes", "normalize"],
+      "expected": false
+    },
+    {
+      "pattern": "nodes.norm",
+      "path": ["nodes", "normalize"],
+      "expected": false
+    },
+    {
+      "pattern": "*",
+      "path": ["anything"],
+      "expected": true
+    },
+    {
+      "pattern": "*",
+      "path": [],
+      "expected": false
+    },
+    {
+      "pattern": "",
+      "path": [""],
+      "expected": true
+    },
+    {
+      "pattern": "*.*",
+      "path": ["a", "b", "c"],
+      "expected": true
+    }
+  ],
+  "policy": [
+    {
+      "base": {
+        "pipo": 1,
+        "name": "demo",
+        "input": {
+          "via": "push"
+        },
+        "output": {
+          "from": "input",
+          "to": "stdout"
+        }
+      },
+      "changed": [["nodes", "a"]],
+      "expected": [
+        {
+          "code": "not_allowed",
+          "message": "demo takes no change proposals from agents: its current version has no `agent.control: true`",
+          "hint": "a human must add `agent: {control: true, edit: [...]}` to the pipeline file first; agents can't grant themselves edits"
+        }
+      ]
+    },
+    {
+      "base": {
+        "pipo": 1,
+        "name": "demo",
+        "input": {
+          "via": "push"
+        },
+        "output": {
+          "from": "input",
+          "to": "stdout"
+        },
+        "agent": {
+          "control": false,
+          "edit": ["nodes"]
+        }
+      },
+      "changed": [["nodes", "a"]],
+      "expected": [
+        {
+          "code": "not_allowed",
+          "message": "demo takes no change proposals from agents: its current version has no `agent.control: true`",
+          "hint": "a human must add `agent: {control: true, edit: [...]}` to the pipeline file first; agents can't grant themselves edits"
+        }
+      ]
+    },
+    {
+      "base": {
+        "pipo": 1,
+        "name": "demo",
+        "input": {
+          "via": "push"
+        },
+        "output": {
+          "from": "input",
+          "to": "stdout"
+        },
+        "agent": {
+          "control": true
+        }
+      },
+      "changed": [["nodes", "a"]],
+      "expected": [
+        {
+          "code": "not_allowed",
+          "message": "demo takes no change proposals from agents: its current version has no `agent.edit` paths",
+          "hint": "a human must add `agent: {control: true, edit: [...]}` to the pipeline file first; agents can't grant themselves edits"
+        }
+      ]
+    },
+    {
+      "base": {
+        "pipo": 1,
+        "name": "demo",
+        "input": {
+          "via": "push"
+        },
+        "output": {
+          "from": "input",
+          "to": "stdout"
+        },
+        "agent": {
+          "control": true,
+          "edit": []
+        }
+      },
+      "changed": [["nodes", "a"]],
+      "expected": [
+        {
+          "code": "not_allowed",
+          "message": "demo takes no change proposals from agents: its current version has no `agent.edit` paths",
+          "hint": "a human must add `agent: {control: true, edit: [...]}` to the pipeline file first; agents can't grant themselves edits"
+        }
+      ]
+    },
+    {
+      "base": {
+        "pipo": 1,
+        "name": "demo",
+        "input": {
+          "via": "push"
+        },
+        "output": {
+          "from": "input",
+          "to": "stdout"
+        },
+        "agent": {
+          "control": true,
+          "edit": ["nodes.*.with"]
+        }
+      },
+      "changed": [["nodes", "a", "with", "x"], ["nodes", "a", "from"]],
+      "expected": [
+        {
+          "code": "not_editable",
+          "path": "nodes.a.from",
+          "message": "nodes.a.from is not covered by agent.edit (nodes.*.with)",
+          "hint": "change only paths agent.edit lists (a pattern covers its subtree; * is one segment), or ask a human to widen agent.edit"
+        }
+      ]
+    },
+    {
+      "base": {
+        "pipo": 1,
+        "name": "demo",
+        "input": {
+          "via": "push"
+        },
+        "output": {
+          "from": "input",
+          "to": "stdout"
+        },
+        "agent": {
+          "control": true,
+          "edit": ["*"]
+        }
+      },
+      "changed": [["output", "to"], ["agent"], ["agent_budget", "per_day"], ["secrets"], ["delivered"]],
+      "expected": [
+        {
+          "code": "forbidden_path",
+          "path": "output.to",
+          "message": "agents may never change `output` (changed: output.to)",
+          "hint": "output, delivered, secrets, agent and agent_budget are human-only, even if agent.edit lists them; leave output as in the base version"
+        },
+        {
+          "code": "forbidden_path",
+          "path": "agent",
+          "message": "agents may never change `agent` (changed: agent)",
+          "hint": "output, delivered, secrets, agent and agent_budget are human-only, even if agent.edit lists them; leave agent as in the base version"
+        },
+        {
+          "code": "forbidden_path",
+          "path": "agent_budget.per_day",
+          "message": "agents may never change `agent_budget` (changed: agent_budget.per_day)",
+          "hint": "output, delivered, secrets, agent and agent_budget are human-only, even if agent.edit lists them; leave agent_budget as in the base version"
+        },
+        {
+          "code": "forbidden_path",
+          "path": "secrets",
+          "message": "agents may never change `secrets` (changed: secrets)",
+          "hint": "output, delivered, secrets, agent and agent_budget are human-only, even if agent.edit lists them; leave secrets as in the base version"
+        },
+        {
+          "code": "forbidden_path",
+          "path": "delivered",
+          "message": "agents may never change `delivered` (changed: delivered)",
+          "hint": "output, delivered, secrets, agent and agent_budget are human-only, even if agent.edit lists them; leave delivered as in the base version"
+        }
+      ]
+    },
+    {
+      "base": {
+        "pipo": 1,
+        "name": "demo",
+        "input": {
+          "via": "push"
+        },
+        "output": {
+          "from": "input",
+          "to": "stdout"
+        },
+        "agent": {
+          "control": true,
+          "edit": ["nodes", "errors"]
+        }
+      },
+      "changed": [[], ["description"], ["nodes", "x"]],
+      "expected": [
+        {
+          "code": "not_editable",
+          "path": "(the whole file)",
+          "message": "(the whole file) is not covered by agent.edit (nodes, errors)",
+          "hint": "change only paths agent.edit lists (a pattern covers its subtree; * is one segment), or ask a human to widen agent.edit"
+        },
+        {
+          "code": "not_editable",
+          "path": "description",
+          "message": "description is not covered by agent.edit (nodes, errors)",
+          "hint": "change only paths agent.edit lists (a pattern covers its subtree; * is one segment), or ask a human to widen agent.edit"
+        }
+      ]
+    }
+  ]
+}

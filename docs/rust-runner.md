@@ -59,6 +59,13 @@ The whole of `packages/runner/src` except the client side that the engine and CL
 reading, liveness, journal reads, bots-file management, agent settings and probes. `pipo test` and the proposal dry
 run run in the Rust binary (`pipo-runner test …`, `pipo-runner dry-run …`), so pipeline semantics live in one place.
 
+Reads without a runner (D34) are in the binary too: `pipo-runner read --home DIR --pipeline NAME --op OP [--args JSON]`
+answers a read op (`packets`, `packet`, `dlq`, `versions`, `version`, `diff`, `proposals`, `proposal`) from the journal
+opened read-only and prints `offlineRead`'s value, `{"result": …, "withheld": null | "why"}` (`null` when the pipeline
+has no journal), or `{"error": {code, message, hint}}` with exit code 1 (64 on bad usage). The secrets it redacts with
+come from each version's stored compiled form; a version stored without one (by the TS runner) whose source mentions
+secrets can't be read without a YAML parser, so payloads are withheld.
+
 ## Layout (`crates/pipo-runner/src`)
 
 | Module | Ports |

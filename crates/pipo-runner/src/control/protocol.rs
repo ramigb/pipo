@@ -66,6 +66,16 @@ impl std::fmt::Display for ControlError {
     }
 }
 
+/// Every string in `value` (values and keys) passed through `redact` (redactDeep in control/protocol.ts).
+pub fn redact_deep(value: &Value, redact: &dyn Fn(&str) -> String) -> Value {
+    match value {
+        Value::String(s) => Value::String(redact(s)),
+        Value::Array(a) => Value::Array(a.iter().map(|v| redact_deep(v, redact)).collect()),
+        Value::Object(o) => Value::Object(o.iter().map(|(k, v)| (redact(k), redact_deep(v, redact))).collect()),
+        other => other.clone(),
+    }
+}
+
 pub fn socket_path(home: &Path, pipeline: &str) -> PathBuf {
     home.join("run").join(format!("{pipeline}.sock"))
 }
