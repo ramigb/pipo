@@ -83,3 +83,45 @@ pub fn gaps(p: &Pipeline) -> Vec<Gap> {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{Value, json};
+
+    fn pipeline(v: Value) -> Pipeline {
+        serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn features_past_check_are_refused_not_ignored() {
+        // A definition past `pipo check` (a newer spec) still meets the gate. An `agent:` block is served by the
+        // engine's /mcp endpoint (§9.2), so it is no gap.
+        let p = pipeline(json!({
+            "pipo": 1, "name": "s", "input": { "via": "mqtt" },
+            "output": { "from": "input", "to": "stdout" }, "agent": { "control": true },
+        }));
+        assert_eq!(
+            gaps(&p),
+            vec![Gap { path: "input.via".into(), feature: "input 'mqtt' (spec §3.3)".into(), level: "refuse" }]
+        );
+    }
+
+    #[test]
+    fn implemented_features_are_no_gaps() {
+        // Fan-out, batching, retention and the http/file/emit steps all run.
+        let p = pipeline(json!({
+            "pipo": 1, "name": "g", "input": { "via": "http" },
+            "nodes": {
+                "a": { "from": "input", "tap": "http", "with": { "url": "http://x" } },
+                "b": { "from": "input", "tap": "file", "with": { "path": "a" } },
+                "c": { "from": "input", "tap": "emit", "with": { "event": "e" } },
+                "d": { "from": "input", "transform": "http", "with": { "url": "http://x" } },
+                "e": { "from": "input", "tap": "log" },
+            },
+            "output": { "from": ["a", "b", "c", "d", "e"], "to": "sqlite", "batch": { "size": 2 } },
+            "retention": { "data": "1d" },
+        }));
+        assert_eq!(gaps(&p), vec![]);
+    }
+}

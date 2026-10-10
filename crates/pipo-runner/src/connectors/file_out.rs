@@ -552,6 +552,34 @@ mod tests {
     }
 
     #[test]
+    fn csv_batch_is_one_sidecar_entry_and_a_torn_batch_append_is_cut_back_and_written_again_once() {
+        let b = TempDir::new();
+        let w = json!({ "path": "out.csv", "format": "csv" });
+        let path = b.join("out.csv");
+        let keys = b.join("out.csv.pipo-keys");
+        FileOutput::new(b.path())
+            .write_now(&[item("a", json!({"n": 1}), w.clone()), item("b", json!({"n": 2}), w.clone())])
+            .unwrap();
+        assert_eq!(read(keys.clone()), "[\"begin\",[\"a\",\"b\"],0,6]\n[\"done\",[\"a\",\"b\"]]\n");
+
+        // A crash mid-append: the begin record is there, half the rows are not.
+        let size = std::fs::metadata(&path).unwrap().len();
+        append(&keys, &format!("[\"begin\",[\"c\",\"d\"],{size},4]\n")).unwrap();
+        append(&path, "3").unwrap();
+        let res = FileOutput::new(b.path())
+            .write_now(&[
+                item("b", json!({"n": 2}), w.clone()),
+                item("c", json!({"n": 3}), w.clone()),
+                item("d", json!({"n": 4}), w),
+            ])
+            .unwrap();
+        assert_eq!(res[0]["skipped"], json!(true));
+        assert_eq!(res[1]["written"], json!(true));
+        assert_eq!(res[2]["written"], json!(true));
+        assert_eq!(read(path), "n\n1\n2\n3\n4\n");
+    }
+
+    #[test]
     fn empty_path_is_an_error() {
         let b = TempDir::new();
         let e = FileOutput::new(b.path()).write_now(&[item("p", json!(1), json!({"path": ""}))]).unwrap_err();

@@ -41,3 +41,24 @@ pub fn resolve_key(out: &Output, unit_id: &str, ctx: &Value) -> String {
         _ => unit_id.to_string(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn w(v: Value) -> Map<String, Value> {
+        v.as_object().cloned().unwrap()
+    }
+
+    #[test]
+    fn the_unit_id_unless_sqlite_columns_or_an_http_idempotency_key_header_set_one() {
+        assert_eq!(output_key("file", &w(json!({})), "p:a"), "p:a");
+        assert_eq!(output_key("sqlite", &w(json!({"key": "id", "columns": {"id": "x"}})), "p"), "x");
+        assert_eq!(output_key("sqlite", &w(json!({"columns": {"packet_id": 7}})), "p"), "7");
+        assert_eq!(output_key("sqlite", &w(json!({"columns": {"n": 1}})), "p"), "p");
+        assert_eq!(output_key("http", &w(json!({"headers": {"idempotency-key": "h"}})), "p"), "h");
+        assert_eq!(output_key("http", &w(json!({"headers": {"Idempotency-Key": "H"}})), "p"), "H");
+        assert_eq!(output_key("http", &w(json!({})), "p:b"), "p:b");
+    }
+}

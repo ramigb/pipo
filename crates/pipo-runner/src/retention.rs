@@ -47,6 +47,15 @@ fn marks(n: usize) -> String {
 
 /// One clean-up pass: bounded batches, each in its own transaction. Rerunning it is a no-op.
 pub fn apply_retention(db: &Connection, policy: &RetentionPolicy, now: i64) -> rusqlite::Result<RetentionResult> {
+    apply_retention_in(db, policy, now, BATCH)
+}
+
+fn apply_retention_in(
+    db: &Connection,
+    policy: &RetentionPolicy,
+    now: i64,
+    batch: i64,
+) -> rusqlite::Result<RetentionResult> {
     let mut out = RetentionResult::default();
     let clear = |states: &[&str], older_than: i64, out: &mut RetentionResult| -> rusqlite::Result<()> {
         let sql = format!(
@@ -57,12 +66,12 @@ pub fn apply_retention(db: &Connection, policy: &RetentionPolicy, now: i64) -> r
         loop {
             let mut args: Vec<rusqlite::types::Value> = states.iter().map(|s| s.to_string().into()).collect();
             args.push(older_than.into());
-            args.push(BATCH.into());
+            args.push(batch.into());
             let tx = db.unchecked_transaction()?;
             let n = tx.execute(&sql, params_from_iter(args))?;
             tx.commit()?;
             out.cleared += n;
-            if (n as i64) < BATCH {
+            if (n as i64) < batch {
                 return Ok(());
             }
         }
@@ -77,7 +86,7 @@ pub fn apply_retention(db: &Connection, policy: &RetentionPolicy, now: i64) -> r
         loop {
             let mut args: Vec<rusqlite::types::Value> = states.iter().map(|s| s.to_string().into()).collect();
             args.push(older_than.into());
-            args.push(BATCH.into());
+            args.push(batch.into());
             let ids: Vec<String> =
                 db.prepare(&sql)?.query_map(params_from_iter(args), |r| r.get(0))?.collect::<Result<_, _>>()?;
             if ids.is_empty() {
@@ -132,5 +141,165 @@ pub fn tick(db: &Connection, policy: &RetentionPolicy, now: i64) -> Option<(Rete
     match run() {
         Ok((r, compacted)) if compacted || r.cleared > 0 || r.deleted > 0 => Some((r, compacted)),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const NOW: i64 = 100 * DAY;
+
+    fn open() -> Connection {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE versions (version INTEGER PRIMARY KEY);
+             CREATE TABLE packets (id TEXT PRIMARY KEY, version INTEGER NOT NULL DEFAULT 1, state TEXT NOT NULL,
+               data TEXT, result TEXT, updated_at INTEGER NOT NULL, parent TEXT);
+             CREATE TABLE events (seq INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER, packet_id TEXT, type TEXT);
+             INSERT INTO versions VALUES (1);",
+        )
+        .unwrap();
+        db
+    }
+
+    fn add(db: &Connection, id: &str, state: &str, age_days: i64, parent: Option<&str>) {
+        let at = NOW - age_days * DAY;
+        db.execute(
+            "INSERT INTO packets (id, state, data, result, updated_at, parent) VALUES (?, ?, '{}', '{}', ?, ?)",
+            rusqlite::params![id, state, at, parent],
+        )
+        .unwrap();
+        db.execute("INSERT INTO events (at, packet_id, type) VALUES (?, ?, 'x')", rusqlite::params![at, id]).unwrap();
+    }
+
+    fn ids(db: &Connection) -> Vec<String> {
+        let mut stmt = db.prepare("SELECT id FROM packets ORDER BY id").unwrap();
+        stmt.query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect()
+    }
+
+    fn has_data(db: &Connection, id: &str) -> bool {
+        db.query_row("SELECT data IS NOT NULL FROM packets WHERE id = ?", [id], |r| r.get(0)).unwrap()
+    }
+
+    fn count(db: &Connection, sql: &str) -> i64 {
+        db.query_row(sql, [], |r| r.get(0)).unwrap()
+    }
+
+    fn policy(data: &str, trail: &str, rejected: &str, dlq: Option<&str>) -> RetentionPolicy {
+        retention_policy(Some(&Retention {
+            data: Some(data.into()),
+            trail: Some(trail.into()),
+            rejected: Some(rejected.into()),
+            dlq: dlq.map(Into::into),
+        }))
+    }
+
+    #[test]
+    fn defaults_7d_data_30d_trail_3d_rejected_dead_letters_kept() {
+        let db = open();
+        add(&db, "d-new", "delivered", 1, None);
+        add(&db, "d-mid", "delivered", 10, None);
+        add(&db, "d-old", "delivered", 31, None);
+        add(&db, "f-mid", "filtered", 8, None);
+        add(&db, "r-new", "rejected", 1, None);
+        add(&db, "r-mid", "rejected", 4, None);
+        add(&db, "dl", "dead_lettered", 400, None);
+        let res = apply_retention(&db, &retention_policy(None), NOW).unwrap();
+        assert_eq!(ids(&db), ["d-mid", "d-new", "dl", "f-mid", "r-mid", "r-new"]);
+        assert!(has_data(&db, "d-new"));
+        assert!(!has_data(&db, "d-mid"));
+        assert!(!has_data(&db, "f-mid"));
+        assert!(has_data(&db, "r-new"));
+        assert!(!has_data(&db, "r-mid"));
+        assert!(has_data(&db, "dl"));
+        assert_eq!((res.deleted, res.events), (1, 1));
+        assert_eq!(count(&db, "SELECT COUNT(*) FROM events WHERE packet_id = 'd-old'"), 0);
+    }
+
+    #[test]
+    fn custom_durations_including_a_dlq_expiry() {
+        let db = open();
+        add(&db, "d", "delivered", 3, None);
+        add(&db, "dl-old", "dead_lettered", 6, None);
+        add(&db, "dl-new", "dead_lettered", 1, None);
+        apply_retention(&db, &policy("1d", "2d", "3d", Some("5d")), NOW).unwrap();
+        assert_eq!(ids(&db), ["dl-new"]);
+        assert_eq!(policy("1d", "2d", "3d", Some("forever")).dlq, None);
+    }
+
+    #[test]
+    fn pending_in_flight_and_awaiting_delivery_packets_and_versions_are_never_touched() {
+        let db = open();
+        for s in ["accepted", "processing", "writing", "verifying", "fanned_out", "escalated", "branched"] {
+            add(&db, s, s, 1000, None);
+        }
+        apply_retention(&db, &policy("1ms", "1ms", "1ms", Some("1ms")), NOW).unwrap();
+        assert_eq!(ids(&db).len(), 7);
+        assert!(has_data(&db, "accepted"));
+        assert_eq!(count(&db, "SELECT COUNT(*) FROM versions"), 1);
+    }
+
+    #[test]
+    fn fan_out_parents_wait_for_their_copies_and_unrelated_events_are_kept() {
+        let db = open();
+        add(&db, "p", "delivered", 40, None);
+        add(&db, "p#a", "processing", 40, Some("p"));
+        db.execute("INSERT INTO events (at, packet_id, type) VALUES (1, NULL, 'pipeline.paused')", []).unwrap();
+        apply_retention(&db, &retention_policy(None), NOW).unwrap();
+        assert_eq!(ids(&db), ["p", "p#a"]);
+        db.execute("UPDATE packets SET state = 'delivered' WHERE id = 'p#a'", []).unwrap();
+        apply_retention(&db, &retention_policy(None), NOW).unwrap();
+        assert!(ids(&db).is_empty());
+        assert_eq!(count(&db, "SELECT COUNT(*) FROM events"), 1);
+    }
+
+    #[test]
+    fn bounded_batches_drain_everything_and_a_rerun_is_a_no_op() {
+        let db = open();
+        for i in 0..25 {
+            add(&db, &format!("d{i}"), "delivered", 40, None);
+        }
+        let first = apply_retention_in(&db, &retention_policy(None), NOW, 4).unwrap();
+        assert_eq!((first.deleted, first.events), (25, 25));
+        assert_eq!(apply_retention_in(&db, &retention_policy(None), NOW, 4).unwrap(), RetentionResult::default());
+    }
+
+    #[test]
+    fn compaction_runs_once_per_day() {
+        let dir = std::env::temp_dir().join(format!("pipo-retention-{}", crate::ids::ulid().to_lowercase()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = open_at(&dir);
+        let p = retention_policy(None);
+        let stamp = |db: &Connection| count(db, "SELECT compacted_at FROM retention_state");
+        // The first tick starts the daily cycle without a rebuild.
+        assert_eq!(tick(&db, &p, NOW), None);
+        assert_eq!(stamp(&db), NOW);
+        assert_eq!(tick(&db, &p, NOW + DAY - 1), None);
+        assert_eq!(stamp(&db), NOW);
+        add(&db, "old", "delivered", 40, None);
+        let (res, compacted) = tick(&db, &p, NOW + DAY).unwrap();
+        assert!(compacted);
+        assert_eq!(res.deleted, 1);
+        assert_eq!(stamp(&db), NOW + DAY);
+        assert_eq!(tick(&db, &p, NOW + DAY + DAY / 2), None);
+        assert_eq!(stamp(&db), NOW + DAY);
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// On a file in WAL mode, as a journal is, so the checkpoint and VACUUM do real work.
+    fn open_at(dir: &std::path::Path) -> Connection {
+        let db = Connection::open(dir.join("j.db")).unwrap();
+        db.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             CREATE TABLE versions (version INTEGER PRIMARY KEY);
+             CREATE TABLE packets (id TEXT PRIMARY KEY, version INTEGER NOT NULL DEFAULT 1, state TEXT NOT NULL,
+               data TEXT, result TEXT, updated_at INTEGER NOT NULL, parent TEXT);
+             CREATE TABLE events (seq INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER, packet_id TEXT, type TEXT);
+             INSERT INTO versions VALUES (1);",
+        )
+        .unwrap();
+        db
     }
 }
