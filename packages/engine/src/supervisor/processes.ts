@@ -6,16 +6,7 @@
 // An http input's port is checked before start; a taken one is refused naming its holder.
 // A deliberate stop always settles to `stopped` (D27, D46), crashed or killed included: once no runner holds the
 // journal, the engine journals the stop the runner could not write (the ttl anchor resets), then drops its entry.
-import {
-  closeSync,
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  rmSync,
-  statSync,
-} from "node:fs";
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, rmSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import {
   ControlError,
@@ -40,6 +31,9 @@ import { type Adopted, type ExitInfo, type Hello, LIVE, type StartOptions, type 
 import { call, handshake, registered } from "./util";
 
 export abstract class SupervisorProcesses extends SupervisorBase {
+  /** Restart the idle clock (D31). */
+  abstract touch(): void;
+
   // ── runner processes ─────────────────────────────────────────────────────────
 
   protected supervised(name: string, file: string, opts: StartOptions, drainTimeout: number): Supervised {
@@ -199,6 +193,8 @@ export abstract class SupervisorProcesses extends SupervisorBase {
 
   /** Decide what an exit means (D25): stopped, failed (halt), or a crash that restarts with backoff. */
   protected settle(s: Supervised, why: string, upFor: number) {
+    // The engine had a runner until now, so engine.idle counts from here, not from the last poll (D31).
+    this.touch();
     const exit = s.lastExit as ExitInfo;
     this.note(s, `runner ${why}`);
     if (s.wanted === "stop") {
