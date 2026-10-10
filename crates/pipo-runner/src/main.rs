@@ -2,12 +2,20 @@
 // Usage: pipo-runner <file.pipo> [--listen <port>] [--home <dir>] [--env-allow A,B] [--engine-id <id>] [--detached]
 //        [--ttl <duration>]
 // SIGINT/SIGTERM drain; a second signal stops at once. Exit codes: 0 stopped, 2 halted, 1 failed to start, 64 usage.
+//
+// Reads without a runner (D34, offlineRead in control/reads.ts):
+//        pipo-runner read --home <dir> --pipeline <name> --op <op> [--args '<json object>']
+// prints `{"result": …, "withheld": null|"why"}` (or `null` when the pipeline has no journal) and exits 0, or prints
+// `{"error": {code, message, hint}}` and exits 1; 64 on bad usage.
 
+use pipo_runner::control::reads::{READ_OPS, offline_read};
 use pipo_runner::format::format_diagnostic;
 use pipo_runner::runner::{Runner, RunnerOptions};
 use std::cell::Cell;
 use std::path::PathBuf;
 use std::rc::Rc;
+
+const READ_USAGE: &str = "usage: pipo-runner read --home <dir> --pipeline <name> --op <op> [--args '<json object>']";
 
 const USAGE: &str = "usage: pipo-runner <file.pipo> [--listen <port>] [--home <dir>] [--env-allow A,B] [--engine-id <id>] [--detached] [--ttl <duration>]";
 
@@ -46,11 +54,87 @@ fn parse_args(args: &[String]) -> Result<RunnerOptions, String> {
         i += 1;
     }
     o.file = PathBuf::from(file.ok_or("missing <file.pipo>")?);
-    o.home = match home.or_else(|| std::env::var("PIPO_HOME").ok().filter(|h| !h.is_empty())) {
+    o.home = pipo_home(home);
+    Ok(o)
+}
+
+/// `--home`, else $PIPO_HOME, else ~/.pipo.
+fn pipo_home(home: Option<String>) -> PathBuf {
+    match home.or_else(|| std::env::var("PIPO_HOME").ok().filter(|h| !h.is_empty())) {
         Some(h) => PathBuf::from(h),
         None => PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into())).join(".pipo"),
+    }
+}
+
+struct ReadArgs {
+    home: PathBuf,
+    pipeline: String,
+    op: String,
+    args: serde_json::Map<String, serde_json::Value>,
+}
+
+fn parse_read_args(args: &[String]) -> Result<ReadArgs, String> {
+    let (mut home, mut pipeline, mut op, mut json) = (None, None, None, None);
+    let mut i = 0;
+    while i < args.len() {
+        let (flag, inline) = match args[i].split_once('=') {
+            Some((f, v)) if f.starts_with("--") => (f.to_string(), Some(v.to_string())),
+            _ => (args[i].clone(), None),
+        };
+        let value = match inline {
+            Some(v) => v,
+            None => {
+                i += 1;
+                args.get(i).cloned().ok_or_else(|| format!("{flag} needs a value"))?
+            }
+        };
+        match flag.as_str() {
+            "--home" => home = Some(value),
+            "--pipeline" => pipeline = Some(value),
+            "--op" => op = Some(value),
+            "--args" => json = Some(value),
+            f => return Err(format!("unknown option {f}")),
+        }
+        i += 1;
+    }
+    let pipeline = pipeline.ok_or("missing --pipeline <name>")?;
+    if pipeline.is_empty() || pipeline.contains(['/', '\\']) || pipeline == "." || pipeline == ".." {
+        return Err(format!("--pipeline must be a pipeline name, not '{pipeline}'"));
+    }
+    let op = op.ok_or("missing --op <op>")?;
+    if !READ_OPS.contains(&op.as_str()) {
+        return Err(format!("--op must be one of {}, not '{op}'", READ_OPS.join(", ")));
+    }
+    let args = match json {
+        None => serde_json::Map::new(),
+        Some(text) => match serde_json::from_str(&text) {
+            Ok(serde_json::Value::Object(m)) => m,
+            _ => return Err(format!("--args must be a JSON object, not {text}")),
+        },
     };
-    Ok(o)
+    Ok(ReadArgs { home: pipo_home(home), pipeline, op, args })
+}
+
+/// `pipo-runner read`: one read op from the journal, read-only, printed as JSON; the exit code.
+fn offline(args: &[String]) -> i32 {
+    let a = match parse_read_args(args) {
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!("pipo-runner read: {e}\n{READ_USAGE}");
+            return 64;
+        }
+    };
+    let path = a.home.join("pipelines").join(&a.pipeline).join("journal.db");
+    match offline_read(&path, &a.op, &a.args, &a.pipeline) {
+        Ok(found) => {
+            println!("{}", found.unwrap_or(serde_json::Value::Null));
+            0
+        }
+        Err(e) => {
+            println!("{}", serde_json::json!({ "error": e.body() }));
+            1
+        }
+    }
 }
 
 /// Run one pipeline until it ends or is signalled; the exit code.
@@ -138,8 +222,10 @@ fn main_test() -> i32 {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.first().map(String::as_str) == Some("test") {
-        std::process::exit(main_test());
+    match args.first().map(String::as_str) {
+        Some("test") => std::process::exit(main_test()),
+        Some("read") => std::process::exit(offline(&args[1..])),
+        _ => {}
     }
     let opts = match parse_args(&args) {
         Ok(o) => o,

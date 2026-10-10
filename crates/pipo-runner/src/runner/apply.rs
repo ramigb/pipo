@@ -188,21 +188,22 @@ impl Runner {
         let author = self.secrets.redact(&how.author);
         let reason = self.secrets.redact(&how.reason);
         let proposal_id = how.proposal.as_ref().map(|(id, _)| id.clone());
-        let result = self.journal.borrow_mut().atomically(|j| {
+        let version = control_tx(&mut self.journal.borrow_mut(), |j| {
             let audit = crate::journal::VersionAudit {
                 author_kind: how.author_kind.clone(),
                 proposal: proposal_id.clone(),
                 files: Some(crate::versions::file_hashes(&compiled.files)),
             };
             let applied = crate::journal::Applied { expect: number, previous };
-            let v = j.add_version(hash, source, &author, Some(&reason), Some(applied), &audit, Some(&compiled.raw))?;
+            let v = j
+                .add_version(hash, source, &author, Some(&reason), Some(applied), &audit, Some(&compiled.raw))
+                .map_err(|e| ControlError::new("internal", e.to_string(), "try again"))?;
             crash_point("apply.in_transaction");
             if let Some((id, by)) = &how.proposal {
-                crate::proposals::mark_applied_in(j, id, v, by)?;
+                self.proposals.mark_applied_in(j, id, v, by)?;
             }
             Ok(v)
-        });
-        let version = result.map_err(|e| ControlError::new("internal", e, "try again"))?;
+        })?;
         crash_point("apply.committed");
         self.set_plan(version, Rc::new(plan));
         {
@@ -226,6 +227,104 @@ impl Runner {
         );
         let warnings = self.stale(version);
         Ok(Applied { version, previous, changed: true, pending_older: older, warnings })
+    }
+
+    /// §9.3 step 4 (D49): a stored change proposal becomes the next version, through the live apply. One that still
+    /// needs its dry run (D48) is dry-run first; when that diverges, the reply is the proposal, now `rejected`.
+    pub async fn apply_proposal(&self, id: &str, by: &str) -> Result<Value, ControlError> {
+        let name = self.pipeline().name.clone();
+        self.assert_can_apply()?;
+        let mut p = self.applicable_proposal(id, by)?;
+        if p.verify.is_some() && p.state == "validated" {
+            // Nothing is held while it replays (as for `propose`), so everything is checked again once it is decided.
+            p = self.proposals.dry_run_if_required(id).await?;
+            if p.state == "rejected" {
+                return Ok(p.to_value());
+            }
+            self.assert_can_apply()?;
+            p = self.applicable_proposal(id, by)?;
+        }
+        if let Some(verify) = p.verify.as_ref().filter(|_| p.state != "verified") {
+            return Err(ControlError::new(
+                "invalid_state",
+                format!("proposal {id} needs a dry run first (agent.verify: {verify}) and is {}", p.state),
+                format!("apply it again: pipo proposals {name} apply {id} runs the dry run first"),
+            ));
+        }
+        let latest = p.base_version;
+        if p.author_kind == "agent" {
+            let internal = |e: String| ControlError::new("internal", e, "see the runner log");
+            let current = self.pipeline_of(latest).await.map_err(internal)?;
+            let base = self.compiled_version(latest).await.map_err(internal)?.pipeline.clone().unwrap_or_else(|| json!({}));
+            let proposed = crate::compile::compile(&self.file, &self.home, Some(&p.source))
+                .await
+                .map_err(|e| ControlError::new("internal", e, "check that pipo compile works (PIPO_COMPILE)"))?;
+            // A source that fails pipo check now is refused by the apply below, with its diagnostics.
+            if let Some(proposed) = proposed.pipeline.as_ref().filter(|_| proposed.errors().is_empty()) {
+                let problems = crate::proposals::agent_policy_problems(&current, &changed_paths(&base, proposed));
+                if let Some(first) = problems.first() {
+                    let all: Vec<&str> = problems.iter().map(|x| x.message.as_str()).collect();
+                    return Err(ControlError::new(
+                        "invalid_state",
+                        format!("proposal {id} is not allowed by v{latest}'s agent policy: {}", all.join("; ")),
+                        first.hint.clone(),
+                    ));
+                }
+            }
+        }
+        let how = How {
+            author: p.author.clone(),
+            reason: p.reason.clone(),
+            author_kind: Some(p.author_kind.clone()),
+            proposal: Some((id.to_string(), by.to_string())),
+        };
+        let mut out = self.apply_version(&p.source, how).await?.to_value();
+        out["proposal"] = json!(id);
+        Ok(out)
+    }
+
+    /// The proposal, unless it can't be applied: `applied` or `rejected` refuse; a base that is no longer the latest is
+    /// marked `rejected` (`stale base`) and refused, since it can never become current again (D49).
+    fn applicable_proposal(&self, id: &str, by: &str) -> Result<Proposal, ControlError> {
+        let name = self.pipeline().name.clone();
+        let p = self.proposals.get(id)?;
+        if p.state == "applied" {
+            return Err(ControlError::new(
+                "invalid_state",
+                format!(
+                    "proposal {id} is already applied, as v{}",
+                    p.applied_version.map_or("undefined".to_string(), |v| v.to_string())
+                ),
+                format!("nothing to do; pipo history {name} shows it, and pipo rollback {name} <version> undoes it"),
+            ));
+        }
+        if p.state == "rejected" {
+            return Err(ControlError::new(
+                "invalid_state",
+                format!(
+                    "proposal {id} was rejected{}, so it can't be applied",
+                    p.decision.as_ref().filter(|d| !d.is_empty()).map(|d| format!(" ({d})")).unwrap_or_default()
+                ),
+                "propose the change again against the current version if you still want it",
+            ));
+        }
+        let latest = self.journal.borrow().latest_version().ok().flatten().map_or(0, |l| l.version);
+        if p.base_version != latest {
+            let reason = format!(
+                "stale base: the proposal is against v{}, but {name} was at v{latest} when it was applied; propose the change against v{latest}",
+                p.base_version
+            );
+            self.proposals.mark_rejected(id, by, &reason, None)?;
+            return Err(ControlError::new(
+                "invalid_state",
+                format!(
+                    "stale base: proposal {id} is against v{}, but {name} is at v{latest} now, so it is rejected",
+                    p.base_version
+                ),
+                format!("read v{latest} (pipo history {name}) and propose the change against it"),
+            ));
+        }
+        Ok(p)
     }
 
     /// Apply an earlier version's source again, as a new version (§9.3, D38). Its files are compiled as they are now,
@@ -262,3 +361,4 @@ impl Runner {
 }
 
 use crate::crashpoint::crash_point;
+use crate::proposals::{Proposal, changed_paths, control_tx};

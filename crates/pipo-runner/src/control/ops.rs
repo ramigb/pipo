@@ -6,6 +6,7 @@ use super::reads::{READ_OPS, read};
 use super::versions::version_arg;
 use crate::connectors::{IntakeResult, Origin};
 use crate::journal::{IN_FLIGHT, OUTPUT_STEP, PacketRow, ReplayItem, ReplayLeaf};
+use crate::proposals::{Proposal, ProposalInput};
 use crate::runner::apply::How;
 use crate::runner::{RESOLVE_ACTIONS, Runner, RunnerState};
 use crate::stats::{compute_metrics, compute_stats};
@@ -355,7 +356,7 @@ pub async fn handle(r: &Rc<Runner>, op: &str, args: &Map<String, Value>) -> Resu
         op if READ_OPS.contains(&op) => {
             live(r, op)?;
             let j = r.journal.borrow();
-            plain(read(j.db(), op, args, &name, r.version())?)
+            plain(read(j.db(), op, args, &name, Some(r.version()))?)
         }
         "apply" => {
             let source = args.get("source").and_then(|s| s.as_str()).filter(|s| !s.trim().is_empty()).ok_or_else(|| {
@@ -376,11 +377,76 @@ pub async fn handle(r: &Rc<Runner>, op: &str, args: &Map<String, Value>) -> Resu
             let version = version_arg(args.get("version"), "version")?;
             plain(r.rollback(version, &by_arg(args)).await?)
         }
-        "apply_proposal" | "propose" | "reject_proposal" => Err(ControlError::new(
-            "unavailable",
-            format!("'{op}' is not ported to the Rust runner yet"),
-            "see docs/rust-runner.md",
-        )),
+        // §9.3 step 4 (D49): a stored change proposal becomes the next version. One that still needs its dry run (D48)
+        // is dry-run first; when that diverges, the reply is the proposal, now `rejected`.
+        "apply_proposal" => {
+            let id = args.get("id").and_then(Value::as_str).filter(|s| !s.is_empty()).ok_or_else(|| {
+                ControlError::new(
+                    "bad_request",
+                    "apply_proposal needs `id`: the proposal's id",
+                    r#"{"op":"apply_proposal","args":{"id":"pr_01J…","by":"cli"}}"#,
+                )
+            })?;
+            plain(r.apply_proposal(id, &by_arg(args)).await?)
+        }
+        // §9.3 (D51): propose → validate → dry run when the base requires one → apply at the safe point, unless held.
+        "propose" => {
+            let example = r#"{"op":"propose","args":{"source":"pipo: 1\n…","base_version":1,"reason":"why","author":"agent-ops","author_kind":"agent"}}"#;
+            let kind = match args.get("author_kind") {
+                None | Some(Value::Null) => "human",
+                Some(Value::String(k)) if k == "agent" || k == "human" => k.as_str(),
+                Some(_) => return Err(ControlError::new("bad_request", "`author_kind` must be agent or human", example)),
+            };
+            let apply = match args.get("apply") {
+                None => true,
+                Some(Value::Bool(b)) => *b,
+                Some(_) => return Err(ControlError::new("bad_request", "`apply` must be true or false", example)),
+            };
+            let author = match args.get("author").and_then(Value::as_str) {
+                Some(a) if !a.is_empty() => a.to_string(),
+                _ => by_arg(args),
+            };
+            let field = |k: &str| args.get(k).cloned().unwrap_or(Value::Null);
+            let input = ProposalInput {
+                base_version: field("base_version"),
+                source: field("source"),
+                author: json!(author),
+                author_kind: json!(kind),
+                reason: field("reason"),
+            };
+            let p = r.proposals.propose(&input).await?;
+            let with_error = |p: &Proposal, e: &ControlError| {
+                let mut v = p.to_value();
+                v["apply_error"] = e.body();
+                v
+            };
+            // The proposal is stored; when it can't go on, say why instead of losing it.
+            let p = match r.proposals.dry_run_if_required(&p.id).await {
+                Ok(p) => p,
+                Err(e) => return plain(with_error(&p, &e)),
+            };
+            if (p.state != "validated" && p.state != "verified") || !apply {
+                return plain(p.to_value());
+            }
+            if let Err(e) = r.apply_proposal(&p.id, &author).await {
+                return plain(with_error(&r.proposals.get(&p.id)?, &e));
+            }
+            plain(r.proposals.get(&p.id)?.to_value())
+        }
+        "reject_proposal" => {
+            let id = args.get("id").and_then(Value::as_str).filter(|s| !s.is_empty()).ok_or_else(|| {
+                ControlError::new(
+                    "bad_request",
+                    "reject_proposal needs `id`: the proposal's id",
+                    r#"{"op":"reject_proposal","args":{"id":"pr_01J…","reason":"why","by":"cli"}}"#,
+                )
+            })?;
+            let reason = args.get("reason").and_then(Value::as_str).filter(|s| !s.trim().is_empty()).ok_or_else(|| {
+                ControlError::new("bad_request", "reject_proposal needs `reason`", "say why it is rejected")
+            })?;
+            let reason = String::from_utf16_lossy(&reason.encode_utf16().take(2000).collect::<Vec<u16>>());
+            plain(r.proposals.mark_rejected(id, &by_arg(args), &reason, None)?.to_value())
+        }
         "resolve" => {
             let example = r#"{"op":"resolve","args":{"ids":["01J…"],"action":"retry","by":"agent-ops","by_kind":"agent"}}"#;
             let action = args.get("action").and_then(|a| a.as_str()).filter(|a| RESOLVE_ACTIONS.contains(a)).ok_or_else(|| {

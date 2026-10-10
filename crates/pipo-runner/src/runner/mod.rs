@@ -23,7 +23,7 @@ use crate::lifecycle::{journaled_pause, lifetime_anchor, ttl_override_problem};
 use crate::liveness::{entry_alive_json, own_proc_start};
 use crate::pipeline::Pipeline;
 use crate::plan::{self, Plan};
-use crate::proposals::Proposals;
+use crate::proposals::{ProposalStoreOptions, Proposals};
 use crate::secrets::Secrets;
 use crate::stats::compute_stats;
 use crate::support::{Gap, gaps};
@@ -407,6 +407,10 @@ impl Runner {
             per_day,
         });
         let timezone = settings.as_ref().map(|s| s.timezone.clone());
+        let proposal_redact = {
+            let s = secrets.clone();
+            Rc::new(move |t: &str| s.redact(t)) as Rc<dyn Fn(&str) -> String>
+        };
         let runner = Rc::new_cyclic(|me: &Weak<Runner>| {
             let budget = timezone.map(|tz| {
                 let limits_of = me.clone();
@@ -428,7 +432,7 @@ impl Runner {
                 registry_path,
                 journal: journal.clone(),
                 secrets,
-                env: Value::Object(env),
+                env: Value::Object(env.clone()),
                 output,
                 input: RefCell::new(None),
                 control: RefCell::new(None),
@@ -443,7 +447,17 @@ impl Runner {
                 budget,
                 bots,
                 polls_bot: RefCell::new(None),
-                proposals: Proposals::new(),
+                proposals: Proposals::new(
+                    journal.clone(),
+                    ProposalStoreOptions {
+                        pipeline: pipeline.name.clone(),
+                        file: file.clone(),
+                        home: home.clone(),
+                        redact: proposal_redact,
+                        now: Rc::new(now_ms),
+                        env: Value::Object(env.clone()),
+                    },
+                ),
                 compiled: RefCell::new(compiled.clone()),
             }
         });
