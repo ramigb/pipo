@@ -8,6 +8,8 @@ examples/**/data/
 .epoptes/cycles/
 examples/**/out/
 examples/**/inbox/
+# Posts copied in while trying the blog example (samples/ holds the originals)
+examples/blog/posts/*.md
 # Pipelines made with the builder in this checkout are local
 /my-pipeline-*/
 /target
