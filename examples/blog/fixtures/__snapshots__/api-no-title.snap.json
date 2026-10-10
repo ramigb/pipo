@@ -1,0 +1,13 @@
+{
+  "fixture": "api-no-title",
+  "outcome": "rejected",
+  "units": [],
+  "taps": [],
+  "calls": [],
+  "error": {
+    "step": "api",
+    "code": "input.invalid",
+    "message": "Rejected: rule 'type(data.title) == \"string\" && len(trim(data.title)) > 0' failed. A post needs a title and a body.",
+    "rule": "type(data.title) == \"string\" && len(trim(data.title)) > 0"
+  }
+}

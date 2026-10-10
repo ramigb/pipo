@@ -1,7 +1,7 @@
 // End-to-end runs of the pipelines in examples/ (copied into a sandbox so they write under /tmp), on the Rust runner
 // binary.
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homeAgentBudget } from "../src";
 import { copyExampleDir, rows, sandbox, waitFor } from "./helpers";
@@ -151,5 +151,41 @@ describe("examples", () => {
     const fix = await store.request("push", { input: "manual", data: { email: "ada@example.com", name: "Ada L." } });
     expect((await store.settled(fix.packet_id)).state).toBe("delivered");
     expect(rows(db, "SELECT name, via FROM signups")).toEqual([{ name: "Ada L.", via: "manual" }]);
+  });
+
+  test("blog takes posts from a file, http and push, tags them, upserts by slug and rebuilds the site", async () => {
+    const { box, dir, file } = copyExample("blog");
+    const r = await open(box, file, "blog");
+    const db = join(dir, "data", "blog.db");
+    const site = join(dir, "out", "site");
+
+    writeFileSync(join(dir, "posts", "hello-pipo.md"), readFileSync(join(dir, "samples", "hello-pipo.md"), "utf8"));
+    expect((await r.post("/posts", { body: "no title" })).status).toBe(422);
+    const res = await r.post("/posts", { title: "Rust  notes", author: "Grace", body: "Cargo and tokio.", tags: "ts" });
+    expect(res.status).toBe(202);
+    const api = (await res.json()) as { packet_id: string };
+    expect((await r.settled(api.packet_id, 15_000)).state).toBe("delivered");
+    const pushed = await r.request("push", { input: "manual", data: { title: "Later", body: "Soon.", draft: true } });
+    expect((await r.settled(pushed.packet_id, 15_000)).state).toBe("delivered");
+    await waitFor(() => rows(db, "SELECT 1 FROM posts").length === 3, 15_000, "three posts");
+    expect(rows(db, "SELECT slug, tags, draft, source FROM posts ORDER BY slug")).toEqual([
+      { slug: "hello-pipo", tags: '["how-to","meta","pipelines","sqlite"]', draft: 0, source: "files" },
+      { slug: "later", tags: "[]", draft: 1, source: "manual" },
+      { slug: "rust-notes", tags: '["rust","typescript"]', draft: 0, source: "api" },
+    ]);
+
+    // An edited file updates its row in place, and the site leaves drafts out.
+    const edited = readFileSync(join(dir, "samples", "hello-pipo.md"), "utf8").replace("Hello, Pipo", "Hello again");
+    writeFileSync(join(dir, "posts", "hello-pipo.md"), edited);
+    await waitFor(() => rows(db, "SELECT title FROM posts WHERE slug = 'hello-pipo'")[0]?.title === "Hello again");
+    const index = await waitFor(() => {
+      const html = existsSync(join(site, "index.html")) ? readFileSync(join(site, "index.html"), "utf8") : "";
+      return html.includes("Hello again") ? html : null;
+    });
+    expect(index).toContain("Rust notes");
+    expect(index).not.toContain("Later");
+    expect(readFileSync(join(site, "tags", "rust.html"), "utf8")).toContain("Rust notes");
+    expect(rows(db, "SELECT 1 FROM posts")).toHaveLength(3);
+    expect(await r.stop()).toBe(0);
   });
 });

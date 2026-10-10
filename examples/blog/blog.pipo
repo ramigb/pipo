@@ -1,0 +1,95 @@
+# A tiny blog. Posts arrive three ways: a markdown file dropped in ./posts, a POST to /in/blog/posts, or `pipo push`.
+# Each is normalised and tagged the same way (blog.fn.ts), the static site in ./out/site is rebuilt from SQLite plus
+# the new post (build-site.ts), and the post is upserted into ./data/blog.db by slug (docs/spec.md §3.3.1).
+#   bun pipo start examples/blog/blog.pipo --listen 8792
+#   cp examples/blog/samples/*.md examples/blog/posts/
+#   curl -X POST localhost:8792/in/blog/posts -H 'content-type: application/json' \
+#     -d '{"title": "Hello over HTTP", "author": "Ada", "body": "Posted with **curl**."}'
+#   bun pipo push blog --input manual --data '{"title": "Pushed by hand", "body": "Fixing a typo.", "tags": ["Meta"]}'
+pipo: 1
+name: blog
+description: Blog posts from markdown files, an HTTP API and pipo push, tagged and stored in SQLite.
+
+fn: ./blog.fn.ts
+
+# One at a time, so each site build sees every post written before it.
+concurrency: 1
+
+errors:
+  retry: 2
+  backoff: exponential
+  delay: 500ms
+  then: dead_letter
+
+inputs:
+  files:
+    via: watch
+    with:
+      path: ./posts/*.md
+      events: [create, change]
+      read: content
+  api:
+    via: http
+    with: {path: /posts, method: POST}
+    format: json
+    validate:
+      - type(data.title) == "string" && len(trim(data.title)) > 0
+      - type(data.body) == "string" && len(trim(data.body)) > 0
+    on_invalid:
+      respond: 422
+      message: "Rejected: rule '${error.rule}' failed. A post needs a title and a body."
+  manual:
+    via: push
+    validate:
+      - exists(data.title) && exists(data.body)
+
+nodes:
+  parse:
+    label: Parse markdown
+    from: files
+    transform: fn.fromMarkdown
+
+  normalize:
+    label: Normalise and tag
+    from: [parse, api, manual]
+    transform: fn.normalize
+
+  site:
+    label: Rebuild site
+    from: normalize
+    tap: exec
+    with:
+      command: bun
+      args: [./build-site.ts]
+      stdin: "${json(data)}"
+      timeout: 1m
+    # A failed build never holds a post back; the next post's build catches the site up.
+    on_error: {retry: 1, delay: 1s, then: continue}
+
+output:
+  from: site
+  to: sqlite
+  with:
+    path: ./data/blog.db
+    table: posts
+    create: true
+    mode: upsert
+    key: slug
+    columns:
+      slug: "${data.slug}"
+      title: "${data.title}"
+      author: "${data.author}"
+      body: "${data.body}"
+      excerpt: "${data.excerpt}"
+      tags: "${json(data.tags)}"
+      draft: "${data.draft ? 1 : 0}"
+      reading_minutes: "${data.reading_minutes}"
+      published_at: "${data.published_at}"
+      updated_at: "${data.updated_at}"
+      source: "${data.source}"
+
+# Delivered once the row holds this version of the post, not just some row with its slug.
+delivered:
+  check: record_exists
+  with:
+    where: {slug: "${data.slug}", updated_at: "${data.updated_at}"}

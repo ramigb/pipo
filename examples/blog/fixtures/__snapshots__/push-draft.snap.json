@@ -1,0 +1,76 @@
+{
+  "fixture": "push-draft",
+  "outcome": "delivered",
+  "units": [
+    {
+      "unit": "push-draft",
+      "branch": "",
+      "outcome": "delivered",
+      "path": ["normalize", "site", "output"],
+      "data": {
+        "slug": "ideas-for-later",
+        "title": "Ideas for later",
+        "author": "Anonymous",
+        "body": "Not public yet.",
+        "excerpt": "Not public yet.",
+        "tags": [],
+        "draft": true,
+        "reading_minutes": 1,
+        "published_at": "2026-01-01T00:00:00.000Z",
+        "updated_at": "2026-01-01T00:00:00.000Z",
+        "source": "manual"
+      },
+      "write": {
+        "key": "ideas-for-later",
+        "to": "sqlite",
+        "with": {
+          "path": "./data/blog.db",
+          "table": "posts",
+          "create": true,
+          "mode": "upsert",
+          "key": "slug",
+          "columns": {
+            "slug": "ideas-for-later",
+            "title": "Ideas for later",
+            "author": "Anonymous",
+            "body": "Not public yet.",
+            "excerpt": "Not public yet.",
+            "tags": "[]",
+            "draft": 1,
+            "reading_minutes": 1,
+            "published_at": "2026-01-01T00:00:00.000Z",
+            "updated_at": "2026-01-01T00:00:00.000Z",
+            "source": "manual"
+          }
+        },
+        "record": {
+          "slug": "ideas-for-later",
+          "title": "Ideas for later",
+          "author": "Anonymous",
+          "body": "Not public yet.",
+          "excerpt": "Not public yet.",
+          "tags": "[]",
+          "draft": 1,
+          "reading_minutes": 1,
+          "published_at": "2026-01-01T00:00:00.000Z",
+          "updated_at": "2026-01-01T00:00:00.000Z",
+          "source": "manual"
+        }
+      }
+    }
+  ],
+  "taps": [
+    {
+      "unit": "push-draft",
+      "node": "site",
+      "tap": "exec",
+      "with": {
+        "command": "bun",
+        "args": ["./build-site.ts"],
+        "stdin": "{\"slug\":\"ideas-for-later\",\"title\":\"Ideas for later\",\"author\":\"Anonymous\",\"body\":\"Not public yet.\",\"excerpt\":\"Not public yet.\",\"tags\":[],\"draft\":true,\"reading_minutes\":1,\"published_at\":\"2026-01-01T00:00:00.000Z\",\"updated_at\":\"2026-01-01T00:00:00.000Z\",\"source\":\"manual\"}",
+        "timeout": "1m"
+      }
+    }
+  ],
+  "calls": []
+}

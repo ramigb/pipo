@@ -1,0 +1,9 @@
+{
+  "data": {
+    "title": "  Writing a   Rust runner  ",
+    "author": "Grace",
+    "body": "We moved the data plane to Rust, on tokio.\n\nThe journal stays in SQLite.",
+    "tags": "Rust, DB"
+  },
+  "meta": { "input": "api" }
+}

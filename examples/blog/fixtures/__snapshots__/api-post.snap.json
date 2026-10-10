@@ -1,0 +1,76 @@
+{
+  "fixture": "api-post",
+  "outcome": "delivered",
+  "units": [
+    {
+      "unit": "api-post",
+      "branch": "",
+      "outcome": "delivered",
+      "path": ["normalize", "site", "output"],
+      "data": {
+        "slug": "writing-a-rust-runner",
+        "title": "Writing a Rust runner",
+        "author": "Grace",
+        "body": "We moved the data plane to Rust, on tokio.\n\nThe journal stays in SQLite.",
+        "excerpt": "We moved the data plane to Rust, on tokio.",
+        "tags": ["databases", "rust", "sqlite"],
+        "draft": false,
+        "reading_minutes": 1,
+        "published_at": "2026-01-01T00:00:00.000Z",
+        "updated_at": "2026-01-01T00:00:00.000Z",
+        "source": "api"
+      },
+      "write": {
+        "key": "writing-a-rust-runner",
+        "to": "sqlite",
+        "with": {
+          "path": "./data/blog.db",
+          "table": "posts",
+          "create": true,
+          "mode": "upsert",
+          "key": "slug",
+          "columns": {
+            "slug": "writing-a-rust-runner",
+            "title": "Writing a Rust runner",
+            "author": "Grace",
+            "body": "We moved the data plane to Rust, on tokio.\n\nThe journal stays in SQLite.",
+            "excerpt": "We moved the data plane to Rust, on tokio.",
+            "tags": "[\"databases\",\"rust\",\"sqlite\"]",
+            "draft": 0,
+            "reading_minutes": 1,
+            "published_at": "2026-01-01T00:00:00.000Z",
+            "updated_at": "2026-01-01T00:00:00.000Z",
+            "source": "api"
+          }
+        },
+        "record": {
+          "slug": "writing-a-rust-runner",
+          "title": "Writing a Rust runner",
+          "author": "Grace",
+          "body": "We moved the data plane to Rust, on tokio.\n\nThe journal stays in SQLite.",
+          "excerpt": "We moved the data plane to Rust, on tokio.",
+          "tags": "[\"databases\",\"rust\",\"sqlite\"]",
+          "draft": 0,
+          "reading_minutes": 1,
+          "published_at": "2026-01-01T00:00:00.000Z",
+          "updated_at": "2026-01-01T00:00:00.000Z",
+          "source": "api"
+        }
+      }
+    }
+  ],
+  "taps": [
+    {
+      "unit": "api-post",
+      "node": "site",
+      "tap": "exec",
+      "with": {
+        "command": "bun",
+        "args": ["./build-site.ts"],
+        "stdin": "{\"slug\":\"writing-a-rust-runner\",\"title\":\"Writing a Rust runner\",\"author\":\"Grace\",\"body\":\"We moved the data plane to Rust, on tokio.\\n\\nThe journal stays in SQLite.\",\"excerpt\":\"We moved the data plane to Rust, on tokio.\",\"tags\":[\"databases\",\"rust\",\"sqlite\"],\"draft\":false,\"reading_minutes\":1,\"published_at\":\"2026-01-01T00:00:00.000Z\",\"updated_at\":\"2026-01-01T00:00:00.000Z\",\"source\":\"api\"}",
+        "timeout": "1m"
+      }
+    }
+  ],
+  "calls": []
+}

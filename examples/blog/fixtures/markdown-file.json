@@ -1,0 +1,11 @@
+{
+  "data": {
+    "event": "create",
+    "path": "/blog/posts/hello-pipo.md",
+    "name": "hello-pipo.md",
+    "size": 120,
+    "mtime": "2026-10-02T08:30:00.000Z",
+    "content": "---\ntitle: Hello, Pipo\nauthor: Ada Lovelace\ndate: 2026-10-01\ntags: [Meta, howto]\n---\n\nThis blog is a **Pipo pipeline**: each post is tagged and written to SQLite.\n"
+  },
+  "meta": { "input": "files" }
+}

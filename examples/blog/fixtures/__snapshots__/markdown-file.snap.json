@@ -1,0 +1,76 @@
+{
+  "fixture": "markdown-file",
+  "outcome": "delivered",
+  "units": [
+    {
+      "unit": "markdown-file",
+      "branch": "",
+      "outcome": "delivered",
+      "path": ["parse", "normalize", "site", "output"],
+      "data": {
+        "slug": "hello-pipo",
+        "title": "Hello, Pipo",
+        "author": "Ada Lovelace",
+        "body": "This blog is a **Pipo pipeline**: each post is tagged and written to SQLite.",
+        "excerpt": "This blog is a Pipo pipeline: each post is tagged and written to SQLite.",
+        "tags": ["how-to", "meta", "pipelines", "sqlite"],
+        "draft": false,
+        "reading_minutes": 1,
+        "published_at": "2026-10-01T00:00:00.000Z",
+        "updated_at": "2026-10-02T08:30:00.000Z",
+        "source": "files"
+      },
+      "write": {
+        "key": "hello-pipo",
+        "to": "sqlite",
+        "with": {
+          "path": "./data/blog.db",
+          "table": "posts",
+          "create": true,
+          "mode": "upsert",
+          "key": "slug",
+          "columns": {
+            "slug": "hello-pipo",
+            "title": "Hello, Pipo",
+            "author": "Ada Lovelace",
+            "body": "This blog is a **Pipo pipeline**: each post is tagged and written to SQLite.",
+            "excerpt": "This blog is a Pipo pipeline: each post is tagged and written to SQLite.",
+            "tags": "[\"how-to\",\"meta\",\"pipelines\",\"sqlite\"]",
+            "draft": 0,
+            "reading_minutes": 1,
+            "published_at": "2026-10-01T00:00:00.000Z",
+            "updated_at": "2026-10-02T08:30:00.000Z",
+            "source": "files"
+          }
+        },
+        "record": {
+          "slug": "hello-pipo",
+          "title": "Hello, Pipo",
+          "author": "Ada Lovelace",
+          "body": "This blog is a **Pipo pipeline**: each post is tagged and written to SQLite.",
+          "excerpt": "This blog is a Pipo pipeline: each post is tagged and written to SQLite.",
+          "tags": "[\"how-to\",\"meta\",\"pipelines\",\"sqlite\"]",
+          "draft": 0,
+          "reading_minutes": 1,
+          "published_at": "2026-10-01T00:00:00.000Z",
+          "updated_at": "2026-10-02T08:30:00.000Z",
+          "source": "files"
+        }
+      }
+    }
+  ],
+  "taps": [
+    {
+      "unit": "markdown-file",
+      "node": "site",
+      "tap": "exec",
+      "with": {
+        "command": "bun",
+        "args": ["./build-site.ts"],
+        "stdin": "{\"slug\":\"hello-pipo\",\"title\":\"Hello, Pipo\",\"author\":\"Ada Lovelace\",\"body\":\"This blog is a **Pipo pipeline**: each post is tagged and written to SQLite.\",\"excerpt\":\"This blog is a Pipo pipeline: each post is tagged and written to SQLite.\",\"tags\":[\"how-to\",\"meta\",\"pipelines\",\"sqlite\"],\"draft\":false,\"reading_minutes\":1,\"published_at\":\"2026-10-01T00:00:00.000Z\",\"updated_at\":\"2026-10-02T08:30:00.000Z\",\"source\":\"files\"}",
+        "timeout": "1m"
+      }
+    }
+  ],
+  "calls": []
+}

@@ -1,0 +1,1 @@
+{ "data": { "body": "A post without a title is rejected with a 422." }, "meta": { "input": "api" } }
