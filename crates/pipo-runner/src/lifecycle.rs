@@ -66,3 +66,51 @@ pub fn ttl_override_problem(text: &str) -> Option<String> {
         Ok(_) => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::connectors::test_util::TempDir;
+
+    #[test]
+    fn lifetime_anchor_is_the_first_start_after_the_last_clean_stop_halt_or_completion() {
+        let dir = TempDir::new();
+        let journal = Journal::open(dir.join("journal.db")).unwrap();
+        let at = |kind: &str, ms: i64| {
+            journal.event(kind, None, None, None).unwrap();
+            journal.db().execute("UPDATE events SET at = ?1 WHERE seq = (SELECT MAX(seq) FROM events)", [ms]).unwrap();
+        };
+        assert_eq!(lifetime_anchor(&journal), None);
+        at("pipeline.started", 1000);
+        assert_eq!(lifetime_anchor(&journal), Some(1000));
+        // A crash writes no end: the restarts keep the first start.
+        at("pipeline.paused", 1500);
+        at("pipeline.started", 2000);
+        at("pipeline.draining", 2500);
+        at("pipeline.started", 3000);
+        assert_eq!(lifetime_anchor(&journal), Some(1000));
+        // A packet's events never count, whatever their type.
+        journal.event("pipeline.stopped", None, Some("some-packet"), None).unwrap();
+        assert_eq!(lifetime_anchor(&journal), Some(1000));
+        // A clean stop ends the lifetime: until the next start there is no anchor, then that start is it.
+        at("pipeline.stopped", 4000);
+        assert_eq!(lifetime_anchor(&journal), None);
+        at("pipeline.started", 5000);
+        at("pipeline.started", 6000);
+        assert_eq!(lifetime_anchor(&journal), Some(5000));
+        // A halt ends it too, and so does a completion.
+        at("pipeline.failed", 7000);
+        at("pipeline.started", 8000);
+        assert_eq!(lifetime_anchor(&journal), Some(8000));
+        at("pipeline.completed", 9000);
+        at("pipeline.started", 10_000);
+        assert_eq!(lifetime_anchor(&journal), Some(10_000));
+    }
+
+    #[test]
+    fn ttl_overrides_must_be_positive_durations() {
+        assert_eq!(ttl_override_problem("2h"), None);
+        assert_eq!(ttl_override_problem("soon").unwrap(), "ttl 'soon' is not a duration");
+        assert!(ttl_override_problem("0s").unwrap().contains("must be longer than 0"));
+    }
+}
