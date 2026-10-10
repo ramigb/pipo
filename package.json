@@ -19,7 +19,8 @@
     "stress": "bun scripts/stress.ts",
     "pipo": "bun packages/cli/src/main.ts",
     "build:runner": "cargo build --release -p pipo-runner",
-    "test:runner": "cargo test -p pipo-runner"
+    "test:runner": "cargo test -p pipo-runner",
+    "postinstall": "bun scripts/build-runner.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",

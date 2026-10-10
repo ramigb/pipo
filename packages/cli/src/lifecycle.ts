@@ -15,6 +15,7 @@ import {
   entryAlive,
   homeAgentBudget,
   type RegistryEntry,
+  runnerBinary,
 } from "@pipo/runner";
 import { parseDuration } from "@pipo/spec";
 import { parse as parseYaml } from "yaml";
@@ -84,6 +85,8 @@ export async function startEngine(
   home: string,
   opts: { ttl?: string; listen?: number; workspace?: string } = {},
 ): Promise<string | null> {
+  // A stale or missing runner is built here, in the terminal, rather than inside the engine (D73).
+  runnerBinary();
   mkdirSync(join(home, "logs"), { recursive: true });
   const logFile = join(home, "logs", "engine.log");
   const offset = existsSync(logFile) ? statSync(logFile).size : 0;
@@ -469,6 +472,7 @@ const START_OPTIONS = {
 
 async function doStart(ctx: Ctx, target: string, body: Record<string, unknown>) {
   const api = needEngine(ctx, "start a pipeline");
+  runnerBinary(); // built here when stale, so the engine's start doesn't wait on cargo (D73)
   return spinning(`starting ${target}`, () =>
     isFileArg(target)
       ? api.call("POST", "/api/pipelines", { file: isAbsolute(target) ? target : resolve(target), ...body })

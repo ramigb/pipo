@@ -17,7 +17,7 @@ import {
   type RegistryEntry,
   readRegistryEntry,
   registryPath,
-  runnerBinary,
+  runnerBinaryAsync,
   runnerEnv,
 } from "@pipo/runner";
 import { formatDuration, type Pipeline } from "@pipo/spec";
@@ -84,7 +84,18 @@ export abstract class SupervisorProcesses extends SupervisorBase {
     mkdirSync(dirname(log), { recursive: true });
     const offset = existsSync(log) ? statSync(log).size : 0;
     this.note(s, `starting runner${s.restarts ? ` (restart ${s.restarts})` : ""}`);
-    const proc = this.spawn(s, log);
+    let bin: string;
+    try {
+      // In the workspace a stale or missing runner is built first (D73), without blocking the engine meanwhile.
+      bin = await runnerBinaryAsync();
+    } catch (e) {
+      throw new EngineError(
+        "start_failed",
+        `'${s.name}' did not start: ${(e as Error).message}`,
+        "fix the runner build, then start it again",
+      );
+    }
+    const proc = this.spawn(s, log, bin);
     s.proc = proc;
     let failure: string;
     try {
@@ -113,8 +124,8 @@ export abstract class SupervisorProcesses extends SupervisorBase {
     );
   }
 
-  protected spawn(s: Supervised, log: string): Bun.Subprocess {
-    const args = [runnerBinary(), s.file, "--home", this.home, "--engine-id", this.engineId];
+  protected spawn(s: Supervised, log: string, bin: string): Bun.Subprocess {
+    const args = [bin, s.file, "--home", this.home, "--engine-id", this.engineId];
     if (s.opts.listen !== undefined) args.push("--listen", String(s.opts.listen));
     if (this.config.env_allow.length) args.push("--env-allow", this.config.env_allow.join(","));
     if (s.opts.detached) args.push("--detached");
