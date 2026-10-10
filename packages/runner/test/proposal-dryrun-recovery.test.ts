@@ -1,11 +1,12 @@
 // A proposal's dry run across SIGKILL (docs/spec.md §7.3, §9.3, D48, D49, D51). A spawned runner, found through its
 // registry entry, takes an agent's proposal through the `propose` control op; its base sets `agent.verify`, so the
-// dry run replays the delivered packets, and the runner dies by SIGKILL inside it (crashpoint.ts): once every packet
+// dry run replays the delivered packets, and the runner dies by SIGKILL inside it (crashpoint.rs): once every packet
 // is replayed, before the outcome's transaction (`dryrun.replayed`), or just after that commits, before the apply
 // (`dryrun.decided`). Before the commit the proposal stays `validated` with nothing of the dry run in the journal;
 // after it, `verified`. Either way, after a restart the public `apply_proposal` op takes it to v2 (running the dry
 // run again only when it never committed), with exactly one v2, outputs written exactly once, each packet on the
-// version that accepted it.
+// version that accepted it. Proposals stranded that way are what `apply_proposal` dry-runs first: a diverging one is
+// stored `rejected` and that is the reply, not an error; a stale base is rejected before any dry run.
 import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
@@ -59,6 +60,7 @@ async function scenario(point: Point) {
     "fns.ts",
     `export const one = (d) => ({ ...d, v: "one" });
 export const two = (d) => ({ ...d, v: "two" });
+export const strict = (d) => { if (d.n >= 2) throw new Error("n too big"); return { ...d, v: "strict" }; };
 `,
   );
   const file = box.write(`${NAME}.pipo`, SRC("one"));
@@ -180,6 +182,106 @@ export const two = (d) => ({ ...d, v: "two" });
   expect(await second.proc.exited).toBe(0);
 }
 
+/** Three agent proposals stranded `validated` by a SIGKILL after their replay, then applied through the public op. */
+async function stranded() {
+  const box = sandbox();
+  boxes.push(box);
+  box.write(
+    "fns.ts",
+    `export const one = (d) => ({ ...d, v: "one" });
+export const two = (d) => ({ ...d, v: "two" });
+export const strict = (d) => { if (d.n >= 2) throw new Error("n too big"); return { ...d, v: "strict" }; };
+`,
+  );
+  const file = box.write(`${NAME}.pipo`, SRC("one"));
+  const journal = join(box.home, "pipelines", NAME, "journal.db");
+  const out = join(box.root, `${NAME}.db`);
+  const connect = async () => {
+    const c = await ControlClient.forPipeline(box.home, NAME);
+    clients.push(c);
+    return c;
+  };
+  const events = (id: string) =>
+    query(
+      journal,
+      "SELECT type FROM events WHERE type LIKE 'proposal.%' AND json_extract(detail, '$.id') = ? ORDER BY seq",
+      id,
+    ).map((e) => e.type as string);
+
+  // Each runner dies in the dry run of the proposal it is given; the first delivers three packets to replay.
+  const ids: string[] = [];
+  for (const [n, tag] of [
+    [1, "strict"],
+    [2, "two"],
+    [3, "two"],
+  ] as const) {
+    const run = await spawn(box, spawned, NAME, file, n, [], 15_000, { PIPO_TEST_CRASH_AT: "dryrun.replayed" });
+    const c = await connect();
+    if (n === 1) {
+      for (let i = 0; i < 3; i++) await c.request("push", { data: { n: i } });
+      await waitFor(
+        () => query(journal, "SELECT state FROM packets").filter((p) => p.state === "delivered").length === 3,
+        15_000,
+        "the first packets delivered",
+      );
+    }
+    const args = { source: SRC(tag), base_version: 1, reason: `use ${tag}`, author: "agent-ops", author_kind: "agent" };
+    await expect(c.request("propose", args, 15_000)).rejects.toThrow("closed the control connection");
+    await run.proc.exited;
+    const [p] = query(journal, "SELECT id, state, verify, verification FROM proposals ORDER BY created_at DESC");
+    expect(p).toMatchObject({ state: "validated", verify: "last 5", verification: null });
+    ids.push(p.id);
+  }
+  const [strict, two, late] = ids as [string, string, string];
+
+  const last = await spawn(box, spawned, NAME, file, 4, [], 15_000);
+  const c = await connect();
+  // A diverging dry run rejects it: the reply is the rejected proposal, not an error, and nothing is applied.
+  const rejected = await c.request("apply_proposal", { id: strict, by: "agent-ops" }, 30_000);
+  expect(rejected).toMatchObject({ id: strict, state: "rejected", applied_version: null, decided_by: "dry-run" });
+  expect(rejected.decision).toContain("dry run diverged");
+  expect(rejected.verification).toMatchObject({ replayed: 3, diverged: 1 });
+  expect(rejected.version).toBeUndefined();
+  expect((await c.request("hello")).version).toBe(1);
+  const again = await c.request("apply_proposal", { id: strict, by: "agent-ops" }).catch((e) => e);
+  expect(again).toMatchObject({ code: "invalid_state" });
+  expect(again.message).toContain("was rejected (dry run diverged");
+
+  // A passing one is dry-run, verified and applied as v2 in one call.
+  expect(await c.request("apply_proposal", { id: two, by: "agent-ops" }, 30_000)).toMatchObject({
+    version: 2,
+    previous: 1,
+    changed: true,
+    proposal: two,
+  });
+  const applied = await c.request("proposal", { id: two });
+  expect(applied).toMatchObject({ state: "applied", applied_version: 2, decided_by: "agent-ops" });
+  expect(applied.verification).toMatchObject({ replayed: 3, passed: 3, diverged: 0 });
+  expect(applied.decision).toContain("dry run passed");
+
+  // The third is now against a stale base: rejected before any dry run runs.
+  const stale = await c.request("apply_proposal", { id: late, by: "agent-ops" }).catch((e) => e);
+  expect(stale).toMatchObject({ code: "invalid_state" });
+  expect(stale.message).toContain("stale base");
+  const after = await c.request("proposal", { id: late });
+  expect(after).toMatchObject({ state: "rejected", verification: null });
+  expect(after.decision).toContain("stale base");
+
+  expect(events(strict)).toEqual(["proposal.validated", "proposal.rejected"]);
+  expect(events(two)).toEqual(["proposal.validated", "proposal.verified", "proposal.applied"]);
+  expect(events(late)).toEqual(["proposal.validated", "proposal.rejected"]);
+  expect(query(journal, "SELECT version, proposal FROM versions ORDER BY version")).toEqual([
+    { version: 1, proposal: null },
+    { version: 2, proposal: two },
+  ]);
+  // The dry runs wrote nothing to the output.
+  expect(query(out, "SELECT COUNT(*) AS n FROM items")[0]).toEqual({ n: 3 });
+
+  c.close();
+  last.proc.kill("SIGTERM");
+  expect(await last.proc.exited).toBe(0);
+}
+
 describe("SIGKILL inside a proposal's dry run", () => {
   test(
     "after the replay, before its outcome commits: still validated; apply_proposal dry-runs it again and applies v2",
@@ -190,5 +292,10 @@ describe("SIGKILL inside a proposal's dry run", () => {
     "just after the outcome commits, before the apply: verified; apply_proposal applies v2 without a second dry run",
     () => scenario("dryrun.decided"),
     90_000,
+  );
+  test(
+    "stranded proposals are dry-run by apply_proposal: diverging ones rejected, stale ones before any run",
+    stranded,
+    120_000,
   );
 });

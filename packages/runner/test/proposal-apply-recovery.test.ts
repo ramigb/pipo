@@ -2,32 +2,37 @@
 // registry entry, stream pushed packets while an agent's proposal is applied over the socket, and die by SIGKILL at
 // each point around the apply transaction: just before it (`apply.prepared`), inside it between the new version and
 // the proposal's `applied` state (`apply.in_transaction`), just after its commit and before the in-memory switch and
-// the reply (`apply.committed`, crashpoint.ts), and right after the reply. After each, the journal holds either v1
+// the reply (`apply.committed`, crashpoint.rs), and right after the reply. After each, the journal holds either v1
 // with the proposal still applicable, or v2 with the proposal applied, never a mix; a restart runs that version, every
 // packet finishes on the version that accepted it, outputs are written exactly once and no version is duplicated.
+// Packets wait in a `transform: http` step against a gate server in this process, which holds them across the restart.
 import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { ControlClient, Journal, Proposals, readRegistryEntry } from "../src";
+import { ControlClient, readRegistryEntry } from "../src";
 import { sandbox, spawnRunner as spawn, waitFor } from "./helpers";
+import { gateServer } from "./proposal-helpers";
 
 const boxes: ReturnType<typeof sandbox>[] = [];
 const spawned: ReturnType<typeof Bun.spawn>[] = [];
 const clients: ControlClient[] = [];
+const gates: ReturnType<typeof gateServer>[] = [];
 afterAll(() => {
   for (const c of clients) c.close();
   for (const p of spawned) p.kill("SIGKILL");
+  for (const g of gates) g.stop();
   for (const b of boxes) b.cleanup();
 });
 
 const NAME = "papply";
-const SRC = (tag: string) => `pipo: 1
+// The http step times out after 30 s (D15); a retry sends the held packet to the gate again.
+const SRC = (tag: string, gate: string) => `pipo: 1
 name: ${NAME}
 fn: ./fns.ts
 input: { via: push }
 nodes:
-  gate: { from: input, transform: fn.gate }
+  gate: { from: input, transform: http, with: { url: "${gate}" }, on_error: { retry: 5, delay: 10ms } }
   tag: { from: gate, transform: fn.${tag} }
 output:
   from: tag
@@ -78,16 +83,15 @@ type Point = "apply.prepared" | "apply.in_transaction" | "apply.committed" | nul
 async function scenario(point: Point) {
   const box = sandbox();
   boxes.push(box);
-  const release = join(box.root, "release");
+  const gate = gateServer();
+  gates.push(gate);
   box.write(
     "fns.ts",
-    `import { existsSync } from "node:fs";
-export const gate = async (d) => { while (d.wait && !existsSync(${JSON.stringify(release)})) await Bun.sleep(20); return d; };
-export const one = (d) => ({ ...d, v: "one" });
+    `export const one = (d) => ({ ...d, v: "one" });
 export const two = (d) => ({ ...d, v: "two" });
 `,
   );
-  const file = box.write(`${NAME}.pipo`, SRC("one"));
+  const file = box.write(`${NAME}.pipo`, SRC("one", gate.url));
   const journal = join(box.home, "pipelines", NAME, "journal.db");
   const packets = () =>
     query(journal, "SELECT id, version, state, cursor FROM packets WHERE branch = '' ORDER BY id") as {
@@ -117,23 +121,22 @@ export const two = (d) => ({ ...d, v: "two" });
   const c1 = await connect();
   const gated: string[] = [];
   for (let n = 0; n < 3; n++) gated.push((await c1.request("push", { data: { n, wait: true } })).packet_id);
-  await waitFor(
-    () => packets().filter((p) => gated.includes(p.id) && p.cursor === "gate").length === 3,
-    10_000,
-    "gated packets at the gate",
-  );
+  await waitFor(() => gate.held() === 3, 10_000, "gated packets at the gate");
 
-  // 2. An agent proposes v2. The store is used from this process, against the runner's journal (the control op to
-  // propose is the engine's), while the runner writes nothing: its packets wait at the gate, the stream starts after.
-  const store = new Journal(journal);
-  const p = new Proposals(store, { pipeline: NAME, file, home: box.home }).propose({
-    base_version: 1,
-    source: SRC("two"),
-    author: "agent-ops",
-    author_kind: "agent",
-    reason: "tag them two",
-  });
-  store.close();
+  // 2. An agent proposes v2, held (`apply: false`) for the apply below, while its packets wait at the gate; the stream
+  // starts after.
+  const p = await c1.request(
+    "propose",
+    {
+      base_version: 1,
+      source: SRC("two", gate.url),
+      author: "agent-ops",
+      author_kind: "agent",
+      reason: "tag them two",
+      apply: false,
+    },
+    30_000,
+  );
   expect(p.state).toBe("validated");
   const pusher = stream(await connect());
   await waitFor(() => pusher.acked.length >= 3, 10_000, "streamed packets");
@@ -202,7 +205,7 @@ export const two = (d) => ({ ...d, v: "two" });
   }
   const later: string[] = [];
   for (let n = 2000; n < 2003; n++) later.push((await c2.request("push", { data: { n, wait: false } })).packet_id);
-  writeFileSync(release, "");
+  gate.release();
   await waitFor(() => packets().every((r) => r.state === "delivered"), 20_000, "every packet delivered");
 
   // 5. Exactly once, each on the version that accepted it; one v2, from the proposal, which is applied.
