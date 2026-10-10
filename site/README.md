@@ -1,6 +1,6 @@
 # Pipo website
 
-A standalone static landing page for Pipo. Plain HTML, CSS and JavaScript, local assets and system fonts. No framework, dependencies, API calls or build step. This site is separate from the runtime dashboard in `packages/ui`.
+A standalone static landing page for Pipo. Plain HTML, CSS and JavaScript, local assets and system fonts. No framework, dependencies, API calls or build step for the landing page itself; the docs under `docs/` are generated (see [Documentation](#documentation)). This site is separate from the runtime dashboard in `packages/ui`.
 
 ## Preview
 
@@ -17,9 +17,18 @@ Alternatively, serve the folder with any static server:
 python3 -m http.server 4173 --bind 127.0.0.1 --directory site
 ```
 
+## Documentation
+
+The docs live under `site/docs/` on the published site, built from `docs/guide/*.md`, `docs/spec.md`, `docs/roadmap.md` and reference pages generated from the code (`packages/docs`). The build output is git-ignored; build it before previewing:
+
+```sh
+bun run docs    # writes site/docs
+bun run site    # http://127.0.0.1:4173/docs/index.html
+```
+
 ## Publish
 
-The [GitHub Pages workflow](../.github/workflows/pages.yml) deploys this folder when `site/` or the workflow changes on `main`. It can also be started manually from the repository's **Actions** tab, selecting **Deploy Pipo website to GitHub Pages** and the `main` branch.
+The [GitHub Pages workflow](../.github/workflows/pages.yml) tests and builds the docs, then deploys this folder, when `site/`, the docs sources or the workflow change on `main`. It can also be started manually from the repository's **Actions** tab, selecting **Deploy Pipo website and docs to GitHub Pages** and the `main` branch.
 
 To enable it, open the repository's **Settings → Pages → Build and deployment**, and set **Source** to **GitHub Actions**. Commit and push the website and workflow to `main`; the deployment run reports the published URL. No personal access token or extra secrets are needed. The workflow uses GitHub's `github-pages` environment and the repository's `GITHUB_TOKEN`.
 

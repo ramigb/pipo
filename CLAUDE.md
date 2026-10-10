@@ -15,6 +15,7 @@ Bun workspace (Bun ≥ 1.3, TypeScript run directly with no build step) plus one
 | `packages/engine` (`@pipo/engine`) | The control plane, `pipod`: supervisor (restarts, detached-runner reattach), gateway (`/in/*`, REST `/api/*`, SSE `/events`, MCP `/mcp`, `/ui`), engine TTL and idle sleep. | spec, runner, ui |
 | `packages/ui` (`@pipo/ui`) | The dashboard: static ES modules served by the engine at `/ui` (pipelines, live graph, packet inspector, logs, agent feed, DLQ, versions) and the drag-and-drop builder (`#/build`, over `/api/builder/*`). Pure logic (`model.js`, `layout.js`) is unit-tested; no build step, no `innerHTML`. | — |
 | `packages/vscode` | VS Code extension: `.pipo` language, schema, `${}` highlighting. Declarative, no runtime code. | — |
+| `packages/docs` (`@pipo/docs`) | The documentation site: renders `docs/guide/*.md`, the spec and the roadmap with Bun's Markdown renderer, plus reference pages generated from the code (CLI from `@pipo/cli/commands`, connectors and the JSON Schema from `@pipo/spec`, diagnostics, examples). `bun run docs` builds it into `site/docs` (git-ignored); the Pages workflow publishes it. | spec, cli |
 | `examples/` | Runnable pipelines. Each must pass `pipo check`. | — |
 
 ## Commands
@@ -33,6 +34,7 @@ bun pipo run examples/people-intake/people-intake.pipo --listen 8787
 bun pipo engine start --listen 8787   # control plane; `pipo start <file> [--detached]` starts it on demand too
 bun pipo ui                       # open the dashboard at /ui (starts the engine if needed)
 bun run coverage      # Phase 1 done-check;  bun run stress   # resilience tests, 5x each
+bun run docs          # build the docs site into site/docs; preview with bun run site
 ```
 
 ## How the pieces fit
@@ -55,6 +57,7 @@ bun run coverage      # Phase 1 done-check;  bun run stress   # resilience tests
 - Formatting is Biome: 2 spaces, 120 columns, double quotes. Comments are sparse. A file-level comment names the spec section it implements.
 - Errors and diagnostics say what's wrong *and* what to do (a `hint`). Follow the existing messages.
 - Tests use `sandbox()` from `packages/runner/test/helpers.ts` (temp dirs under `/tmp`). Never write test data into the repo. Behaviour tests drive the binary through `RustRunner` (`packages/runner/test/rust.ts`) or `spawnRunner`: no clock, resolver or provider can be injected, so use short real durations, `env:` secrets, local mock servers (`claude_api` with `with.base_url`, bots.json `api`), fake CLIs and `PIPO_TEST_CRASH_AT` crash points. Logic without I/O is tested in Rust.
+- Keep the docs in sync too. A user-visible change updates its page in `docs/guide/`. A new diagnostic code needs an entry in `packages/docs/src/diagnostics.ts`, and a new connector field a line in `packages/docs/src/fields.ts`. `packages/docs/test/docs.test.ts` fails otherwise, and it also checks every link and every full YAML example in the guide.
 - Keep `docs/spec.md` and the code in sync. `check.test.ts` runs every full YAML example in the spec through `pipo check`. When implementation forces a decision the spec doesn't cover, add it to the spec, and to §13 (decision log) or §14 (open questions).
 - Don't add dependencies casually. Current TS runtime deps are `yaml`, `jsep` (+ object/ternary plugins) and `ajv`; the crate's are in `crates/pipo-runner/Cargo.toml`.
 - Rust: rustfmt at 120 columns, `cargo clippy -D warnings` clean. The runner is single-threaded (a tokio current-thread runtime with a `LocalSet`, `Rc`/`RefCell` state): never hold a borrow across `.await`.

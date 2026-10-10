@@ -13,6 +13,7 @@
     "format": "biome format --write .",
     "ui-shots": "bun scripts/ui-shots.ts",
     "site": "bun scripts/serve-site.ts",
+    "docs": "bun packages/docs/src/build.ts",
     "verify": "bun run build:runner && bun run test:runner && cargo clippy -p pipo-runner --all-targets -- -D warnings && bun run typecheck && bun run lint && bun run test",
     "schema": "bun packages/cli/src/main.ts schema > schema/pipo.schema.json",
     "coverage": "bun scripts/phase1-coverage.ts",

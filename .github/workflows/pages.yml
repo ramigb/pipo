@@ -1,10 +1,15 @@
-name: Deploy Pipo website to GitHub Pages
+name: Deploy Pipo website and docs to GitHub Pages
 
 on:
   push:
     branches: [main]
     paths:
       - "site/**"
+      - "docs/**"
+      - "examples/**"
+      - "packages/docs/**"
+      - "packages/spec/src/**"
+      - "packages/cli/src/commands.ts"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -30,6 +35,21 @@ jobs:
         uses: actions/checkout@v6
         with:
           persist-credentials: false
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.8"
+
+      # --ignore-scripts: the docs only need the TypeScript packages, not the Rust runner the postinstall builds.
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Test the docs
+        run: bun test packages/docs
+
+      - name: Build the docs
+        run: bun run docs
 
       - name: Configure GitHub Pages
         id: pages

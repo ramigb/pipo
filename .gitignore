@@ -13,3 +13,5 @@ examples/blog/posts/*.md
 # Pipelines made with the builder in this checkout are local
 /my-pipeline-*/
 /target
+# The docs site is built into site/docs (bun run docs); CI builds it for GitHub Pages
+/site/docs/
