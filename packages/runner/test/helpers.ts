@@ -12,7 +12,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Journal, type PacketRow, Runner } from "../src";
+import { Journal } from "../src";
 import { runnerBinary, runnerEnv } from "../src/binary";
 
 /** A throwaway project folder plus Pipo home, both on the Linux filesystem. */
@@ -50,31 +50,6 @@ export async function waitFor<T>(
     await Bun.sleep(25);
   }
   throw new Error(`timed out after ${timeoutMs}ms waiting for ${what}`);
-}
-
-export async function startRunner(file: string, home: string, lines: string[] = []) {
-  const runner = await Runner.open({ file, home, listen: 0, log: (l) => lines.push(l) });
-  await runner.start();
-  const url = (path: string) => `http://127.0.0.1:${runner.port}/in/${runner.pipeline.name}${path}`;
-  const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
-    fetch(url(path), {
-      method: "POST",
-      headers: { "content-type": "application/json", ...headers },
-      body: JSON.stringify(body),
-    });
-  return { runner, url, post, lines };
-}
-
-/** Wait until a packet reaches a terminal state and return it. */
-export function settled(runner: Runner, id: string, timeoutMs = 10_000): Promise<PacketRow> {
-  return waitFor(
-    () => {
-      const row = runner.journal.get(id);
-      return row && ["delivered", "filtered", "dead_lettered", "rejected"].includes(row.state) ? row : null;
-    },
-    timeoutMs,
-    `packet ${id} to settle`,
-  );
 }
 
 export function rows(dbPath: string, sql: string): any[] {
