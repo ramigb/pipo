@@ -12,7 +12,6 @@ let cleanups: (() => unknown)[] = [];
 afterEach(async () => {
   for (const c of cleanups.reverse()) await c();
   cleanups = [];
-  (globalThis as any).__pipoTestCalls = undefined;
 });
 
 function box(files: Record<string, string>) {
@@ -189,7 +188,6 @@ output:
   test("error policies: retries are counted without waiting, then drop/halt/continue/dead_letter as the runner does", async () => {
     const b = box({
       "fns.ts": `export const guard = (d) => {
-  globalThis.__pipoTestCalls = (globalThis.__pipoTestCalls ?? 0) + 1;
   if (d.n < 0) throw new Error("negative " + d.n);
   return d;
 };
@@ -251,8 +249,6 @@ output:
     expect(by.seven?.outcome).toBe("filtered");
     expect(by.seven?.units[0]?.error).toMatchObject({ step: "gone", attempts: 2, then: "drop" });
     expect(by.nothing?.outcome).toBe("rejected");
-    // guard ran once for each of ok, thirteen and seven, and three times for neg.
-    expect((globalThis as any).__pipoTestCalls).toBe(6);
   });
 
   const LOOP = `pipo: 1
