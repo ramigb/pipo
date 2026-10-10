@@ -7,12 +7,15 @@ import { afterAll, expect, test } from "bun:test";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ControlClient, readRegistryEntry } from "../src";
+import { gateNode } from "./control-helpers";
 import { sandbox, spawnRunner as spawn, waitFor } from "./helpers";
 
 const box = sandbox();
 const spawned: ReturnType<typeof Bun.spawn>[] = [];
 const clients: ControlClient[] = [];
 afterAll(() => {
+  // Let any gated exec program end: it outlives a SIGKILLed runner.
+  writeFileSync(join(box.root, "release"), "");
   for (const c of clients) c.close();
   for (const p of spawned) p.kill("SIGKILL");
   box.cleanup();
@@ -22,9 +25,7 @@ const NAME = "vkill";
 const release = join(box.root, "release");
 box.write(
   "fns.ts",
-  `import { existsSync } from "node:fs";
-export const gate = async (d) => { while (d.wait && !existsSync(${JSON.stringify(release)})) await Bun.sleep(20); return d; };
-export const one = (d) => ({ ...d, v: "one" });
+  `export const one = (d) => ({ ...d, v: "one" });
 export const two = (d) => ({ ...d, v: "two" });
 `,
 );
@@ -33,7 +34,7 @@ name: ${NAME}
 fn: ./fns.ts
 input: { via: push }
 nodes:
-  gate: { from: input, transform: fn.gate }
+  gate: ${gateNode("input")}
   tag: { from: gate, transform: fn.${tag} }
 output:
   from: tag

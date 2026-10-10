@@ -1,19 +1,23 @@
-// Versions, rollback and restart semantics (docs/spec.md §7.3, §9.3, D38), in-process: a rollback stores the earlier
-// source as a new version that only new packets use while an in-flight packet finishes on its pinned version; a start
-// runs the file only when it changed since the last start; old journals migrate; history, version and diff reads.
-// Kill-and-restart lives in versions-recovery.test.ts.
-import { Database } from "bun:sqlite";
-import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+// Versions, rollback and restart semantics (docs/spec.md §7.3, §9.3, D38), against the Rust runner: a rollback stores
+// the earlier source as a new version that only new packets use while an in-flight packet finishes on its pinned
+// version; a start runs the file only when it changed since the last start; history, version and diff reads, over the
+// socket and from a stopped pipeline's journal. Kill-and-restart lives in versions-recovery.test.ts. Journal
+// migrations and the unified diff itself are Rust tests (crates/pipo-runner/tests/journal.rs, tests/reads.rs).
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ControlClient, type ControlError, Journal, offlineRead, Runner, readRegistryEntry, unifiedDiff } from "../src";
-import { sandbox, settled, waitFor } from "./helpers";
+import { type ControlError, readRegistryEntry } from "../src";
+import { gateNode, offlineRead } from "./control-helpers";
+import { sandbox, waitFor } from "./helpers";
+import { RustRunner } from "./rust";
 
-let cleanups: (() => Promise<void> | void)[] = [];
+// A runner start compiles through Bun, which can hang once in a while under WSL and is then retried (compile.rs).
+setDefaultTimeout(60_000);
+
+let cleanups: (() => Promise<unknown> | unknown)[] = [];
 afterEach(async () => {
   for (const c of cleanups.reverse()) await c();
   cleanups = [];
-  (globalThis as any).__pipoGate = undefined;
 });
 
 function setup() {
@@ -21,8 +25,7 @@ function setup() {
   cleanups.push(() => box.cleanup());
   box.write(
     "fns.ts",
-    `export const gate = async (d) => { const g = globalThis.__pipoGate; if (g && d.wait) await g; return d; };
-export const one = (d) => ({ ...d, v: "one" });
+    `export const one = (d) => ({ ...d, v: "one" });
 export const two = (d) => ({ ...d, v: "two" });
 `,
   );
@@ -34,24 +37,22 @@ name: ${name}
 fn: ./fns.ts
 input: { via: push }
 nodes:
-  gate: { from: input, transform: fn.gate }
+  gate: ${gateNode("input")}
   tag: { from: gate, transform: fn.${tag} }
 output: { from: tag, to: file, with: { path: ./${name}.jsonl, format: jsonl } }
 ${extra}`;
 
-async function open(box: ReturnType<typeof setup>, file: string) {
-  const lines: string[] = [];
-  const runner = await Runner.open({ file, home: box.home, log: (l) => lines.push(l) });
-  await runner.start();
-  cleanups.push(() => (runner.state === "stopped" || runner.state === "failed" ? undefined : runner.stop()));
-  return { runner, lines };
+async function open(box: ReturnType<typeof setup>, file: string, name: string) {
+  const r = await RustRunner.start(box, file, name, { listen: null });
+  cleanups.push(() => {
+    // A gated exec program outlives a SIGKILLed runner: let it end.
+    writeFileSync(join(box.root, "release"), "");
+    return r.proc.exitCode === null ? r.kill() : undefined;
+  });
+  return r;
 }
 
-async function client(box: { home: string }, name: string) {
-  const c = await ControlClient.forPipeline(box.home, name);
-  cleanups.push(() => c.close());
-  return c;
-}
+const release = (box: { root: string }) => writeFileSync(join(box.root, "release"), "");
 
 const written = (box: { root: string }, name: string) => {
   const path = join(box.root, `${name}.jsonl`);
@@ -63,55 +64,49 @@ const written = (box: { root: string }, name: string) => {
     : [];
 };
 
-function gate() {
-  let open!: () => void;
-  (globalThis as any).__pipoGate = new Promise<void>((r) => {
-    open = r;
-  });
-  return open;
-}
+const err = (p: Promise<unknown>) =>
+  p.then(
+    () => null,
+    (e) => e as ControlError,
+  );
+
+const latest = (r: RustRunner) => r.query<{ v: number }>("SELECT MAX(version) AS v FROM versions")[0]?.v;
 
 describe("rollback", () => {
   test("stores a new version that new packets use; an in-flight packet finishes on its pinned version", async () => {
     const box = setup();
     const file = box.write("rb.pipo", SRC("rb", "one"));
-    const { runner } = await open(box, file);
-    const c = await client(box, "rb");
-    expect(runner.version).toBe(1);
+    const r = await open(box, file, "rb");
+    const c = r.client;
+    expect((await c.request("hello")).version).toBe(1);
 
     // v2 via `apply`; a packet accepted on v2 waits at the gate, in flight.
-    const release = gate();
     const applied = await c.request("apply", { source: SRC("rb", "two"), by: "test", reason: "try two" });
     expect(applied).toMatchObject({ version: 2, previous: 1, changed: true, pending_older: 0 });
     const a = (await c.request("push", { data: { n: 1, wait: true } })).packet_id;
-    await waitFor(() => runner.journal.get(a)?.cursor === "gate", 5000, "packet a at the gate");
+    await waitFor(() => r.packet(a)?.cursor === "gate", 5000, "packet a at the gate");
 
     const rb = await c.request("rollback", { version: "v1" });
     expect(rb).toMatchObject({ version: 3, previous: 2, changed: true, pending_older: 1, rolled_back_to: 1 });
-    expect(runner.version).toBe(3);
     expect((await c.request("hello")).version).toBe(3);
     expect(readRegistryEntry(box.home, "rb")?.version).toBe(3);
 
     const b = (await c.request("push", { data: { n: 2 } })).packet_id;
-    expect((await settled(runner, b)).version).toBe(3);
-    expect(runner.journal.get(a)?.state).not.toBe("delivered");
-    release();
-    expect((await settled(runner, a)).version).toBe(2);
+    expect((await r.settled(b)).version).toBe(3);
+    expect(r.packet(a)?.state).not.toBe("delivered");
+    release(box);
+    expect((await r.settled(a, 10_000)).version).toBe(2);
     const out = Object.fromEntries(written(box, "rb").map((l) => [l.packet_id, l.data.v]));
     expect(out).toEqual({ [a]: "two", [b]: "one" });
 
-    const v = runner.journal.db
-      .query("SELECT version, hash, author, reason FROM versions ORDER BY version")
-      .all() as any[];
-    expect(v.map((r) => [r.version, r.author, r.reason])).toEqual([
+    const v = r.query("SELECT version, hash, author, reason FROM versions ORDER BY version");
+    expect(v.map((x) => [x.version, x.author, x.reason])).toEqual([
       [1, "human", "first start"],
       [2, "test", "try two"],
       [3, "control", "rollback to v1"],
     ]);
     expect(v[2].hash).toBe(v[0].hash);
-    const events = runner.journal.db
-      .query("SELECT detail FROM events WHERE type = 'version.applied' ORDER BY seq")
-      .all() as { detail: string }[];
+    const events = r.query<{ detail: string }>("SELECT detail FROM events WHERE type = 'version.applied' ORDER BY seq");
     expect(events.map((e) => JSON.parse(e.detail))).toMatchObject([
       { version: 2, previous: 1, author: "test", reason: "try two" },
       { version: 3, previous: 2, author: "control", reason: "rollback to v1" },
@@ -132,13 +127,8 @@ describe("rollback", () => {
   test("refusals change nothing: unknown version, failing check, bound-at-start changes; same content is a no-op", async () => {
     const box = setup();
     const file = box.write("ref.pipo", SRC("ref", "one"));
-    const { runner } = await open(box, file);
-    const c = await client(box, "ref");
-    const err = (p: Promise<unknown>) =>
-      p.then(
-        () => null,
-        (e) => e as ControlError,
-      );
+    const r = await open(box, file, "ref");
+    const c = r.client;
 
     const unknown = await err(c.request("rollback", { version: 9 }));
     expect(unknown).toMatchObject({ code: "not_found", message: "ref has no version 9 (versions are v1 to v1)" });
@@ -159,22 +149,22 @@ describe("rollback", () => {
 
     expect(await c.request("rollback", { version: 1 })).toMatchObject({ version: 1, changed: false });
     expect(await c.request("apply", { source: SRC("ref", "one") })).toMatchObject({ version: 1, changed: false });
-    expect(runner.journal.latestVersion()?.version).toBe(1);
-    expect(runner.version).toBe(1);
+    expect(latest(r)).toBe(1);
+    expect((await c.request("hello")).version).toBe(1);
 
     // A draining pipeline takes no new packets, so it takes no new version either.
     const r2 = await c.request("apply", { source: SRC("ref", "two") });
     expect(r2.version).toBe(2);
-    const release = gate();
     const held = (await c.request("push", { data: { n: 1, wait: true } })).packet_id;
-    await waitFor(() => runner.journal.get(held)?.cursor === "gate", 5000, "packet at the gate");
-    const drained = runner.drain();
+    await waitFor(() => r.packet(held)?.cursor === "gate", 5000, "packet at the gate");
+    expect(await c.request("drain")).toMatchObject({ state: "draining" });
     const draining = await err(c.request("rollback", { version: 1 }));
     expect(draining?.code).toBe("invalid_state");
     expect(draining?.message).toContain("draining");
-    expect(runner.journal.latestVersion()?.version).toBe(2);
-    release();
-    await drained;
+    expect(latest(r)).toBe(2);
+    release(box);
+    expect(await r.proc.exited).toBe(0);
+    expect(r.packet(held)?.state).toBe("delivered");
   });
 });
 
@@ -182,37 +172,38 @@ describe("restart (D38)", () => {
   test("the latest version stays across a restart unless the file changed since the last start", async () => {
     const box = setup();
     const file = box.write("rs.pipo", SRC("rs", "one"));
-    let { runner } = await open(box, file);
-    await runner.applyVersion(SRC("rs", "two"), { author: "test", reason: "two" });
-    expect(runner.version).toBe(2);
-    await runner.stop();
+    let r = await open(box, file, "rs");
+    await r.request("apply", { source: SRC("rs", "two"), by: "test", reason: "two" });
+    expect((await r.request("hello")).version).toBe(2);
+    expect(await r.stop()).toBe(0);
 
     // File unchanged since the last start: v2 (applied) stays, and new packets use it.
-    ({ runner } = await open(box, file));
-    expect(runner.version).toBe(2);
-    expect(runner.journal.lastPipelineEvent("pipeline.started")?.detail).toMatchObject({ version: 2 });
-    const c = await client(box, "rs");
-    const p1 = (await c.request("push", { data: { n: 1 } })).packet_id;
-    await settled(runner, p1);
+    r = await open(box, file, "rs");
+    expect((await r.request("hello")).version).toBe(2);
+    const [started] = r.query<{ detail: string }>(
+      "SELECT detail FROM events WHERE type = 'pipeline.started' ORDER BY seq DESC LIMIT 1",
+    );
+    expect(JSON.parse(started?.detail ?? "{}")).toMatchObject({ version: 2 });
+    const p1 = (await r.push({ n: 1 })).packet_id;
+    await r.settled(p1);
     expect(written(box, "rs").find((l) => l.packet_id === p1)?.data.v).toBe("two");
-    await runner.stop();
+    expect(await r.stop()).toBe(0);
 
     // The file changed: it wins, as a new version.
     writeFileSync(file, SRC("rs", "one", "description: edited"));
-    ({ runner } = await open(box, file));
-    expect(runner.version).toBe(3);
-    await runner.applyVersion(SRC("rs", "two"), { author: "test", reason: "two again" });
-    await runner.stop();
-    ({ runner } = await open(box, file));
-    expect(runner.version).toBe(4);
-    await runner.stop();
+    r = await open(box, file, "rs");
+    expect((await r.request("hello")).version).toBe(3);
+    await r.request("apply", { source: SRC("rs", "two"), by: "test", reason: "two again" });
+    expect(await r.stop()).toBe(0);
+    r = await open(box, file, "rs");
+    expect((await r.request("hello")).version).toBe(4);
+    expect(await r.stop()).toBe(0);
 
     // A changed file whose content equals the latest version adds nothing.
     writeFileSync(file, SRC("rs", "two"));
-    ({ runner } = await open(box, file));
-    expect(runner.version).toBe(4);
-    const rows = runner.journal.db.query("SELECT version, author, reason FROM versions ORDER BY version").all();
-    expect(rows).toEqual([
+    r = await open(box, file, "rs");
+    expect((await r.request("hello")).version).toBe(4);
+    expect(r.query("SELECT version, author, reason FROM versions ORDER BY version")).toEqual([
       { version: 1, author: "human", reason: "first start" },
       { version: 2, author: "test", reason: "two" },
       { version: 3, author: "human", reason: "file changed" },
@@ -223,128 +214,35 @@ describe("restart (D38)", () => {
   test("a journal version that no longer passes check refuses the start and says how to get the file back", async () => {
     const box = setup();
     const file = box.write("bad.pipo", SRC("bad", "one"));
-    const { runner } = await open(box, file);
-    await runner.applyVersion(SRC("bad", "two"), { author: "test", reason: "two" });
-    await runner.stop();
+    const r = await open(box, file, "bad");
+    await r.request("apply", { source: SRC("bad", "two"), by: "test", reason: "two" });
+    expect(await r.stop()).toBe(0);
     // fn.two disappears: v2 (the latest, which a start with the unchanged file runs) now fails P012.
-    writeFileSync(join(box.root, "fns.ts"), "export const gate = (d) => d;\nexport const one = (d) => d;\n");
-    const e = await Runner.open({ file, home: box.home, log: () => {} }).catch((x) => x);
-    expect(e.message).toContain("v2 of the pipeline");
-    expect(e.message).toContain("edit the file to run it instead");
-    expect(e.diagnostics.some((d: any) => d.code === "P012")).toBe(true);
+    writeFileSync(join(box.root, "fns.ts"), "export const one = (d) => d;\n");
+    const refused = await RustRunner.refuse(box, file);
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("v2 of the pipeline");
+    expect(refused.stderr).toContain("edit the file to run it instead");
+    expect(refused.stderr).toContain("P012");
   });
 });
 
-describe("journal", () => {
-  test("a journal from before D38 loses the unique hash, gains reason, keeps its packets and their versions", () => {
-    const box = setup();
-    const path = join(box.root, "old", "journal.db");
-    mkdirSync(join(box.root, "old"));
-    const db = new Database(path, { create: true });
-    db.exec(`CREATE TABLE versions (version INTEGER PRIMARY KEY, hash TEXT NOT NULL UNIQUE, source TEXT NOT NULL,
-      author TEXT NOT NULL DEFAULT 'human', created_at INTEGER NOT NULL);
-    CREATE TABLE packets (id TEXT PRIMARY KEY, version INTEGER NOT NULL REFERENCES versions(version), state TEXT NOT NULL,
-      cursor TEXT, data TEXT, trigger TEXT NOT NULL, source TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 0,
-      iteration INTEGER NOT NULL DEFAULT 0, hops INTEGER NOT NULL DEFAULT 0, error TEXT, result TEXT,
-      received_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
-    INSERT INTO versions VALUES (1, 'h1', 'one', 'human', 0), (2, 'h2', 'two', 'human', 1);
-    INSERT INTO packets (id, version, state, cursor, data, trigger, source, received_at, updated_at)
-      VALUES ('P1', 1, 'processing', 'n', '{}', 'push', 'x', 0, 0), ('P2', 2, 'accepted', 'n', '{}', 'push', 'x', 0, 0);`);
-    db.close();
-
-    const j = new Journal(path);
-    try {
-      const sql = (j.db.query("SELECT sql FROM sqlite_master WHERE name = 'versions'").get() as { sql: string }).sql;
-      expect(sql).not.toContain("UNIQUE");
-      expect(j.versionSource(1)).toBe("one");
-      expect(j.get("P2")?.version).toBe(2);
-      expect(j.inFlight().map((p) => p.id)).toEqual(["P1", "P2"]);
-      // The same source again is a new version now; foreign keys still hold.
-      expect(j.addVersion("h1", "one", "cli", "rollback to v1", { expect: 3, previous: 2 })).toBe(3);
-      expect(() =>
-        j.db.exec(
-          "INSERT INTO packets (id, version, state, trigger, source, received_at, updated_at) VALUES ('P3', 99, 'accepted', 'push', 'x', 0, 0)",
-        ),
-      ).toThrow();
-      expect(() => j.addVersion("h4", "four", "cli", null, { expect: 9, previous: 3 })).toThrow("not v9");
-      expect(j.latestVersion()?.version).toBe(3);
-    } finally {
-      j.close();
-    }
-    new Journal(path).close();
-  });
-
-  test("history and diff read a stopped pipeline's journal, old ones included", async () => {
+describe("reads without a runner", () => {
+  test("history, version and diff read a stopped pipeline's journal", async () => {
     const box = setup();
     const file = box.write("off.pipo", SRC("off", "one"));
-    const { runner } = await open(box, file);
-    await runner.applyVersion(SRC("off", "two"), { author: "test", reason: "two" });
-    await runner.stop();
-    const path = join(box.home, "pipelines", "off", "journal.db");
-    const h = (await offlineRead(path, "versions", {}, "off")) as any;
+    const r = await open(box, file, "off");
+    await r.request("apply", { source: SRC("off", "two"), by: "test", reason: "two" });
+    expect(await r.stop()).toBe(0);
+    const h = (await offlineRead(box, "off", "versions")).out;
     expect(h.result).toMatchObject({ current: null, latest: 2 });
     expect(h.result.versions[0]).toMatchObject({ version: 2, author: "test", reason: "two", pending: 0 });
-    const d = (await offlineRead(path, "diff", { from: "v1", to: "2" }, "off")) as any;
+    const d = (await offlineRead(box, "off", "diff", { from: "v1", to: "2" })).out;
     expect(d.result.diff).toContain("+  tag: { from: gate, transform: fn.two }");
-    await expect(offlineRead(path, "version", { version: 7 }, "off")).rejects.toThrow("off has no version 7");
-
-    // A journal from before D38 has no `reason` column.
-    const old = join(box.root, "pre.db");
-    const db = new Database(old, { create: true });
-    db.exec(`CREATE TABLE versions (version INTEGER PRIMARY KEY, hash TEXT NOT NULL UNIQUE, source TEXT NOT NULL,
-      author TEXT NOT NULL DEFAULT 'human', created_at INTEGER NOT NULL);
-      CREATE TABLE packets (id TEXT PRIMARY KEY, version INTEGER, state TEXT, branch TEXT NOT NULL DEFAULT '');
-      INSERT INTO versions VALUES (1, 'h', 'pipo: 1', 'human', 5);`);
-    db.close();
-    const legacy = (await offlineRead(old, "versions", {}, "pre")) as any;
-    expect(legacy.result.versions).toEqual([
-      {
-        version: 1,
-        hash: "h",
-        author: "human",
-        reason: null,
-        author_kind: null,
-        proposal: null,
-        files: null,
-        created_at: 5,
-        pending: 0,
-      },
-    ]);
-  });
-});
-
-describe("unified diff", () => {
-  test("hunks with context, insertions and deletions at the edges, and identical texts", () => {
-    const a = Array.from({ length: 12 }, (_, i) => `l${i + 1}`);
-    const b = ["x", "l1", "l2", "L3", ...a.slice(3, 11)];
-    const d = unifiedDiff(`${a.join("\n")}\n`, `${b.join("\n")}\n`, "p v1", "p v2");
-    expect(d.diff).toBe(
-      [
-        "--- p v1",
-        "+++ p v2",
-        "@@ -1,6 +1,7 @@",
-        "+x",
-        " l1",
-        " l2",
-        "-l3",
-        "+L3",
-        " l4",
-        " l5",
-        " l6",
-        "@@ -9,4 +10,3 @@",
-        " l9",
-        " l10",
-        " l11",
-        "-l12",
-      ].join("\n"),
-    );
-    expect([d.added, d.removed]).toEqual([2, 2]);
-    // Changes 2·context lines apart or closer share one hunk.
-    expect(
-      unifiedDiff("a\nb\nc\nd\ne\nf\ng\nh\n", "A\nb\nc\nd\ne\nf\ng\nH\n", "a", "b").diff.match(/@@/g),
-    ).toHaveLength(2);
-    expect(unifiedDiff("x\n", "y\n", "a", "b").diff).toBe("--- a\n+++ b\n@@ -1,1 +1,1 @@\n-x\n+y");
-    expect(unifiedDiff("", "y\n", "a", "b").diff).toBe("--- a\n+++ b\n@@ -0,0 +1,1 @@\n+y");
-    expect(unifiedDiff("same\n", "same\n", "a", "b")).toEqual({ diff: "", added: 0, removed: 0 });
+    const v = (await offlineRead(box, "off", "version", { version: 2 })).out;
+    expect(v.result.definition).toBe(SRC("off", "two"));
+    const missing = await offlineRead(box, "off", "version", { version: 7 });
+    expect(missing.code).toBe(1);
+    expect(missing.out.error.message).toContain("off has no version 7");
   });
 });

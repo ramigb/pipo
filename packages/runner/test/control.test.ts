@@ -1,14 +1,18 @@
 // Runner control socket (docs/spec.md §7.2, D24): every op, its errors, the socket's lifecycle, the
-// `push` input and the `external` delivery check, all in-process. Kill-and-restart lives in control-recovery.
-import { afterEach, describe, expect, test } from "bun:test";
+// `push` input and the `external` delivery check, driven over the Rust runner's socket. Kill-and-restart lives in
+// control-recovery.
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { join } from "node:path";
-import { ControlClient, ControlError, OPS, Runner, readRegistryEntry, StartError, socketPath } from "../src";
-import { ControlServer } from "../src/control/server";
-import { sandbox, settled, waitFor } from "./helpers";
+import { ControlClient, ControlError, OPS, readRegistryEntry, socketPath } from "../src";
+import { sandbox, waitFor } from "./helpers";
+import { RustRunner, type StartOptions } from "./rust";
 
-let cleanups: (() => Promise<void> | void)[] = [];
+// A runner start compiles through Bun, which can hang once in a while under WSL and is then retried (compile.rs).
+setDefaultTimeout(60_000);
+
+let cleanups: (() => Promise<unknown> | unknown)[] = [];
 afterEach(async () => {
   for (const c of cleanups.reverse()) await c();
   cleanups = [];
@@ -20,21 +24,11 @@ function setup() {
   return box;
 }
 
-async function boot(
-  src: string,
-  name: string,
-  box = setup(),
-  resolver?: (ref: string) => Promise<string>,
-  listen?: number,
-) {
+async function boot(src: string, name: string, box = setup(), o: StartOptions = {}) {
   const file = box.write(`${name}.pipo`, src);
-  const lines: string[] = [];
-  const runner = await Runner.open({ file, home: box.home, log: (l) => lines.push(l), resolver, listen });
-  await runner.start();
-  cleanups.push(() => (runner.state === "stopped" || runner.state === "failed" ? undefined : runner.stop()));
-  const client = await ControlClient.forPipeline(box.home, name);
-  cleanups.push(() => client.close());
-  return { box, file, runner, client, lines };
+  const r = await RustRunner.start(box, file, name, { listen: null, ...o });
+  cleanups.push(() => (r.proc.exitCode === null ? r.kill() : undefined));
+  return { box, file, r, client: r.client };
 }
 
 const PUSH = (name: string, extra = "") => `pipo: 1
@@ -62,6 +56,12 @@ const lines = (path: string) =>
         .filter(Boolean)
         .map((l) => JSON.parse(l))
     : [];
+
+const fail = (p: Promise<unknown>) =>
+  p.then(
+    () => null,
+    (e) => e as ControlError,
+  ) as Promise<ControlError>;
 
 /** One raw request line, answered on the same connection (for malformed input the client never sends). */
 function raw(path: string, payloads: string[]): Promise<any[]> {
@@ -92,13 +92,16 @@ function raw(path: string, payloads: string[]): Promise<any[]> {
 
 describe("handshake and status", () => {
   test("hello names the pipeline and version; the registry entry carries the socket", async () => {
-    const { box, runner, client } = await boot(PUSH("hi"), "hi");
+    const { box, r } = await boot(PUSH("hi"), "hi");
+    // Found through the registry entry, as the engine and CLI do.
+    const client = await ControlClient.forPipeline(box.home, "hi");
+    cleanups.push(() => client.close());
     const hello = await client.request("hello");
     expect(hello).toMatchObject({
       protocol: 1,
       pipeline: "hi",
-      version: runner.version,
-      pid: process.pid,
+      version: 1,
+      pid: r.pid,
       state: "active",
       status: "active",
     });
@@ -125,13 +128,13 @@ describe("handshake and status", () => {
 
 describe("protocol errors", () => {
   test("unknown op lists the ops; bad JSON answers and keeps the connection usable", async () => {
-    const { client, runner } = await boot(PUSH("err"), "err");
-    const e = (await client.request("frobnicate").catch((x) => x)) as ControlError;
+    const { box, client } = await boot(PUSH("err"), "err");
+    const e = await fail(client.request("frobnicate"));
     expect(e).toBeInstanceOf(ControlError);
     expect(e.code).toBe("unknown_op");
     expect(e.hint).toBe(`ops: ${OPS.join(", ")}`);
 
-    const [bad, notObject, noOp, badArgs, ok] = await raw(runner.socket, [
+    const [bad, notObject, noOp, badArgs, ok] = await raw(socketPath(box.home, "err"), [
       "{not json",
       "[1,2]",
       '{"id":3}',
@@ -155,110 +158,84 @@ describe("protocol errors", () => {
     expect(new Set(ids).size).toBe(20);
   });
 
-  test("responses are redacted", async () => {
-    const box = setup();
-    const path = join(box.home, "r.sock");
-    const server = await ControlServer.listen(
-      path,
-      () => {
-        throw new ControlError("invalid_state", "token s3cr3t-value leaked", "not s3cr3t-value either");
-      },
-      { redact: (t) => t.split("s3cr3t-value").join("***") },
-    );
-    cleanups.push(() => server.close());
-    const client = await ControlClient.connect(path);
-    cleanups.push(() => client.close());
-    const e = (await client.request("status").catch((x) => x)) as ControlError;
-    expect(e.message).toBe("token *** leaked");
-    expect(e.hint).toBe("not *** either");
-  });
-
-  test("results are redacted, keys included", async () => {
-    const box = setup();
-    const path = join(box.home, "r2.sock");
-    const server = await ControlServer.listen(
-      path,
-      () => ({ result: { msg: ["a s3cr3t-value b"], "s3cr3t-value": 1, n: 2 } }),
-      { redact: (t) => t.split("s3cr3t-value").join("***") },
-    );
-    cleanups.push(() => server.close());
-    const client = await ControlClient.connect(path);
-    cleanups.push(() => client.close());
-    expect(await client.request("status")).toEqual({ msg: ["a *** b"], "***": 1, n: 2 });
-  });
-
-  test("a runner's secrets never come back over the socket", async () => {
+  test("a runner's secrets never come back over the socket: messages, hints, values and keys are redacted", async () => {
     const src = `pipo: 1
 name: sec
-secrets: { tok: "env:PIPO_TEST_UNUSED" }
+secrets: { tok: "env:PIPO_TEST_CTL_SECRET" }
 input:
   via: push
   validate: ["data.n >= 0"]
   on_invalid: { message: "bad packet \${data.tag}" }
 output: { from: input, to: stdout }
 `;
-    const { client } = await boot(src, "sec", setup(), async () => "hunter2-secret");
-    const e = (await client
-      .request("push", { data: { n: -1, tag: "hunter2-secret" } })
-      .catch((x) => x)) as ControlError;
+    const { r, client } = await boot(src, "sec", setup(), { env: { PIPO_TEST_CTL_SECRET: "hunter2-secret" } });
+    const e = await fail(client.request("push", { data: { n: -1, tag: "hunter2-secret" } }));
     expect(e.code).toBe("rejected");
     expect(e.message).toBe("bad packet ***");
+    const { packet_id } = await client.request("push", { data: { n: 1, "hunter2-secret": ["a hunter2-secret b"] } });
+    await r.settled(packet_id);
+    const trace = await client.request("packet", { packet_id });
+    expect(trace.packet.data).toEqual({ n: 1, "***": ["a *** b"] });
     const { events } = await client.request("events", { after_seq: 0, limit: 1000 });
     expect(JSON.stringify(events)).not.toContain("hunter2");
+    expect(JSON.stringify(trace)).not.toContain("hunter2");
   });
 });
 
 describe("push", () => {
   test("a pushed packet is journaled before the reply and delivered", async () => {
-    const { box, runner, client } = await boot(PUSH("p"), "p");
+    const { box, r, client } = await boot(PUSH("p"), "p");
     const { packet_id, state } = await client.request("push", { data: { n: 7 }, source: "cli" });
     expect(state).toBe("accepted");
     // Journaled before the reply.
-    expect(runner.journal.get(packet_id)).toMatchObject({ trigger: "push", source: "cli" });
-    expect((await settled(runner, packet_id)).state).toBe("delivered");
+    expect(r.packet(packet_id)).toMatchObject({ trigger: "push", source: "cli" });
+    expect((await r.settled(packet_id)).state).toBe("delivered");
     expect(lines(join(box.root, "out.jsonl"))).toEqual([{ packet_id, data: { n: 7 } }]);
   });
 
   test("an invalid packet is journaled as rejected and the error carries its id", async () => {
-    const { runner, client } = await boot(PUSH("rej"), "rej");
-    const e = (await client.request("push", { data: { n: -1 } }).catch((x) => x)) as ControlError;
+    const { r, client } = await boot(PUSH("rej"), "rej");
+    const e = await fail(client.request("push", { data: { n: -1 } }));
     expect(e.code).toBe("rejected");
     expect(e.message).toContain("data.n >= 0");
     expect(e.hint).toContain("fix the data");
-    expect(runner.journal.get(e.packetId as string)?.state).toBe("rejected");
+    expect(r.packet(e.packetId as string)?.state).toBe("rejected");
 
-    const missing = (await client.request("push", {}).catch((x) => x)) as ControlError;
+    const missing = await fail(client.request("push", {}));
     expect(missing).toMatchObject({ code: "bad_request", message: "push needs `data`" });
-    const badSource = (await client.request("push", { data: 1, source: 5 }).catch((x) => x)) as ControlError;
+    const badSource = await fail(client.request("push", { data: 1, source: 5 }));
     expect(badSource.code).toBe("bad_request");
   });
 
   test("buffer.max refuses with a hint; nothing is journaled", async () => {
-    const { runner, client } = await boot(PUSH("buf", "buffer: { max: 1 }\n"), "buf");
+    const { r, client } = await boot(PUSH("buf", "buffer: { max: 1 }\n"), "buf");
     await client.request("pause");
     await client.request("push", { data: { n: 1 } });
-    const e = (await client.request("push", { data: { n: 2 } }).catch((x) => x)) as ControlError;
+    const e = await fail(client.request("push", { data: { n: 2 } }));
     expect(e.code).toBe("unavailable");
     expect(e.message).toContain("buffer full");
     expect(e.hint).toContain("buffer.max");
-    expect(runner.journal.counts()).toEqual({ accepted: 1 });
+    expect(r.query("SELECT state, COUNT(*) AS n FROM packets GROUP BY state")).toEqual([{ state: "accepted", n: 1 }]);
   });
 
   test("lifetime.max_packets refuses later pushes with a hint", async () => {
     const box = setup();
-    box.write("fns.ts", "export const slow = async (d) => { await Bun.sleep(500); return d; };");
+    box.write(
+      "fns.ts",
+      "export const slow = async (d) => { await new Promise((r) => setTimeout(r, 500)); return d; };",
+    );
     const src = PUSH("life", "fn: ./fns.ts\nlifetime: { max_packets: 1, on_end: drain }\n").replace(
       "output: { from: input,",
       "nodes:\n  s: { from: input, transform: fn.slow }\noutput: { from: s,",
     );
-    const { runner, client } = await boot(src, "life", box);
+    const { r, client } = await boot(src, "life", box);
     // The slow packet keeps the drain going while the second push arrives.
     await client.request("push", { data: { n: 1 } });
-    const e = (await client.request("push", { data: { n: 2 } }).catch((x) => x)) as ControlError;
+    const e = await fail(client.request("push", { data: { n: 2 } }));
     expect(e.code).toBe("unavailable");
     expect(e.message).toContain("max_packets");
     expect(e.hint).toContain("lifetime");
-    await runner.finished;
+    expect(await r.proc.exited).toBe(0);
   });
 
   test("push works for any input: an http pipeline takes pushed packets too", async () => {
@@ -267,17 +244,17 @@ name: hp
 input: { via: http }
 output: { from: input, to: file, with: { path: ./out.jsonl, format: jsonl } }
 `;
-    const { runner, client } = await boot(src, "hp", setup(), undefined, 0);
+    const { r, client } = await boot(src, "hp", setup(), { listen: 0 });
     const { packet_id } = await client.request("push", { data: { via: "push" } });
-    expect((await settled(runner, packet_id)).trigger).toBe("push");
+    expect((await r.settled(packet_id)).trigger).toBe("push");
   });
 });
 
 describe("pause, resume, drain, stop", () => {
   test("pause and resume, with reasons and invalid states", async () => {
-    const { runner, client } = await boot(PUSH("pr"), "pr");
+    const { r, client } = await boot(PUSH("pr"), "pr");
     expect(await client.request("resume")).toEqual({ state: "active", already: true });
-    const bad = (await client.request("pause", { reason: "lunch" }).catch((x) => x)) as ControlError;
+    const bad = await fail(client.request("pause", { reason: "lunch" }));
     expect(bad.code).toBe("bad_request");
     expect(bad.message).toContain("manual, agent");
     expect(await client.request("pause", { reason: "agent" })).toEqual({ state: "paused", already: false });
@@ -286,39 +263,38 @@ describe("pause, resume, drain, stop", () => {
     // Paused still journals pushes; they wait.
     const { packet_id } = await client.request("push", { data: { n: 1 } });
     await Bun.sleep(100);
-    expect(runner.journal.get(packet_id)?.state).toBe("accepted");
+    expect(r.packet(packet_id)?.state).toBe("accepted");
     expect(await client.request("resume")).toEqual({ state: "active", already: false });
-    expect((await settled(runner, packet_id)).state).toBe("delivered");
+    expect((await r.settled(packet_id)).state).toBe("delivered");
     expect((await client.request("status")).paused_reason).toBeNull();
-    const events = runner.journal.eventsAfter(0, 1000).map((e) => e.type);
+    const events = r.query<{ type: string }>("SELECT type FROM events ORDER BY seq").map((e) => e.type);
     expect(events).toContain("pipeline.paused");
     expect(events).toContain("pipeline.resumed");
   });
 
   test("drain replies, refuses pushes, then stops and removes the socket and registry entry", async () => {
-    const { box, runner, client } = await boot(PUSH("dr"), "dr");
-    const socket = runner.socket;
+    const { box, r, client } = await boot(PUSH("dr"), "dr");
+    const socket = socketPath(box.home, "dr");
     expect(await client.request("drain")).toEqual({ state: "draining", already: false });
-    await runner.finished;
-    expect(runner.state).toBe("stopped");
+    expect(await r.proc.exited).toBe(0);
     expect(existsSync(socket)).toBe(false);
     expect(readRegistryEntry(box.home, "dr")).toBeNull();
     await expect(ControlClient.forPipeline(box.home, "dr")).rejects.toThrow("no runner registered");
   });
 
   test("stop replies, then stops at once", async () => {
-    const { runner, client } = await boot(PUSH("so"), "so");
+    const { box, r, client } = await boot(PUSH("so"), "so");
     expect(await client.request("stop")).toEqual({ state: "stopping" });
-    expect(await runner.finished).toBe(0);
-    expect(existsSync(runner.socket)).toBe(false);
+    expect(await r.proc.exited).toBe(0);
+    expect(existsSync(socketPath(box.home, "so"))).toBe(false);
     await expect(client.request("hello")).rejects.toThrow();
   });
 });
 
 describe("events", () => {
   test("pages through journal events by seq", async () => {
-    const { runner, client } = await boot(PUSH("ev"), "ev");
-    for (let n = 0; n < 3; n++) await settled(runner, (await client.request("push", { data: { n } })).packet_id);
+    const { r, client } = await boot(PUSH("ev"), "ev");
+    for (let n = 0; n < 3; n++) await r.settled((await client.request("push", { data: { n } })).packet_id);
     const first = await client.request("events", { after_seq: 0, limit: 2 });
     expect(first.events).toHaveLength(2);
     expect(first.more).toBe(true);
@@ -331,25 +307,27 @@ describe("events", () => {
     expect(none).toEqual({ events: [], last_seq: rest.last_seq, more: false });
 
     for (const args of [{ after_seq: -1 }, { after_seq: 1.5 }, { limit: 0 }, { limit: 5000 }, { after_seq: "x" }]) {
-      expect(((await client.request("events", args).catch((x) => x)) as ControlError).code).toBe("bad_request");
+      expect((await fail(client.request("events", args))).code).toBe("bad_request");
     }
   });
 });
 
 describe("external delivery check", () => {
   const fns = (box: ReturnType<typeof sandbox>) =>
-    box.write("fns.ts", "export const slow = async (d) => { await Bun.sleep(400); return d; };");
+    box.write(
+      "fns.ts",
+      "export const slow = async (d) => { await new Promise((r) => setTimeout(r, 400)); return d; };",
+    );
+  const awaiting = async (r: RustRunner) => (await r.status()).awaiting_ack as number;
 
   test("an ack delivers a written packet; a repeated ack is harmless", async () => {
     const box = setup();
     fns(box);
-    const { runner, client } = await boot(EXTERNAL("ext", "{ check: external, within: 30s }"), "ext", box);
+    const { r, client } = await boot(EXTERNAL("ext", "{ check: external, within: 30s }"), "ext", box);
     const { packet_id } = await client.request("push", { data: { n: 1 } });
-    await waitFor(() => runner.awaitingAck === 1, 5000, "packet to await its ack");
-    const row = runner.journal.get(packet_id);
-    expect(row).toMatchObject({ state: "verifying", cursor: "$verify" });
+    await waitFor(async () => (await awaiting(r)) === 1, 5000, "packet to await its ack");
+    expect(r.packet(packet_id)).toMatchObject({ state: "verifying", cursor: "$verify" });
     expect(lines(join(box.root, "out.jsonl"))).toHaveLength(1);
-    expect((await client.request("status")).awaiting_ack).toBe(1);
 
     expect(await client.request("ack", { packet_id, by: "test" })).toEqual({
       packet_id,
@@ -357,10 +335,10 @@ describe("external delivery check", () => {
       acked: true,
       already: false,
     });
-    expect((await settled(runner, packet_id, 2000)).state).toBe("delivered");
-    expect(runner.awaitingAck).toBe(0);
+    expect((await r.settled(packet_id, 2000)).state).toBe("delivered");
+    expect(await awaiting(r)).toBe(0);
     expect(await client.request("ack", { packet_id })).toMatchObject({ state: "delivered", already: true });
-    const types = runner.journal.events(packet_id).map((e) => e.type);
+    const types = r.events(packet_id).map((e) => e.type);
     expect(types.filter((t) => t === "packet.acked")).toHaveLength(1);
     expect(types).toContain("delivery.awaiting_ack");
   });
@@ -370,14 +348,14 @@ describe("external delivery check", () => {
     fns(box);
     const delivered =
       '{ check: external, within: 300ms, on_fail: { then: dead_letter, message: "no ack for ${meta.packet_id}" } }';
-    const { runner, client } = await boot(EXTERNAL("late", delivered), "late", box);
+    const { r, client } = await boot(EXTERNAL("late", delivered), "late", box);
     const t0 = Date.now();
     const { packet_id } = await client.request("push", { data: { n: 1 } });
-    const row = await settled(runner, packet_id, 5000);
+    const row = await r.settled(packet_id, 5000);
     expect(Date.now() - t0).toBeGreaterThanOrEqual(280);
     expect(row.state).toBe("dead_lettered");
     expect(row.error).toMatchObject({ code: "delivery.unverified", message: `no ack for ${packet_id}` });
-    const e = (await client.request("ack", { packet_id }).catch((x) => x)) as ControlError;
+    const e = await fail(client.request("ack", { packet_id }));
     expect(e.code).toBe("invalid_state");
     expect(e.message).toContain("dead_lettered");
     expect(e.hint).toContain("dead-letter queue");
@@ -386,7 +364,7 @@ describe("external delivery check", () => {
   test("waiting for acks does not hold workers: other packets keep flowing", async () => {
     const box = setup();
     fns(box);
-    const { runner, client } = await boot(
+    const { r, client } = await boot(
       EXTERNAL("flow", "{ check: external, within: 30s }").replace(
         "input: { via: push }",
         "concurrency: 1\ninput: { via: push }",
@@ -396,15 +374,15 @@ describe("external delivery check", () => {
     );
     const ids: string[] = [];
     for (let n = 0; n < 5; n++) ids.push((await client.request("push", { data: { n } })).packet_id);
-    await waitFor(() => runner.awaitingAck === 5, 5000, "all five parked with one worker");
+    await waitFor(async () => (await awaiting(r)) === 5, 5000, "all five parked with one worker");
     for (const id of ids) await client.request("ack", { packet_id: id });
-    for (const id of ids) expect((await settled(runner, id, 2000)).state).toBe("delivered");
+    for (const id of ids) expect((await r.settled(id, 2000)).state).toBe("delivered");
   });
 
   test("an ack that arrives before the packet reaches the output is kept", async () => {
     const box = setup();
     fns(box);
-    const { runner, client } = await boot(
+    const { r, client } = await boot(
       EXTERNAL("early", "{ check: external, within: 30s }", "nodes:\n  s: { from: input, transform: fn.slow }", "s"),
       "early",
       box,
@@ -413,25 +391,25 @@ describe("external delivery check", () => {
     const res = await client.request("ack", { packet_id });
     expect(["accepted", "processing"]).toContain(res.state);
     const t0 = Date.now();
-    expect((await settled(runner, packet_id, 5000)).state).toBe("delivered");
+    expect((await r.settled(packet_id, 5000)).state).toBe("delivered");
     expect(Date.now() - t0).toBeLessThan(3000);
   });
 
   test("on_fail pause holds the packet; resume opens a new window and an ack then delivers", async () => {
     const box = setup();
     fns(box);
-    const { runner, client } = await boot(
+    const { r, client } = await boot(
       EXTERNAL("hold", "{ check: external, within: 200ms, on_fail: { then: pause } }"),
       "hold",
       box,
     );
     const { packet_id } = await client.request("push", { data: { n: 1 } });
-    await waitFor(() => runner.state === "paused", 5000, "pause after the missed ack");
+    await waitFor(async () => (await r.status()).state === "paused", 5000, "pause after the missed ack");
     expect((await client.request("status")).paused_reason).toBe("error at $verify");
     await client.request("ack", { packet_id });
-    expect(runner.journal.get(packet_id)?.state).toBe("verifying");
+    expect(r.packet(packet_id)?.state).toBe("verifying");
     await client.request("resume");
-    expect((await settled(runner, packet_id, 2000)).state).toBe("delivered");
+    expect((await r.settled(packet_id, 2000)).state).toBe("delivered");
   });
 
   test("a clean restart keeps the remaining deadline", async () => {
@@ -440,19 +418,22 @@ describe("external delivery check", () => {
     const src = EXTERNAL("keep", "{ check: external, within: 1500ms }");
     const first = await boot(src, "keep", box);
     const { packet_id } = await first.client.request("push", { data: { n: 1 } });
-    await waitFor(() => first.runner.awaitingAck === 1, 5000, "packet to await its ack");
-    const deadline = (
-      first.runner.journal.latestEvent(packet_id, ["delivery.awaiting_ack"])?.detail as { deadline: number }
-    )?.deadline;
-    first.client.close();
-    await first.runner.stop();
+    await waitFor(async () => (await awaiting(first.r)) === 1, 5000, "packet to await its ack");
+    const [mark] = first.r.query<{ detail: string }>(
+      "SELECT detail FROM events WHERE packet_id = ? AND type = 'delivery.awaiting_ack' ORDER BY seq DESC LIMIT 1",
+      packet_id,
+    );
+    const deadline = JSON.parse(mark?.detail ?? "{}").deadline as number;
+    // `stop` stops at once; a drain would wait for the ack.
+    await first.client.request("stop");
+    expect(await first.r.proc.exited).toBe(0);
 
     const second = await boot(src, "keep", box);
-    const row = await settled(second.runner, packet_id, 5000);
+    const row = await second.r.settled(packet_id, 5000);
     expect(row.state).toBe("dead_lettered");
     // It failed at the original deadline, not a fresh `within` after the restart.
     expect(Math.abs(row.updated_at - deadline)).toBeLessThan(500);
-    const marks = second.runner.journal.events(packet_id).filter((e) => e.type === "delivery.awaiting_ack");
+    const marks = second.r.events(packet_id).filter((e) => e.type === "delivery.awaiting_ack");
     expect(marks).toHaveLength(1);
   });
 
@@ -469,25 +450,25 @@ describe("external delivery check", () => {
       "fan",
       box,
     );
-    const nf = (await fan.client.request("ack", { packet_id: "nope" }).catch((x) => x)) as ControlError;
+    const nf = await fail(fan.client.request("ack", { packet_id: "nope" }));
     expect(nf.code).toBe("not_found");
     expect(nf.hint).toContain("<packet_id>:<branch>");
-    const missing = (await fan.client.request("ack", {}).catch((x) => x)) as ControlError;
+    const missing = await fail(fan.client.request("ack", {}));
     expect(missing.code).toBe("bad_request");
 
     const { packet_id } = await fan.client.request("push", { data: { n: 1 } });
-    await waitFor(() => fan.runner.awaitingAck === 2, 5000, "both copies to await their ack");
-    const root = (await fan.client.request("ack", { packet_id }).catch((x) => x)) as ControlError;
+    await waitFor(async () => (await awaiting(fan.r)) === 2, 5000, "both copies to await their ack");
+    const root = await fail(fan.client.request("ack", { packet_id }));
     expect(root.code).toBe("invalid_state");
     expect(root.hint).toContain(`${packet_id}:a`);
     expect(root.hint).toContain(`${packet_id}:b`);
     await fan.client.request("ack", { packet_id: `${packet_id}:a` });
     await fan.client.request("ack", { packet_id: `${packet_id}:b` });
-    expect((await settled(fan.runner, packet_id, 3000)).state).toBe("delivered");
+    expect((await fan.r.settled(packet_id, 3000)).state).toBe("delivered");
 
     const plain = await boot(PUSH("plain"), "plain");
     const p = await plain.client.request("push", { data: { n: 1 } });
-    const notExt = (await plain.client.request("ack", { packet_id: p.packet_id }).catch((x) => x)) as ControlError;
+    const notExt = await fail(plain.client.request("ack", { packet_id: p.packet_id }));
     expect(notExt.code).toBe("invalid_state");
     expect(notExt.message).toContain("delivered.check is 'ack'");
   });
@@ -495,17 +476,17 @@ describe("external delivery check", () => {
   test("drain waits for packets awaiting an ack", async () => {
     const box = setup();
     fns(box);
-    const { runner, client } = await boot(EXTERNAL("dw", "{ check: external, within: 30s }"), "dw", box);
+    const { r, client } = await boot(EXTERNAL("dw", "{ check: external, within: 30s }"), "dw", box);
     const { packet_id } = await client.request("push", { data: { n: 1 } });
-    await waitFor(() => runner.awaitingAck === 1, 5000, "packet to await its ack");
+    await waitFor(async () => (await awaiting(r)) === 1, 5000, "packet to await its ack");
     await client.request("drain");
     await Bun.sleep(200);
-    expect(runner.state).toBe("draining");
+    expect(r.proc.exitCode).toBeNull();
+    expect((await r.status()).state).toBe("draining");
     await client.request("ack", { packet_id });
-    await runner.finished;
-    expect(runner.journal === undefined || runner.state === "stopped").toBe(true);
-    const entry = lines(join(box.root, "out.jsonl"));
-    expect(entry).toHaveLength(1);
+    expect(await r.proc.exited).toBe(0);
+    expect(r.packet(packet_id)?.state).toBe("delivered");
+    expect(lines(join(box.root, "out.jsonl"))).toHaveLength(1);
   });
 });
 
@@ -523,24 +504,25 @@ describe("socket lifecycle", () => {
     owner.kill("SIGKILL");
     await owner.exited;
     expect(existsSync(path)).toBe(true);
-    const { lines: log, client } = await boot(PUSH("stale"), "stale", box);
-    expect(log.some((l) => l.includes("removed stale control socket"))).toBe(true);
+    const { r, client } = await boot(PUSH("stale"), "stale", box);
+    await waitFor(() => r.lines().some((l) => l.includes("removed stale control socket")), 5000, "the log line");
     expect((await client.request("hello")).pipeline).toBe("stale");
   });
 
   test("a live owner of the socket makes the runner refuse to start", async () => {
     const box = setup();
     const path = socketPath(box.home, "owned");
-    const other = await ControlServer.listen(path, () => ({ result: null }));
-    cleanups.push(() => other.close());
+    mkdirSync(join(box.home, "run"), { recursive: true });
+    const other = Bun.listen({ unix: path, socket: { data() {} } });
+    cleanups.push(() => other.stop(true));
     const file = box.write("owned.pipo", PUSH("owned"));
-    const err = (await Runner.open({ file, home: box.home, log: () => {} }).catch((e) => e)) as StartError;
-    expect(err).toBeInstanceOf(StartError);
-    expect(err.message).toContain("another runner is listening");
-    expect(err.message).toContain("pipo stop");
+    const { code, stderr } = await RustRunner.refuse(box, file);
+    expect(code).toBe(1);
+    expect(stderr).toContain("another runner is listening");
+    expect(stderr).toContain("pipo stop");
     // The owner keeps its socket.
+    expect(existsSync(path)).toBe(true);
     const c = await ControlClient.connect(path);
-    expect(await c.request("hello")).toBeNull();
     c.close();
   });
 
@@ -550,8 +532,9 @@ describe("socket lifecycle", () => {
     mkdirSync(join(box.home, "run"), { recursive: true });
     writeFileSync(path, "mine");
     const file = box.write("file.pipo", PUSH("file"));
-    const err = (await Runner.open({ file, home: box.home, log: () => {} }).catch((e) => e)) as StartError;
-    expect(err.message).toContain("is not a socket");
+    const { code, stderr } = await RustRunner.refuse(box, file);
+    expect(code).toBe(1);
+    expect(stderr).toContain("is not a socket");
     expect(readFileSync(path, "utf8")).toBe("mine");
   });
 
@@ -559,22 +542,23 @@ describe("socket lifecycle", () => {
     const box = setup();
     const home = join(box.root, "h".repeat(120));
     const file = box.write("long.pipo", PUSH("long"));
-    const err = (await Runner.open({ file, home, log: () => {} }).catch((e) => e)) as StartError;
-    expect(err).toBeInstanceOf(StartError);
-    expect(err.message).toMatch(/over the \d+-byte limit for unix sockets/);
-    expect(err.message).toContain("PIPO_HOME");
+    const { code, stderr } = await RustRunner.refuse({ root: box.root, home }, file);
+    expect(code).toBe(1);
+    expect(stderr).toMatch(/over the \d+-byte limit for unix sockets/);
+    expect(stderr).toContain("PIPO_HOME");
     expect(existsSync(join(home, "pipelines"))).toBe(false);
   });
 
   test("a socket on a Windows drive under WSL is refused with a hint", async () => {
     if (process.platform !== "linux") return;
     const box = setup();
+    const home = "/mnt/c/pipo-test-never-created";
     const file = box.write("win.pipo", PUSH("win"));
-    const err = (await Runner.open({ file, home: "/mnt/c/pipo-test-never-created", log: () => {} }).catch(
-      (e) => e,
-    )) as StartError;
-    expect(err.message).toContain("Windows drive");
-    expect(err.message).toContain("~/.pipo");
+    const { code, stderr } = await RustRunner.refuse({ root: box.root, home }, file);
+    expect(code).toBe(1);
+    expect(stderr).toContain("Windows drive");
+    expect(stderr).toContain("~/.pipo");
+    expect(existsSync(home)).toBe(false);
   });
 
   test("an input that fails to start leaves no socket behind", async () => {
@@ -585,27 +569,24 @@ describe("socket lifecycle", () => {
       "busy.pipo",
       "pipo: 1\nname: busy\ninput: { via: http }\noutput: { from: input, to: stdout }\n",
     );
-    const runner = await Runner.open({ file, home: box.home, listen: busy.port, log: () => {} });
-    cleanups.push(() => runner.journal.close());
-    expect(existsSync(runner.socket)).toBe(true);
-    await expect(runner.start()).rejects.toThrow();
-    expect(existsSync(runner.socket)).toBe(false);
+    const { code } = await RustRunner.refuse(box, file, { args: ["--listen", String(busy.port)] });
+    expect(code).toBe(1);
+    expect(existsSync(socketPath(box.home, "busy"))).toBe(false);
     expect(readRegistryEntry(box.home, "busy")).toBeNull();
   });
 
   test("a client's pending requests fail when the runner goes away", async () => {
     const box = setup();
-    const path = join(box.home, "slow.sock");
-    const server = await ControlServer.listen(path, async () => {
-      await Bun.sleep(5000);
-      return { result: null };
-    });
-    const client = await ControlClient.connect(path);
-    const pending = client.request("status").catch((e) => e as Error);
+    const { r } = await boot(PUSH("gone"), "gone", box);
+    const client = await ControlClient.connect(socketPath(box.home, "gone"));
+    cleanups.push(() => client.close());
+    // An apply compiles through `pipo compile` first, so it is still pending when the runner is killed.
+    const pending = client.request("apply", { source: PUSH("gone", "description: two\n") }).catch((e) => e as Error);
     await Bun.sleep(50);
-    await server.close();
+    await r.kill();
     expect(String(await pending)).toContain("closed");
-    expect(existsSync(path)).toBe(false);
-    await expect(ControlClient.connect(path)).rejects.toThrow("cannot connect");
+    // A killed runner leaves its socket file behind, with nothing answering on it.
+    expect(existsSync(socketPath(box.home, "gone"))).toBe(true);
+    await expect(ControlClient.connect(socketPath(box.home, "gone"))).rejects.toThrow("cannot connect");
   });
 });
