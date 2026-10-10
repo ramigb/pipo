@@ -1985,7 +1985,12 @@ function inputForm(id) {
         bound([...at, "validate"], "lines", { placeholder: "data.email != null", expr: true }),
         "one rule per line; all must hold",
       ),
-      field("if invalid", bound([...at, "on_invalid", "then"], "select", { options: catalog.then })),
+      // Invalid input is always rejected; the only choice is whether the agent is told too (§3.9).
+      field(
+        "if invalid",
+        bound([...at, "on_invalid", "then"], "select", { options: ["agent"] }),
+        "rejected either way; agent also tells the agent",
+      ),
     ),
   ];
 }

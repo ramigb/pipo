@@ -3,10 +3,6 @@ pipo: 1
 name: {{name}}
 description: Classify each incoming item as one of {{labels}}.
 
-agent_budget:
-  per_day: {{per_day}}
-  per_packet: 15000
-
 input:
   via: http
   with:
@@ -42,5 +38,9 @@ output:
 
 delivered:
   check: line_contains
-  with: { value: "${meta.packet_id}" }
+  with: {value: "${meta.packet_id}"}
   within: 5s
+
+agent_budget:
+  per_day: {{per_day}}
+  per_packet: 15000

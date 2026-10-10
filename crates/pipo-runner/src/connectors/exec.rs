@@ -1,7 +1,7 @@
 // `tap: exec` and `transform: exec` (docs/spec.md §3.4, D71). Port of exec.ts: run a program installed on this
 // machine. No shell: the rendered `args` go to the program as they are. It runs like a CLI agent (D67, `run_cli`):
 // its own process group, stdin from a file, stdout and stderr to files read after it exits, the whole group killed on
-// `timeout`. Relative paths (`command` with a slash, `cwd`, `outputs`) resolve against the pipeline file's folder.
+// `timeout`. Relative paths (`command` with a slash, `cwd`) resolve against the pipeline file's folder; `outputs` against `cwd`.
 // A crash before the step commits runs the program again, so output paths keyed on `${meta.packet_id}` make a rerun
 // overwrite rather than duplicate.
 

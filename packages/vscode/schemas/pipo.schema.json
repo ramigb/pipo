@@ -2329,7 +2329,10 @@
                     "type": "array"
                   },
                   "min": {
-                    "type": "integer",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
                     "minimum": 0
                   }
                 },

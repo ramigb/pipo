@@ -9,7 +9,7 @@ input:
   via: schedule
   with:
     every: {{every}}
-    payload: { source: {{name}} }
+    payload: {source: {{name}}}
 
 nodes:
   build:
@@ -26,7 +26,7 @@ output:
 
 delivered:
   check: line_contains
-  with: { value: "${meta.packet_id}" }
+  with: {value: "${meta.packet_id}"}
   within: 5s
   on_fail:
     then: dead_letter

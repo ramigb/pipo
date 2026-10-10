@@ -544,7 +544,13 @@ export function shapeOut(p, id, ctx, seen = new Set()) {
     const schema = typeof input.schema === "string" ? ctx.schemaOf(input.schema) : null;
     if (schema) return exampleOf(schema);
     if (input.via === "schedule") return input.with?.payload ?? {};
-    return ctx.inputs?.[input.via]?.sample ?? null;
+    const sample = ctx.inputs?.[input.via]?.sample ?? null;
+    // A watch packet carries `content` only with `read: content`; the default is `read: path`.
+    if (input.via === "watch" && sample && input.with?.read !== "content") {
+      const { content: _, ...rest } = sample;
+      return rest;
+    }
+    return sample;
   }
   const node = p.nodes?.[id];
   if (!node) return null;

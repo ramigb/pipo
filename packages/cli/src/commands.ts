@@ -21,7 +21,7 @@ export const COMMANDS: CommandHelp[] = [
     flags: [
       ["--listen <port>", "Serve the HTTP input on this port"],
       ["--home <dir>", "Pipo home (default ~/.pipo, or PIPO_HOME)"],
-      ["--env-allow A,B", "Environment variables that env: secrets may read"],
+      ["--env-allow A,B", "Environment variables exposed to expressions as env (engine.env_allow)"],
     ],
   },
   {
@@ -197,7 +197,7 @@ export const COMMANDS: CommandHelp[] = [
     flags: [
       [
         "--state <s>",
-        "Only packets in this state: accepted, processing, writing, verifying, delivered, filtered, dead_lettered, rejected, branched",
+        "Only packets in this state: accepted, processing, writing, verifying, delivered, filtered, dead_lettered, rejected, escalated, branched",
       ],
       ["--limit <n>", "Packets per page, 1 to 1000 (default 50)"],
       ["--after <id>", "The next page: the id the previous page ended with"],

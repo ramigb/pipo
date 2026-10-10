@@ -39,6 +39,7 @@ schedule → stamp → JSONL file → line_contains → delivered
 The file fits Git, diffs, pull requests and CI. The visual builder loads and saves that same `.pipo` file. Delivery defaults to the output connector's acknowledgement (`ack`); an explicit `delivered` check, as above, can verify the result at the destination.
 
 - **Get started:** [Quick start](#quick-start)
+- **Documentation:** [ramigb.github.io/pipo/docs](https://ramigb.github.io/pipo/docs/) — guides and a generated reference; sources in [`docs/guide`](docs/guide), built by `bun run docs`
 - **Website:** [`site/`](site) — static landing page and interactive explanations; [run locally](site/README.md)
 - **Spec:** [`docs/spec.md`](docs/spec.md)
 - **Roadmap:** [`docs/roadmap.md`](docs/roadmap.md)
@@ -183,7 +184,7 @@ Run `bun pipo help <command>` for details. Every command except `run` (which str
 | Authoring | `check`, `fmt`, `test`, `schema`, `new`, `generate node`, `templates`, `trust` |
 | Run | `run` (foreground), `start`, `stop`, `pause`, `resume`, `restart` |
 | Observe | `status`, `logs`, `runners`, `packets`, `inspect` |
-| Recover | `dlq` (`replay`, `purge`), `push`, `ack`, `attach` |
+| Recover | `dlq` (`replay`, `purge`), `rerun`, `push`, `ack`, `attach` |
 | Versions | `history`, `diff`, `rollback` |
 | Engine and UI | `engine start\|stop\|status`, `ui` |
 | Agents | `proposals` (`show`, `propose`, `apply`, `reject`), `resolve` |
@@ -214,8 +215,10 @@ Run `bun pipo help <command>` for details. Every command except `run` (which str
 | `packages/cli` | The `pipo` command |
 | `packages/ui` | The dashboard and the builder |
 | `packages/vscode` | The editor extension |
+| `packages/docs` | The documentation site generator |
 | `examples/` | Runnable pipelines |
 | `site/` | Static website: explanations, demos and quick start; no build step |
+| `docs/` | The spec, the roadmap and the guide pages of the documentation site |
 
 ## License
 

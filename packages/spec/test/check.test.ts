@@ -192,6 +192,16 @@ output:
     expect(codes(errors(fixed))).toEqual(["P033", "P034"]);
   });
 
+  test("an input's on_invalid only takes then: agent (P033)", () => {
+    const withThen = (then: string) =>
+      BASE.replace("  format: json\n", `  format: json\n  on_invalid: { then: ${then} }\n`);
+    for (const then of ["dead_letter", "drop", "pause", "halt", "continue"]) {
+      expect(codes(errors(withThen(then)))).toEqual(["P033"]);
+    }
+    expect(codes(errors(withThen("agent")))).toEqual(["P034"]);
+    expect(codes(errors(`${withThen("agent")}agent: { control: true }\n`))).toEqual([]);
+  });
+
   test("a stall handed to the agent needs control too (P034, D50)", () => {
     const stall = `${BASE}delivered: { stall: { after: 5m, then: agent } }\n`;
     expect(codes(errors(stall))).toEqual(["P034"]);

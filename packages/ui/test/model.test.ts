@@ -346,6 +346,15 @@ describe("data shapes (D70)", () => {
     });
   });
 
+  test("a watch input's sample has content only with read: content", () => {
+    const sample = { event: "create", path: "/in/a.txt", name: "a.txt", content: "hi\n" };
+    const c = { inputs: { watch: { sample } }, schemaOf: () => null };
+    const watch = (read?: string) => ({ input: { via: "watch", with: { path: "./in", ...(read ? { read } : {}) } } });
+    expect(M.shapeOut(watch(), "input", c)).toEqual({ event: "create", path: "/in/a.txt", name: "a.txt" });
+    expect(M.shapeOut(watch("path"), "input", c)).not.toHaveProperty("content");
+    expect(M.shapeOut(watch("content"), "input", c)).toEqual(sample);
+  });
+
   test("a cycle ends as unknown, and paths list every field", () => {
     const loop: any = { input: { via: "push" }, nodes: { a: { tap: "log", from: "b" }, b: { tap: "log", from: "a" } } };
     expect(M.shapeIn(loop, "a", ctx())).toBeNull();

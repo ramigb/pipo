@@ -733,6 +733,13 @@ function semantics(p: Pipeline, report: Report, file: string | undefined, home?:
   ];
   for (const [path, then, where] of policies) {
     if (!then) continue;
+    // Invalid input is rejected, never accepted: there is nothing to retry, dead-letter, drop, pause or halt (§3.9).
+    if (where === "input" && then !== "agent") {
+      report(path, "P033", `then: ${then} has no effect in an input's on_invalid: invalid input is always rejected`, {
+        hint: "remove `then` (the packet is rejected and the sender told), or use then: agent to also tell the agent",
+      });
+      continue;
+    }
     if (then === "continue" && where !== "tap") {
       report(path, "P033", "then: continue only applies to tap nodes", {
         hint: "a failed step that changes data can't be skipped",

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { checkFile } from "@pipo/spec";
 import { sandbox } from "../../runner/test/helpers";
 import { CliError } from "../src/errors";
+import { formatPipo } from "../src/fmt";
 import { generateNode } from "../src/generate";
 import { newPipeline } from "../src/new";
 import { findTemplate, listTemplates } from "../src/templates";
@@ -51,6 +52,9 @@ for (const template of BUILTIN) {
       expect(r.files.some((f) => f.startsWith("fixtures/"))).toBe(true);
     }
     for (const f of r.files) expect(readFileSync(join(r.dir, f), "utf8")).not.toContain("{{");
+    // A fresh scaffold is already canonical, so `pipo fmt --check` passes before the first edit.
+    const source = readFileSync(join(r.dir, "demo-pipe.pipo"), "utf8");
+    expect(formatPipo(source)).toBe(source);
   });
 }
 

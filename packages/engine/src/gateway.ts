@@ -77,7 +77,7 @@ const ROUTES = [
   "POST /api/pipelines/<name>/restart {listen?, detached?, ttl?}",
   "POST /api/pipelines/<name>/pause {reason?}",
   "POST /api/pipelines/<name>/resume",
-  "POST /api/pipelines/<name>/push {data, source?}",
+  "POST /api/pipelines/<name>/push {data, source?, input?}",
   "POST /api/pipelines/<name>/ack {packet_id}",
   "GET  /api/pipelines/<name>/graph",
   "GET  /api/pipelines/<name>/logs?tail=&after=",

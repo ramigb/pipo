@@ -60,7 +60,7 @@ output:
 delivered:
   check: record_exists
   with:
-    where: { id: "${meta.packet_id}" }
+    where: {id: "${meta.packet_id}"}
   within: 10s
   on_fail:
     then: dead_letter

@@ -387,7 +387,12 @@ impl Runner {
             on_end: None,
             drain_timeout: None,
         });
-        if why == "max_packets" {
+        if why == "ttl" {
+            format!(
+                "pipeline reached lifetime.ttl ({}); it is no longer accepting packets",
+                self.opts.ttl.clone().or(lt.ttl).unwrap_or_default()
+            )
+        } else if why == "max_packets" {
             format!(
                 "pipeline reached lifetime.max_packets ({}); it is no longer accepting packets",
                 lt.max_packets.map(|m| m.to_string()).unwrap_or_default()
@@ -460,6 +465,21 @@ impl Runner {
             tokio::task::yield_now().await;
             if stop { me.stop(0).await } else { me.drain().await }
         });
+    }
+
+    /// `lifetime.ttl` ran out (§3.8): journaled like the other lifetime ends, so a reattaching engine and the
+    /// dashboard see why the pipeline drained. False when the pipeline is already ending.
+    pub(super) fn end_by_ttl(&self) -> bool {
+        {
+            let s = self.s.borrow();
+            if s.lifetime_end.is_some() || s.stopping || s.closed {
+                return false;
+            }
+        }
+        self.s.borrow_mut().lifetime_end = Some("ttl");
+        let stats = compute_stats(&self.journal.borrow(), self.started_at(), now_ms()).map(|s| s.to_value()).ok();
+        self.event("pipeline.lifetime", Some(json!({ "reason": "ttl", "stats": stats })), None, None);
+        true
     }
 
     /// Stall detection (§3.10, D23): pending packets and no delivery progress for `after`. Fires once per episode;

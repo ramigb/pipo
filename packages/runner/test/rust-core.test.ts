@@ -228,6 +228,9 @@ ${outputFrom("x")}`);
     expect(await r.proc.exited).toBe(0);
     expect(Date.now() - started).toBeLessThan(5000);
     expect(r.lines().join("\n")).toContain("lifetime ttl 1s reached");
+    // Journaled like max_packets and until, so a reattaching engine and the dashboard see why it ended.
+    const ends = r.query<{ detail: string }>("SELECT detail FROM events WHERE type = 'pipeline.lifetime'");
+    expect(ends.map((e) => JSON.parse(e.detail).reason)).toEqual(["ttl"]);
   });
 
   test("SIGTERM drains and exits 0; SIGKILL loses nothing", async () => {

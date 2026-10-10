@@ -181,7 +181,15 @@ impl SqliteOutput {
                 .and_then(|p| p.as_array())
                 .map(|a| a.iter().map(sql_value).collect())
                 .unwrap_or_default();
-            let min = check_with.get("min").and_then(|m| m.as_f64()).unwrap_or(1.0);
+            // A template like "${data.expected}" renders to a number, or to its text when it sits inside a string.
+            let min = match check_with.get("min") {
+                None | Some(Value::Null) => 1.0,
+                Some(Value::Number(n)) => n.as_f64().unwrap_or(1.0),
+                Some(Value::String(t)) => t.trim().parse::<f64>().map_err(|_| {
+                    format!("delivered.with.min rendered to '{t}', not a number; make it a number or a template that gives one")
+                })?,
+                Some(other) => return Err(format!("delivered.with.min is {other}, not a number")),
+            };
             return self.with_reader(&path, |db| {
                 let mut stmt = db.prepare(&sql).map_err(err)?;
                 let mut rows = stmt.query(rusqlite::params_from_iter(params)).map_err(err)?;
@@ -372,6 +380,11 @@ mod tests {
         let mut two = w.as_object().cloned().unwrap();
         two.insert("min".into(), json!(2));
         assert!(!out.verify_now("row_count", &two, &it).unwrap());
+        // min may come from a template: a number, or a number's text.
+        two.insert("min".into(), json!("1"));
+        assert!(out.verify_now("row_count", &two, &it).unwrap());
+        two.insert("min".into(), json!("lots"));
+        assert!(out.verify_now("row_count", &two, &it).unwrap_err().contains("not a number"));
         let x = json!({"query": "SELECT * FROM people WHERE name = ?", "params": ["x"]});
         assert!(!out.verify_now("row_count", x.as_object().unwrap(), &it).unwrap());
     }

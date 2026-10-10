@@ -331,9 +331,11 @@ export const CHECKS: Record<string, Manifest> = {
   },
   row_count: {
     description: "`query` returns at least `min` rows",
-    with: obj({ query: { type: "string" }, params: { type: "array" }, min: { type: "integer", minimum: 0 } }, [
-      "query",
-    ]),
+    // `min` is a number or a template that renders to one (every delivered.with value is a template, §3.10).
+    with: obj(
+      { query: { type: "string" }, params: { type: "array" }, min: { type: ["integer", "string"], minimum: 0 } },
+      ["query"],
+    ),
   },
   query: {
     description: "Custom SQL returns a truthy first column",
