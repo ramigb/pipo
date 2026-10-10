@@ -29,7 +29,10 @@ afterAll(async () => {
   box.cleanup();
 });
 
-box.write("fns.ts", "export const slow = async (d) => { await Bun.sleep(d.sleep ?? 0); return d; };\n");
+box.write(
+  "fns.ts",
+  "export const slow = async (d) => { await new Promise((r) => setTimeout(r, d.sleep ?? 0)); return d; };\n",
+);
 const hooksFile = (name: string) =>
   box.write(
     `${name}.pipo`,

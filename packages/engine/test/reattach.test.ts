@@ -23,7 +23,7 @@ afterAll(async () => {
   box.cleanup();
 });
 
-box.write("fns.ts", "export const slow = async (d) => { await Bun.sleep(80); return d; };\n");
+box.write("fns.ts", "export const slow = async (d) => { await new Promise((r) => setTimeout(r, 80)); return d; };\n");
 const slowPipeline = (name: string) =>
   box.write(
     `${name}.pipo`,

@@ -47,9 +47,7 @@ delivered:
   with: { where: { packet_id: "\${meta.packet_id}" } }
 ${extra}`;
 
-const FNS = `export const slow = async (d) => { await Bun.sleep(80); return d; };
-export const boom = () => process.exit(3);
-`;
+const FNS = "export const slow = async (d) => { await new Promise((r) => setTimeout(r, 80)); return d; };\n";
 
 /** A waitFor condition: the pipeline's info once it reaches `state`. */
 const inState = (engine: Supervisor, name: string, state: SupervisedState) => () => {
@@ -193,7 +191,7 @@ name: poison
 fn: ./fns.ts
 input: { via: push }
 nodes:
-  boom: { from: input, transform: fn.boom }
+  boom: { from: input, tap: exec, with: { command: sh, args: ["-c", "kill -9 $PPID"] } }
 output: { from: boom, to: file, with: { path: ./poison.jsonl } }
 `,
   );
@@ -204,9 +202,10 @@ output: { from: boom, to: file, with: { path: ./poison.jsonl } }
   const crashed = await waitFor(inState(engine, "poison", "crashed"), 60_000, "crashed");
   expect(crashed.restarts).toBe(2);
   expect(crashed.pid).toBeNull();
-  expect(crashed.last_exit?.code).toBe(3);
+  // The exec step SIGKILLs its runner (a fn module can't exit the process).
+  expect(crashed.last_exit).toMatchObject({ code: null, signal: "SIGKILL" });
   expect(crashed.error?.message).toContain("'poison' kept crashing: 2 restart(s) within 1m0s did not help");
-  expect(crashed.error?.message).toContain("code 3");
+  expect(crashed.error?.message).toContain("SIGKILL");
   expect(crashed.error?.hint).toContain(join(box.home, "logs", "poison.log"));
   expect(crashed.error?.hint).toContain("pipo start poison");
   expect(lines.some((l) => l.includes("ERROR [engine] 'poison' kept crashing"))).toBe(true);

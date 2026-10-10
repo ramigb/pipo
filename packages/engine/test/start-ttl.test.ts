@@ -4,12 +4,15 @@
 // override and still ends at the ttl counted from the first start; after pipod itself is SIGKILLed, the next engine
 // takes the override from the registry entry, both for a runner it adopts and then loses, and for one that died while
 // no engine ran. Every process is killed by pid at the end.
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { join } from "node:path";
-import { Runner, readRegistryEntry } from "@pipo/runner";
+import { readRegistryEntry } from "@pipo/runner";
+import { RustRunner } from "../../runner/test/rust";
 import { type EngineEntry, readEngineEntry, type SupervisedState, Supervisor } from "../src";
 import { isRunning } from "../src/registry";
 import { query, sandbox, spawnPipod, testConfig, waitFor } from "./helpers";
+
+setDefaultTimeout(60_000);
 
 type Proc = ReturnType<typeof Bun.spawn>;
 const box = sandbox();
@@ -111,21 +114,24 @@ test("the runner refuses a bad ttl override, and drains on one when the file has
     "bare.pipo",
     "pipo: 1\nname: bare\ninput: { via: push }\noutput: { from: input, to: file, with: { path: ./bare.jsonl } }\n",
   );
-  await expect(Runner.open({ file, home, ttl: "soon", log: () => {} })).rejects.toThrow(
-    "ttl 'soon' is not a duration; use for example --ttl 30m, 8h or 2d",
-  );
-  await expect(Runner.open({ file, home, ttl: "0s", log: () => {} })).rejects.toThrow("must be longer than 0");
-  const lines: string[] = [];
-  const runner = await Runner.open({ file, home, ttl: "300ms", log: (l) => lines.push(l) });
-  await runner.start();
-  expect(readRegistryEntry(home, "bare")).toMatchObject({ pid: process.pid, ttl: "300ms" });
-  expect(await Promise.race([runner.finished, Bun.sleep(3000).then(() => "still running")])).toBe(0);
+  const runnerBox = { root: box.root, home };
+  const soon = await RustRunner.refuse(runnerBox, file, { args: ["--ttl", "soon"] });
+  expect(soon.code).toBe(1);
+  expect(soon.stderr).toContain("ttl 'soon' is not a duration; use for example --ttl 30m, 8h or 2d");
+  const zero = await RustRunner.refuse(runnerBox, file, { args: ["--ttl", "0s"] });
+  expect(zero.code).toBe(1);
+  expect(zero.stderr).toContain("must be longer than 0");
+  const runner = await RustRunner.start(runnerBox, file, "bare", { listen: null, args: ["--ttl", "300ms"] });
+  pids.push(runner.pid);
+  expect(readRegistryEntry(home, "bare")).toMatchObject({ pid: runner.pid, ttl: "300ms" });
+  expect(await Promise.race([runner.proc.exited, Bun.sleep(3000).then(() => "still running")])).toBe(0);
+  runner.client.close();
   expect(lifecycle(home, "bare").map((e) => e.type)).toEqual([
     "pipeline.started",
     "pipeline.draining",
     "pipeline.stopped",
   ]);
-  expect(lines.join("\n")).toContain("lifetime ttl 300ms from the start (the file's: none)");
+  expect(runner.lines().join("\n")).toContain("lifetime ttl 300ms from the start (the file's: none)");
 });
 
 test("start with a ttl: the runner and its registry entry get it, it drains on time; the next start uses the file's", async () => {
