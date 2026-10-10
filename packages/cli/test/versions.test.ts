@@ -1,17 +1,19 @@
 // `pipo history|diff|rollback` (docs/spec.md §6 Versions, §9.3, D38): in-process with --no-engine against a runner
 // started in the test, then from its journal once it stopped; errors say what to do.
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { Runner } from "@pipo/runner";
 import { sandbox, waitFor } from "../../runner/test/helpers";
+import { RustRunner } from "../../runner/test/rust";
 import { main } from "../src/cli";
 import { renderHelp } from "../src/commands";
 
+setDefaultTimeout(60_000);
 const sb = sandbox();
-const runners: Runner[] = [];
+const runners: RustRunner[] = [];
+const version = async (r: RustRunner) => (await r.status()).version as number;
 afterAll(async () => {
-  for (const r of runners) await r.stop().catch(() => {});
+  for (const r of runners) await r.kill().catch(() => {});
   sb.cleanup();
 });
 
@@ -70,10 +72,11 @@ test("help lists history, diff and rollback and proposals as commands, with noth
 });
 
 test("history, diff and rollback against a running pipeline, then history from its journal", async () => {
-  const runner = await Runner.open({ file, home: sb.home, log: () => {} });
+  const runner = await RustRunner.start(sb, file, "hist", { listen: null, timeoutMs: 30_000 });
   runners.push(runner);
-  await runner.start();
-  await runner.applyVersion(SRC("two"), { author: "test", reason: "try two" });
+  expect(await runner.request("apply", { source: SRC("two"), by: "test", reason: "try two" })).toMatchObject({
+    version: 2,
+  });
 
   const h = await pipo("history", "hist", ...N);
   expect(h.code).toBe(0);
@@ -97,8 +100,8 @@ test("history, diff and rollback against a running pipeline, then history from i
   const rb = await pipo("rollback", "hist", "1", ...N);
   expect(rb.code).toBe(0);
   expect(rb.stdout).toContain("rolled back hist to v1: new packets use v3 (a copy of v1); nothing was in flight");
-  expect(runner.version).toBe(3);
-  const id = (await runner.intake({ n: 1 }, { trigger: "push", source: "test" })) as { packet_id: string };
+  expect(await version(runner)).toBe(3);
+  const id = await runner.push({ n: 1 });
   await waitFor(() => written().some((l) => l.packet_id === id.packet_id), 5000, "packet written");
   expect(written().find((l) => l.packet_id === id.packet_id)?.data.v).toBe("one");
   expect((await pipo("rollback", "hist", "v1", ...N)).stdout).toContain("hist already runs that definition (v3)");
@@ -118,7 +121,7 @@ test("history, diff and rollback against a running pipeline, then history from i
   expect((await pipo("diff", "hist", "1", ...N)).code).toBe(64);
 
   // Stopped: history and diff read the journal; rollback needs the runner.
-  await runner.stop();
+  expect(await runner.stop()).toBe(0);
   const off = await pipo("history", "hist", ...N);
   expect(off.code).toBe(0);
   expect(off.stdout).toContain("not running: the next start runs v4 unless its file changed since the last start");

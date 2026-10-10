@@ -1,19 +1,30 @@
 // `pipo status` shows today's agent spend (docs/spec.md §3.11, D58): `--json` has `agent_budget` (the home's total per
 // pipeline vs `engine.agent_budget.per_day`) and each runner's `stats.agent_spend_today`; the human view adds a line
-// under the table, and `pipo status <name>` the pipeline's own spend. Runners run in-process with a mock provider.
+// under the table, and `pipo status <name>` the pipeline's own spend. Runner processes call a mock Claude API (`base_url`).
 import { afterAll, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { Runner } from "@pipo/runner";
-import type { AgentProvider } from "../../runner/src/agents";
-import { sandbox, settled } from "../../runner/test/helpers";
+import { sandbox } from "../../runner/test/helpers";
+import { RustRunner } from "../../runner/test/rust";
 import { main } from "../src/cli";
 import { renderAgentBudget } from "../src/status";
 
 const sb = sandbox();
-const runners: Runner[] = [];
+const runners: RustRunner[] = [];
+// Every call answers `{label: "ok"}` and reports 1000 input and 500 output tokens.
+const claude = Bun.serve({
+  port: 0,
+  hostname: "127.0.0.1",
+  fetch: () =>
+    Response.json({
+      content: [{ type: "tool_use", name: "pipo_output", input: { label: "ok" } }],
+      stop_reason: "tool_use",
+      usage: { input_tokens: 1000, output_tokens: 500 },
+    }),
+});
 afterAll(async () => {
-  for (const r of runners) await r.stop().catch(() => {});
+  for (const r of runners) await r.kill().catch(() => {});
+  claude.stop(true);
   sb.cleanup();
 });
 
@@ -34,10 +45,6 @@ async function pipo(...args: string[]): Promise<Result> {
 }
 const H = ["--no-engine", "--home", sb.home];
 
-const provider: AgentProvider = {
-  complete: async () => ({ output: { label: "ok" }, input_tokens: 1000, output_tokens: 500 }),
-};
-
 async function open(name: string) {
   const file = sb.write(
     `${name}.pipo`,
@@ -53,16 +60,11 @@ nodes:
 output: { from: classify, to: file, with: { path: ./${name}.jsonl, format: jsonl } }
 `,
   );
-  const runner = await Runner.open({
-    file,
-    home: sb.home,
-    log: () => {},
-    agents: {
-      providers: { claude_api: provider },
-      pricing: { claude_api: { "mock-model": { input: 100, output: 100 } } },
-    },
+  const runner = await RustRunner.start(sb, file, name, {
+    listen: null,
+    timeoutMs: 30_000,
+    env: { PIPO_TEST_MOCK_KEY: "unused" },
   });
-  await runner.start();
   runners.push(runner);
   return runner;
 }
@@ -73,13 +75,15 @@ test("pipo status --json and the human view show today's agent spend against eng
     JSON.stringify({ type: "object", properties: { label: { type: "string" } }, required: ["label"] }),
   );
   mkdirSync(sb.home, { recursive: true });
-  writeFileSync(join(sb.home, "config.yaml"), "engine:\n  timezone: UTC\n  agent_budget: { per_day: 2 }\n");
+  writeFileSync(
+    join(sb.home, "config.yaml"),
+    `engine:\n  timezone: UTC\n  agent_budget: { per_day: 2 }\nagents:\n  claude_api:\n    base_url: http://127.0.0.1:${claude.port}\n    api_key: env:PIPO_TEST_MOCK_KEY\n    pricing: { mock-model: { input: 100, output: 100 } }\n`,
+  );
   const a = await open("spend-a");
   const b = await open("spend-b");
-  const push = async (r: Runner, n: number) => {
-    const got = await r.intake({ n }, { trigger: "push", source: "t" });
-    if (got.status !== "accepted") throw new Error(JSON.stringify(got));
-    await settled(r, got.packet_id);
+  const push = async (r: RustRunner, n: number) => {
+    const got = await r.push({ n });
+    expect((await r.settled(got.packet_id, 10_000)).state).toBe("delivered");
   };
   await push(a, 1);
   await push(a, 2);
@@ -105,7 +109,7 @@ test("pipo status --json and the human view show today's agent spend against eng
   );
   expect(human.stdout).toContain("  spend-a $0.3000, spend-b $0.1500");
   expect((await pipo("status", "spend-a", ...H)).stdout).toMatch(/^agent spend today: \$0\.3000$/m);
-}, 30_000);
+}, 60_000);
 
 test("the spend line: reached, no cap, and nothing at all", () => {
   const base = { window_start: "2026-10-04T00:00:00.000Z", resets_at: "2026-10-05T00:00:00.000Z", timezone: "UTC" };

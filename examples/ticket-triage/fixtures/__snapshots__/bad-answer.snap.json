@@ -14,7 +14,7 @@
       "error": {
         "step": "triage",
         "code": "node.failed",
-        "message": "agent output does not match ./triage.schema.json: /category must be equal to one of the allowed values",
+        "message": "agent output does not match ./triage.schema.json: /category \"urgent!\" is not one of \"outage\", \"billing\" or 2 other candidates",
         "attempts": 3,
         "then": "dead_letter"
       }

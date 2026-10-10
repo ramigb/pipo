@@ -21,12 +21,9 @@ afterAll(async () => {
 
 const NAME = "dlqapi";
 const flag = join(box.root, "fail.flag");
-box.write(
-  "fns.ts",
-  `import { existsSync } from "node:fs";
-export const flaky = (d) => { if (existsSync(${JSON.stringify(flag)})) throw new Error("flaky is failing"); return { ...d, ok: true }; };
-`,
-);
+box.write("fns.ts", "export const mark = (d) => ({ ...d, ok: true });\n");
+// The `check` step fails while the flag file exists: an exec step, since a fn module has no file system.
+const gate = `{ command: sh, args: ["-c", 'if [ -e "$0" ]; then echo flaky is failing >&2; exit 1; fi', ${JSON.stringify(flag)}] }`;
 const file = box.write(
   `${NAME}.pipo`,
   `pipo: 1
@@ -34,8 +31,9 @@ name: ${NAME}
 fn: ./fns.ts
 input: { via: push }
 nodes:
-  check: { from: input, transform: fn.flaky, on_error: { retry: 0, then: dead_letter } }
-output: { from: check, to: file, with: { path: ./${NAME}.jsonl, format: jsonl } }
+  check: { from: input, tap: exec, with: ${gate}, on_error: { retry: 0, then: dead_letter } }
+  mark: { from: check, transform: fn.mark }
+output: { from: mark, to: file, with: { path: ./${NAME}.jsonl, format: jsonl } }
 `,
 );
 
@@ -91,8 +89,8 @@ describe("packets and dlq over /api", () => {
     const trace = await get(`${api}/packets/${ok.packet_id}`);
     expect(trace.status).toBe(200);
     expect(trace.body.packet).toMatchObject({ packet_id: ok.packet_id, state: "delivered" });
-    expect(trace.body.steps.map((s: any) => s.node)).toEqual(["input", "check", "$output", "$verify"]);
-    expect(trace.body.steps[1]).toMatchObject({ changed: true, data: { n: 0, ok: true } });
+    expect(trace.body.steps.map((s: any) => s.node)).toEqual(["input", "check", "mark", "$output", "$verify"]);
+    expect(trace.body.steps[2]).toMatchObject({ changed: true, data: { n: 0, ok: true } });
     const missing = await get(`${api}/packets/nope`);
     expect(missing.status).toBe(404);
     expect(missing.body).toMatchObject({ code: "not_found" });
@@ -101,7 +99,7 @@ describe("packets and dlq over /api", () => {
     const dlq = await get(`${api}/dlq`);
     expect(dlq.body.total).toBe(3);
     expect(dlq.body.packets[0]).toMatchObject({ state: "dead_lettered", node: "check" });
-    expect(dlq.body.packets[0].error.message).toBe("flaky is failing");
+    expect(dlq.body.packets[0].error.message).toBe("sh exited with code 1: flaky is failing");
 
     rmSync(flag);
     const replay = await post(`${api}/dlq/replay`, { ids: [ids[0]] });

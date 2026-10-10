@@ -6,14 +6,14 @@
 import { afterAll, expect, test } from "bun:test";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { Runner } from "@pipo/runner";
 import { sandbox, waitFor } from "../../runner/test/helpers";
+import { RustRunner } from "../../runner/test/rust";
 import { main } from "../src/cli";
 import { cmdLogs, findEngine } from "../src/lifecycle";
 
 const sb = sandbox();
 const pids: number[] = [];
-let runner: Runner | undefined;
+let runner: RustRunner | undefined;
 const alive = (pid: number) => {
   try {
     process.kill(pid, 0);
@@ -24,7 +24,7 @@ const alive = (pid: number) => {
 };
 const sleepyHome = join(sb.root, "sleepy-home");
 afterAll(async () => {
-  await runner?.stop().catch(() => {});
+  await runner?.kill().catch(() => {});
   for (const path of [
     ...["engine.json", "pushy.json", "direct.json"].map((f) => join(sb.home, "run", f)),
     join(sleepyHome, "run", "engine.json"),
@@ -125,8 +125,7 @@ test("--no-engine talks to a runner's control socket and marks output engine: do
   const file = pipe("direct");
   for (let attempt = 0; !runner; attempt++) {
     try {
-      runner = await Runner.open({ file, home: sb.home, listen: 0, log: () => {} });
-      await runner.start();
+      runner = await RustRunner.start(sb, file, "direct", { listen: null, timeoutMs: 30_000 });
     } catch (e) {
       runner = undefined;
       if (attempt > 0) throw e;
@@ -142,10 +141,10 @@ test("--no-engine talks to a runner's control socket and marks output engine: do
   const paused = await pipo("pause", "direct", "--no-engine", ...H);
   expect(paused.stdout).toContain("paused direct");
   expect(paused.stdout).toContain("engine: down");
-  expect(runner.state).toBe("paused");
+  expect((await runner.status()).state).toBe("paused");
   const resumed = json(await pipo("resume", "direct", "--no-engine", "--json", ...H));
   expect(resumed).toMatchObject({ ok: true, engine: "down", pipeline: "direct" });
-  expect(runner.state).toBe("active");
+  expect((await runner.status()).state).toBe("active");
 
   const nope = await pipo("pause", "ghost", "--no-engine", ...H);
   expect(nope.code).toBe(1);
@@ -154,7 +153,7 @@ test("--no-engine talks to a runner's control socket and marks output engine: do
 
   const stopped = await pipo("stop", "direct", "--no-engine", "--now", ...H);
   expect(stopped.code).toBe(0);
-  await waitFor(() => runner?.state === "stopped", 10_000, "runner to stop");
+  expect(await runner.proc.exited).toBe(0);
 }, 60_000);
 
 test("logs prints a pipeline's log, filters by node and follows", async () => {

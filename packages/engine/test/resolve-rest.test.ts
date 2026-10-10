@@ -22,23 +22,15 @@ afterAll(async () => {
 const NAME = "resolveapi";
 const flag = join(box.root, "fail.flag");
 writeFileSync(flag, "");
-box.write(
-  "fns.ts",
-  `import { existsSync } from "node:fs";
-export const flaky = (d) => {
-  if (existsSync(${JSON.stringify(flag)})) throw new Error("flaky is failing");
-  return { ...d, ok: true };
-};
-`,
-);
+// The `check` step fails while the flag file exists: an exec step, since a fn module has no file system.
+const gate = `{ command: sh, args: ["-c", 'if [ -e "$0" ]; then echo flaky is failing >&2; exit 1; fi', ${JSON.stringify(flag)}] }`;
 const file = box.write(
   `${NAME}.pipo`,
   `pipo: 1
 name: ${NAME}
-fn: ./fns.ts
 input: { via: push }
 nodes:
-  check: { from: input, transform: fn.flaky, on_error: { retry: 1, delay: 10ms, then: agent } }
+  check: { from: input, tap: exec, with: ${gate}, on_error: { retry: 1, delay: 10ms, then: agent } }
 output: { from: check, to: file, with: { path: ./${NAME}.jsonl, format: jsonl } }
 agent: { control: true }
 `,

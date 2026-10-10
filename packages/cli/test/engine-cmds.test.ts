@@ -1,16 +1,17 @@
 // `pipo runners`, `pipo attach`, `pipo engine start|stop|status` and the --json error shape (docs/spec.md §6, §7.2,
 // D35) in-process against a real engine in a sandbox home (found through run/engine.json). The engine and its
 // detached runner are killed by pid at the end. Subprocess output goes to files, never a pipe.
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { Runner } from "@pipo/runner";
 import { pidsWith, sandbox, waitFor } from "../../runner/test/helpers";
+import { RustRunner } from "../../runner/test/rust";
 import { main, runCli } from "../src/cli";
 
+setDefaultTimeout(60_000);
 const sb = sandbox();
 const pids: number[] = [];
-let direct: Runner | undefined;
+let direct: RustRunner | undefined;
 const alive = (pid: number) => {
   try {
     process.kill(pid, 0);
@@ -25,7 +26,7 @@ const entryPid = (home: string, name: string): number | null => {
 };
 const procsWithHome = (root: string): number[] => pidsWith(root);
 afterAll(async () => {
-  await direct?.stop().catch(() => {});
+  await direct?.kill().catch(() => {});
   for (const home of [sb.home, join(sb.root, "up-home")]) {
     for (const name of ["engine", "dlive"]) {
       const pid = entryPid(home, name);
@@ -81,8 +82,7 @@ test("without an engine: runners reads the registry and sockets, engine status a
   const file = pipe("dlive");
   for (let attempt = 0; !direct; attempt++) {
     try {
-      direct = await Runner.open({ file, home: sb.home, listen: 0, log: () => {} });
-      await direct.start();
+      direct = await RustRunner.start(sb, file, "dlive", { listen: null, timeoutMs: 30_000 });
     } catch (e) {
       direct = undefined;
       if (attempt > 0) throw e;
@@ -99,7 +99,7 @@ test("without an engine: runners reads the registry and sockets, engine status a
   const table = await pipo("runners", ...H);
   expect(table.code).toBe(0);
   expect(table.stdout).toMatch(/^NAME +PID +PORT +VERSION +STATE/);
-  expect(table.stdout).toMatch(new RegExp(`^dlive +${process.pid} +- +v1 +detached$`, "m"));
+  expect(table.stdout).toMatch(new RegExp(`^dlive +${direct.pid} +- +v1 +detached$`, "m"));
   expect(table.stdout).toMatch(/^ghost +4194000 +- +v1 +stale +⚠ .*pipo attach ghost/m);
   expect(table.stdout).toMatch(/^mute +\d+ +- +v1 +unreachable +⚠ .*pipo attach mute/m);
   expect(table.stdout).toMatch(/engine: down$/);

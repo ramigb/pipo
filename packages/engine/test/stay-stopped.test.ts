@@ -24,7 +24,10 @@ afterAll(async () => {
   box.cleanup();
 });
 
-box.write("fns.ts", "export const stuck = async (d) => { await Bun.sleep(30_000); return d; };\n");
+box.write(
+  "fns.ts",
+  "export const stuck = async (d) => { await new Promise((r) => setTimeout(r, 30_000)); return d; };\n",
+);
 const pipelineFile = (name: string, node = "") =>
   box.write(
     `${name}.pipo`,

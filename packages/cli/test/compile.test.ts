@@ -2,7 +2,6 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AGENTS } from "@pipo/spec";
-import { runningFileHashes } from "../../runner/src/versions";
 import { copyExampleDir, sandbox } from "../../runner/test/helpers";
 import { main } from "../src/cli";
 
@@ -153,8 +152,9 @@ test("schemas and file hashes: exactly what the runner records (D60)", async () 
   expect(out.schemas).toEqual({
     "./triage.schema.json": JSON.parse(readFileSync(join(dir, "triage.schema.json"), "utf8")),
   });
-  expect(out.files).toEqual(runningFileHashes(out.pipeline, dir));
-  expect(Object.keys(out.files)).toEqual(["./triage.schema.json"]);
+  // D60's file hashes: sha256 of each referenced file as it is on disk.
+  const schema = readFileSync(join(dir, "triage.schema.json"));
+  expect(out.files).toEqual({ "./triage.schema.json": new Bun.CryptoHasher("sha256").update(schema).digest("hex") });
 });
 
 test("agents: the home's config.yaml settings, with engine_budget and problems as data", async () => {

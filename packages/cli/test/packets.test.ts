@@ -2,17 +2,18 @@
 // started in the test (and its journal once it stopped), and end to end through an engine started on demand: a step
 // that fails the first time only dead-letters a packet, `pipo dlq replay` delivers it exactly once. Subprocess output
 // goes to files, never a pipe; an engine that never comes up is retried once.
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { Runner } from "@pipo/runner";
 import { sandbox, waitFor } from "../../runner/test/helpers";
+import { RustRunner } from "../../runner/test/rust";
 import { main } from "../src/cli";
 import { formatMs, table } from "../src/packets";
 
+setDefaultTimeout(60_000);
 const sb = sandbox();
 const pids: number[] = [];
-const runners: Runner[] = [];
+const runners: RustRunner[] = [];
 const alive = (pid: number) => {
   try {
     process.kill(pid, 0);
@@ -22,7 +23,7 @@ const alive = (pid: number) => {
   }
 };
 afterAll(async () => {
-  for (const r of runners) await r.stop().catch(() => {});
+  for (const r of runners) await r.kill().catch(() => {});
   for (const f of ["engine.json", "flow.json"]) {
     const path = join(sb.home, "run", f);
     if (existsSync(path)) pids.push(JSON.parse(readFileSync(path, "utf8")).pid);
@@ -57,18 +58,16 @@ const json = (r: Result) => JSON.parse(r.stdout);
 const H = ["--home", sb.home];
 const N = [...H, "--no-engine"];
 
-// `once` fails the first time it is called for a packet whose data has `fail: true`, then passes.
+// `once` fails the first time it is called for a packet whose data has `fail: true`, then passes; `calls` counts the
+// calls per packet (module state lasts as long as the runner process).
 sb.write(
   "fns.ts",
-  `import { existsSync, readFileSync, writeFileSync } from "node:fs";
-const counter = new URL("./calls.json", import.meta.url).pathname;
+  `const calls = {};
 export const once = (d) => {
-  const calls = existsSync(counter) ? JSON.parse(readFileSync(counter, "utf8")) : {};
   const key = String(d.n);
   calls[key] = (calls[key] ?? 0) + 1;
-  writeFileSync(counter, JSON.stringify(calls));
   if (d.fail && calls[key] === 1) throw new Error("first call fails");
-  return { ...d, checked: true };
+  return { ...d, checked: true, calls: calls[key] };
 };
 `,
 );
@@ -123,11 +122,10 @@ test("usage errors exit 64; bad JSON and missing files say what to do", async ()
 
 test("--no-engine: push, packets, inspect, dlq, replay and purge over the runner's socket; reads from the journal once stopped", async () => {
   const file = pipeline("direct");
-  let runner: Runner | undefined;
+  let runner: RustRunner | undefined;
   for (let attempt = 0; !runner; attempt++) {
     try {
-      runner = await Runner.open({ file, home: sb.home, log: () => {} });
-      await runner.start();
+      runner = await RustRunner.start(sb, file, "direct", { listen: null, timeoutMs: 30_000 });
     } catch (e) {
       runner = undefined;
       if (attempt > 0) throw e;
@@ -143,8 +141,8 @@ test("--no-engine: push, packets, inspect, dlq, replay and purge over the runner
   const failed = json(await pipo("push", "direct", "--file", join(sb.root, "data.json"), "--json", ...N));
   expect(failed).toMatchObject({ ok: true, engine: "down", pipeline: "direct", result: { state: "accepted" } });
   const dead = failed.result.packet_id as string;
-  await waitFor(() => runner?.journal.get(dead)?.state === "dead_lettered", 5000, "dead letter");
-  await waitFor(() => runner?.journal.get(ok)?.state === "delivered", 5000, "delivery");
+  await waitFor(() => runner?.packet(dead)?.state === "dead_lettered", 5000, "dead letter");
+  await waitFor(() => runner?.packet(ok)?.state === "delivered", 5000, "delivery");
 
   const list = await pipo("packets", "direct", ...N);
   expect(list.stdout).toMatch(/^PACKET +STATE +NODE +VER +ATT +RECEIVED +UPDATED +ERROR$/m);
@@ -162,7 +160,7 @@ test("--no-engine: push, packets, inspect, dlq, replay and purge over the runner
   expect(trace.code).toBe(0);
   expect(trace.stdout).toContain(`packet ${ok}  direct v1  delivered`);
   expect(trace.stdout).toMatch(/^ {2}\d\d:\d\d:\d\d\.\d{3} {2}input +accepted/m);
-  expect(trace.stdout).toMatch(/data \{"n":1,"checked":true\}/);
+  expect(trace.stdout).toMatch(/data \{"n":1,"checked":true,"calls":1\}/);
   expect(trace.stdout).toMatch(/output +written/);
   expect(trace.stdout).toMatch(/delivered +delivered/);
   expect((await pipo("inspect", "direct", "nope", ...N)).stderr).toContain("no packet 'nope'");
@@ -177,7 +175,7 @@ test("--no-engine: push, packets, inspect, dlq, replay and purge over the runner
   expect(replay.code).toBe(0);
   expect(replay.stdout).toContain("replayed 1 packet(s)");
   expect(replay.stdout).toContain(`${dead}  → check`);
-  await waitFor(() => runner?.journal.get(dead)?.state === "delivered", 5000, "replayed delivery");
+  await waitFor(() => runner?.packet(dead)?.state === "delivered", 5000, "replayed delivery");
   const again = await pipo("dlq", "replay", "direct", dead, ...N);
   expect(again.code).toBe(1);
   expect(again.stderr).toContain("not in the dead-letter queue");
@@ -186,7 +184,7 @@ test("--no-engine: push, packets, inspect, dlq, replay and purge over the runner
 
   // Another dead letter, purged.
   const third = json(await pipo("push", "direct", "--data", '{"n":3,"fail":true}', "--json", ...N)).result.packet_id;
-  await waitFor(() => runner?.journal.get(third)?.state === "dead_lettered", 5000, "third dead letter");
+  await waitFor(() => runner?.packet(third)?.state === "dead_lettered", 5000, "third dead letter");
   const purge = json(await pipo("dlq", "purge", "direct", "--all", "--json", ...N));
   expect(purge.result).toMatchObject({ purged: 1, packets: [third] });
   expect((await pipo("inspect", "direct", third, ...N)).stdout).toContain("purged from the dead-letter queue");
@@ -196,7 +194,7 @@ test("--no-engine: push, packets, inspect, dlq, replay and purge over the runner
   expect(ack.stderr).toContain("does not wait for an ack");
 
   // Stopped: reads come from the journal, writes need the runner.
-  await runner.stop();
+  expect(await runner.stop()).toBe(0);
   const offline = json(await pipo("packets", "direct", "--json", ...N));
   expect(offline).toMatchObject({ engine: "down", source: "journal", total: 2 });
   expect((await pipo("inspect", "direct", dead, ...N)).stdout).toContain(`packet ${dead}  direct v1  delivered`);
@@ -251,7 +249,7 @@ test("through an engine started on demand: a step that fails once dead-letters, 
   expect(json(await pipo("dlq", "replay", "flow", "--all", "--json", ...H)).result.replayed).toBe(0);
   await Bun.sleep(300);
   expect(written("flow").filter((r) => r.packet_id === id)).toHaveLength(1);
-  expect(JSON.parse(readFileSync(join(sb.root, "calls.json"), "utf8"))["7"]).toBe(2);
+  expect(written("flow").find((r) => r.packet_id === id)?.data.calls).toBe(2);
 
   expect((await pipo("stop", "flow", "--now", ...H)).code).toBe(0);
   await waitFor(
@@ -275,11 +273,10 @@ nodes:
 output: { from: [a, b], to: file, with: { path: ./fan.jsonl, format: jsonl } }
 `,
   );
-  const runner = await Runner.open({ file, home: sb.home, log: () => {} });
-  await runner.start();
+  const runner = await RustRunner.start(sb, file, "fan", { listen: null, timeoutMs: 30_000 });
   runners.push(runner);
   const id = json(await pipo("push", "fan", "--data", '{"n":1}', "--json", ...N)).result.packet_id as string;
-  await waitFor(() => runner.journal.get(id)?.state === "delivered", 5000, "delivery");
+  await waitFor(() => runner.packet(id)?.state === "delivered", 5000, "delivery");
 
   const text = (await pipo("inspect", "fan", id, ...N)).stdout;
   expect(text).toContain(`packet ${id}  fan v1  delivered`);

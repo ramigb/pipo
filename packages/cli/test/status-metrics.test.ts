@@ -1,14 +1,14 @@
 // `pipo status <name>` shows the built-in metrics (docs/spec.md §7.6, D54) and `--json` carries the raw fields, here
 // against a runner started in-process (--no-engine: the gateway passes the same runner `status` result through).
 import { afterAll, expect, test } from "bun:test";
-import { Runner } from "@pipo/runner";
 import { sandbox, waitFor } from "../../runner/test/helpers";
+import { RustRunner } from "../../runner/test/rust";
 import { main } from "../src/cli";
 
 const sb = sandbox();
-let runner: Runner | undefined;
+let runner: RustRunner | undefined;
 afterAll(async () => {
-  await runner?.stop().catch(() => {});
+  await runner?.kill().catch(() => {});
   sb.cleanup();
 });
 
@@ -34,11 +34,11 @@ test("pipo status <name> --json has latency per node and the oldest pending age;
     "mets.pipo",
     'pipo: 1\nname: mets\ninput: { via: push }\nnodes:\n  tidy: { from: input, transform: map, with: { data: { n: "${data.n}" } } }\noutput: { from: tidy, to: file, with: { path: ./mets.jsonl } }\n',
   );
-  runner = await Runner.open({ file, home: sb.home, listen: 0, log: () => {} });
-  await runner.start();
+  runner = await RustRunner.start(sb, file, "mets", { listen: null, timeoutMs: 30_000 });
   const r = runner;
-  for (const n of [1, 2]) await r.intake({ n }, { trigger: "push", source: "test" });
-  await waitFor(() => (r.journal.counts().delivered ?? 0) === 2, 10_000, "two deliveries");
+  const delivered = () => r.query<{ n: number }>("SELECT COUNT(*) AS n FROM packets WHERE state = 'delivered'")[0]?.n;
+  for (const n of [1, 2]) await r.push({ n });
+  await waitFor(() => delivered() === 2, 10_000, "two deliveries");
 
   let j = JSON.parse((await pipo("status", "mets", "--json", ...H)).stdout);
   let stats = j.pipelines[0].stats;
@@ -61,13 +61,13 @@ test("pipo status <name> --json has latency per node and the oldest pending age;
   // The list view keeps the spec's columns, without the detail block.
   expect((await pipo("status", ...H)).stdout).not.toContain("oldest pending");
 
-  r.pause("manual");
-  const pushed = await r.intake({ n: 3 }, { trigger: "push", source: "test" });
+  await r.request("pause");
+  const pushed = await r.push({ n: 3 });
   j = JSON.parse((await pipo("status", "mets", "--json", ...H)).stdout);
   stats = j.pipelines[0].stats;
   expect(stats.oldest_pending_age_ms).toBeGreaterThanOrEqual(0);
   expect(stats.oldest_pending_received_at).toBe(
-    new Date(r.journal.get((pushed as { packet_id: string }).packet_id)?.received_at as number).toISOString(),
+    new Date(r.packet(pushed.packet_id)?.received_at as number).toISOString(),
   );
   expect((await pipo("status", "mets", ...H)).stdout).toMatch(/^oldest pending: \d+s \(received \d{4}-/m);
-}, 30_000);
+}, 60_000);
