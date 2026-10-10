@@ -8,7 +8,7 @@ use crate::crashpoint::crash_point;
 use crate::expr::{evaluate, render, render_string, to_text, truthy};
 use crate::ids::ulid;
 use crate::journal::{BATCH_STEP, BRANCHED, ExtraEvent, IN_FLIGHT, NewPacket, OUTPUT_STEP, PacketPatch, VERIFY_STEP};
-use crate::pipeline::{NodeKind, fn_ref};
+use crate::pipeline::{Input, NodeKind, fn_ref};
 use crate::policy::{Attempted, ResolvedPolicy, StepError, attempt, resolve_policy};
 use std::time::Instant;
 
@@ -189,13 +189,16 @@ impl Batch {
 impl Runner {
     // ── intake ───────────────────────────────────────────────────────────────────
 
-    pub(super) fn intake_fn(&self) -> Intake {
+    /// The intake handed to input `name`'s adapter: every packet it brings is journaled as that input's (D76).
+    pub(super) fn intake_fn(&self, name: &str) -> Intake {
         let me = self.me.clone();
+        let name = name.to_string();
         Rc::new(move |payload: Value, origin: Origin, commit: Option<Commit>| {
             let me = me.clone();
+            let arrival = Arrival { input: name.clone(), chain: None };
             Box::pin(async move {
                 match me.upgrade() {
-                    Some(r) => r.intake(payload, origin, commit).await,
+                    Some(r) => r.intake(payload, origin, commit, arrival).await,
                     None => IntakeResult::Unavailable { reason: "pipeline is stopped".into() },
                 }
             })
@@ -215,7 +218,13 @@ impl Runner {
         })
     }
 
-    pub async fn intake(&self, payload: Value, origin: Origin, commit: Option<Commit>) -> IntakeResult {
+    pub async fn intake(
+        &self,
+        payload: Value,
+        origin: Origin,
+        commit: Option<Commit>,
+        arrival: Arrival,
+    ) -> IntakeResult {
         // The lifetime reason first: once a limit is reached the pipeline is draining, but the limit is the cause.
         if let Some(why) = self.s.borrow().lifetime_end {
             return IntakeResult::Unavailable { reason: self.lifetime_reason(why) };
@@ -235,22 +244,42 @@ impl Runner {
             Ok(p) => p,
             Err(e) => return IntakeResult::Unavailable { reason: format!("v{version} can't run: {e}") },
         };
+        let input_name = arrival.input.clone();
+        let Some(input) = plan.pipeline.input_named(&input_name).cloned() else {
+            return IntakeResult::Unavailable { reason: format!("v{version} has no input '{input_name}'") };
+        };
         let id = ulid();
         let received_at = now_ms();
-        let base = root_row(&id, version, payload.clone(), &origin, received_at);
-        let meta = self.meta(&plan, &base, "input", 1);
+        let upstream = arrival.chain.as_ref().map(|c| c.upstream.clone()).unwrap_or(Value::Null);
+        let base = root_row(&id, version, payload.clone(), &origin, received_at, &input_name, upstream);
+        let meta = self.meta(&plan, &base, &input_name, 1);
         let c = ctx(&payload, &meta, &self.env);
+        let node = Some(input_name.as_str());
+        // A chain's dedup row (D77) commits with the packet, accepted or rejected, before the sender hears back.
+        let inbox = arrival.chain.map(|c| (c.sender, c.key));
+        let commit: Option<Commit> = match (commit, inbox) {
+            (commit, None) => commit,
+            (commit, Some((sender, key))) => {
+                let (input, packet_id) = (input_name.clone(), id.clone());
+                Some(Box::new(move |j: &mut Journal| {
+                    if let Some(c) = commit {
+                        c(j)?;
+                    }
+                    j.inbox_put(&sender, &key, &input, &packet_id)
+                }))
+            }
+        };
 
-        if let Some(failed) = self.first_failed_rule(&plan, &payload, &c) {
-            let inv = plan.pipeline.input.on_invalid.clone();
+        if let Some(failed) = self.first_failed_rule(&plan, &input_name, &input, &payload, &c) {
+            let inv = input.on_invalid.clone();
             let mut ectx = c.clone();
             ectx["error"] =
-                json!({ "code": failed.code, "message": failed.message, "rule": failed.rule, "node": "input" });
+                json!({ "code": failed.code, "message": failed.message, "rule": failed.rule, "node": input_name });
             let message = self.message(inv.as_ref().and_then(|i| i.message.as_deref()), &ectx, &failed.message);
             let error = PacketError {
                 code: failed.code.clone(),
                 message: message.clone(),
-                node: Some("input".into()),
+                node: Some(input_name.clone()),
                 attempts: None,
             };
             let to_agent = inv.as_ref().and_then(|i| i.then.as_deref()) == Some("agent");
@@ -268,7 +297,7 @@ impl Runner {
                         "packet.escalated",
                         Some(json!({ "reason": "rejected", "waiting": false, "error": error_json })),
                         Some(&id),
-                        Some("input"),
+                        node,
                     )?;
                 }
                 Ok(())
@@ -294,7 +323,7 @@ impl Runner {
         if let Some(why) = self.s.borrow().lifetime_end {
             return IntakeResult::Unavailable { reason: self.lifetime_reason(why) };
         }
-        let first = plan.next_of("input").to_vec();
+        let first = plan.next_of(&input_name).to_vec();
         if first.len() == 1 {
             let mut commit = commit;
             let mut f = |j: &mut Journal| -> crate::journal::Result<()> {
@@ -326,8 +355,8 @@ impl Runner {
                 if let Some(c) = commit.take() {
                     c(j)?;
                 }
-                jev(j, "packet.fanned_out", Some(json!({ "branches": branches })), Some(&id), Some("input"))?;
-                j.insert_copies(&root, &copies, Some("input"))
+                jev(j, "packet.fanned_out", Some(json!({ "branches": branches })), Some(&id), node)?;
+                j.insert_copies(&root, &copies, node)
             };
             let r = self.journal.borrow_mut().insert(
                 &new_packet(&base, BRANCHED, None, None),
@@ -571,8 +600,8 @@ impl Runner {
         }
     }
 
-    fn first_failed_rule(&self, plan: &Plan, data: &Value, c: &Value) -> Option<Failure> {
-        if let Some(schema) = &plan.input_schema
+    fn first_failed_rule(&self, plan: &Plan, name: &str, input: &Input, data: &Value, c: &Value) -> Option<Failure> {
+        if let Some(schema) = plan.input_schemas.get(name)
             && let Some(e) = schema.check(data)
         {
             return Some(Failure {
@@ -582,7 +611,7 @@ impl Runner {
                 ..Default::default()
             });
         }
-        for rule in plan.pipeline.input.validate.clone().unwrap_or_default() {
+        for rule in input.validate.clone().unwrap_or_default() {
             match evaluate(&rule, c) {
                 Ok(v) if truthy(&v) => {}
                 Ok(_) => {
@@ -1510,6 +1539,7 @@ impl Runner {
             home: self.home.clone(),
             bots: self.bots.clone(),
             redact: self.redactor(),
+            input: None,
         };
         let adapter: Rc<dyn StepAdapter> = Rc::from(connectors::make_step(kind, action, &ctx).map_err(|e| e.0)?);
         self.steps.borrow_mut().insert(key, adapter.clone());
@@ -1830,7 +1860,13 @@ impl Runner {
             match self.output.verify(&check, &check_with, &item, &row.result).await {
                 Ok(true) => return end("delivered", "packet.delivered"),
                 Ok(false) => {}
-                Err(e) => last_error = Some(e),
+                Err(e) => {
+                    let done = self.output.is_final(&e);
+                    last_error = Some(e);
+                    if done {
+                        break;
+                    }
+                }
             }
             if now_ms() - started >= within as i64 {
                 break;
@@ -2032,6 +2068,7 @@ impl Runner {
             data: row.data.clone(),
             with: w.as_object().cloned().unwrap_or_default(),
             origin: Some(Origin { trigger: row.trigger.clone(), source: row.source.clone() }),
+            chain_depth: row.upstream.get("depth").and_then(|d| d.as_u64()).unwrap_or(0),
         })
     }
 
@@ -2173,7 +2210,15 @@ pub(super) fn jev(
 }
 
 /// A root packet as the input hands it over, before it is journaled.
-fn root_row(id: &str, version: i64, data: Value, origin: &Origin, received_at: i64) -> PacketRow {
+fn root_row(
+    id: &str,
+    version: i64,
+    data: Value,
+    origin: &Origin,
+    received_at: i64,
+    input: &str,
+    upstream: Value,
+) -> PacketRow {
     PacketRow {
         id: id.to_string(),
         version,
@@ -2192,6 +2237,8 @@ fn root_row(id: &str, version: i64, data: Value, origin: &Origin, received_at: i
         root: None,
         parent: None,
         branch: String::new(),
+        input: input.to_string(),
+        upstream,
     }
 }
 
@@ -2206,6 +2253,8 @@ fn new_packet(base: &PacketRow, state: &str, cursor: Option<String>, error: Opti
         source: base.source.clone(),
         error,
         received_at: base.received_at,
+        input: base.input.clone(),
+        upstream: base.upstream.clone(),
     }
 }
 

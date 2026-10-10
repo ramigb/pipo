@@ -14,6 +14,7 @@ const TOP = [
   "buffer",
   "errors",
   "input",
+  "inputs",
   "nodes",
   "output",
   "delivered",
@@ -23,7 +24,7 @@ const TOP = [
 ];
 const NODE = ["label", "from", "tap", "transform", "filter", "route", "agent", "with", "on_error", "loop"];
 const INPUT = ["via", "with", "format", "schema", "validate", "on_invalid"];
-const OUTPUT = ["from", "to", "with", "validate", "on_invalid", "on_error"];
+const OUTPUT = ["from", "to", "batch", "with", "validate", "on_invalid", "on_error"];
 
 const keyOf = (p: Pair) => (isScalar(p.key) ? String(p.key.value) : String(p.key));
 
@@ -61,6 +62,10 @@ export function formatPipo(source: string, file = "<input>"): string {
     for (const p of root.items) {
       const k = keyOf(p);
       if (k === "input" && isMap(p.value)) reorder(p.value, INPUT);
+      if (k === "inputs" && isMap(p.value)) {
+        for (const i of p.value.items) if (isMap(i.value)) reorder(i.value, INPUT);
+        spaced(p.value);
+      }
       if (k === "output" && isMap(p.value)) reorder(p.value, OUTPUT);
       if (k === "nodes" && isMap(p.value)) {
         for (const n of p.value.items) if (isMap(n.value)) reorder(n.value, NODE);

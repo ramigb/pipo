@@ -95,13 +95,29 @@ export interface Pipeline {
   concurrency?: number;
   buffer?: { max?: number };
   errors?: ErrorPolicy;
-  input: Input;
+  /** One input; shorthand for `inputs: { input: ... }` (§3.3.1). A file has exactly one of `input` and `inputs`. */
+  input?: Input;
+  inputs?: Record<string, Input>;
   nodes?: Record<string, Node>;
   output: Output;
   delivered?: Delivered;
   agent?: AgentPolicy;
   agent_budget?: { per_day?: number; reset_at?: string; per_packet?: number; warn_at?: string };
   retention?: { data?: string; trail?: string; rejected?: string; dlq?: string };
+}
+
+/** The most inputs a pipeline may have (§3.3.1, P060). */
+export const MAX_INPUTS = 16;
+
+/** A pipeline's inputs as `[name, input]` in file order: `input:` is the one input named `input` (§3.3.1, D76). */
+export function inputsOf(p: Pick<Pipeline, "input" | "inputs">): [string, Input][] {
+  if (p.inputs) return Object.entries(p.inputs);
+  return p.input ? [["input", p.input]] : [];
+}
+
+/** The path of input `name` in the file: `["input"]` for the `input:` shorthand, else `["inputs", name]`. */
+export function inputPath(p: Pick<Pipeline, "input" | "inputs">, name: string): (string | number)[] {
+  return p.inputs ? ["inputs", name] : ["input"];
 }
 
 /** The kind key a node declares, or undefined if it declares none. */

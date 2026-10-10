@@ -135,6 +135,7 @@ export class RustRunner {
       data: un(r.data),
       error: un(r.error) as PacketRow["error"],
       result: un(r.result),
+      upstream: un(r.upstream) as PacketRow["upstream"],
     };
   }
 

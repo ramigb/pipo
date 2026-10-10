@@ -96,6 +96,8 @@ fn apply_retention_in(
             for id in &ids {
                 out.events += tx.execute("DELETE FROM events WHERE packet_id = ?", [id])?;
                 out.deleted += tx.execute("DELETE FROM packets WHERE id = ?", [id])?;
+                // A chain's dedup row goes with its packet (D77).
+                tx.execute("DELETE FROM inbox WHERE packet_id = ?", [id])?;
             }
             tx.commit()?;
         }
@@ -157,6 +159,7 @@ mod tests {
              CREATE TABLE packets (id TEXT PRIMARY KEY, version INTEGER NOT NULL DEFAULT 1, state TEXT NOT NULL,
                data TEXT, result TEXT, updated_at INTEGER NOT NULL, parent TEXT);
              CREATE TABLE events (seq INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER, packet_id TEXT, type TEXT);
+             CREATE TABLE inbox (sender TEXT, key TEXT, input TEXT, packet_id TEXT, PRIMARY KEY (sender, key));
              INSERT INTO versions VALUES (1);",
         )
         .unwrap();
@@ -297,6 +300,7 @@ mod tests {
              CREATE TABLE packets (id TEXT PRIMARY KEY, version INTEGER NOT NULL DEFAULT 1, state TEXT NOT NULL,
                data TEXT, result TEXT, updated_at INTEGER NOT NULL, parent TEXT);
              CREATE TABLE events (seq INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER, packet_id TEXT, type TEXT);
+             CREATE TABLE inbox (sender TEXT, key TEXT, input TEXT, packet_id TEXT, PRIMARY KEY (sender, key));
              INSERT INTO versions VALUES (1);",
         )
         .unwrap();

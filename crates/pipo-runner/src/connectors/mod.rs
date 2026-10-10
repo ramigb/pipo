@@ -8,6 +8,7 @@ pub mod exec;
 pub mod file_out;
 pub mod http_input;
 pub mod http_out;
+pub mod pipeline_out;
 pub mod push;
 pub mod schedule;
 pub mod sqlite_out;
@@ -97,6 +98,9 @@ pub struct WriteItem {
     /// The output's `with:` block, rendered for this packet.
     pub with: Map<String, Value>,
     pub origin: Option<Origin>,
+    /// How many times the packet's data was handed from pipeline to pipeline before (`meta.upstream.depth`, 0 for
+    /// none); a `to: pipeline` write sends one more (D77).
+    pub chain_depth: u64,
 }
 
 pub trait OutputAdapter {
@@ -110,6 +114,10 @@ pub trait OutputAdapter {
         item: &'a WriteItem,
         result: &'a Value,
     ) -> LocalBoxFuture<'a, Result<bool, String>>;
+    /// Whether a `verify` error ends the check at once instead of being re-checked until `within` (D77).
+    fn is_final(&self, _error: &str) -> bool {
+        false
+    }
     fn close(&self) {}
 }
 
@@ -154,21 +162,44 @@ pub struct ConnectorContext {
     pub bots: Option<Rc<Bots>>,
     /// Hides secret values in text a step returns (exec's stdout and stderr).
     pub redact: Rc<dyn Fn(&str) -> String>,
+    /// Inputs only: the input's name and block (D76).
+    pub input: Option<(String, crate::pipeline::Input)>,
+}
+
+impl ConnectorContext {
+    /// The input's name (`input` when the context isn't an input's).
+    pub fn input_name(&self) -> &str {
+        self.input.as_ref().map(|(n, _)| n.as_str()).unwrap_or(crate::pipeline::DEFAULT_INPUT)
+    }
+
+    /// Where the input keeps its durable state: `<input>|<kind>:<key>` (D76).
+    pub fn scope(&self, kind_key: &str) -> String {
+        format!("{}{kind_key}", crate::journal::scope_prefix(self.input_name()))
+    }
 }
 
 /// A factory's settings can't work; the runner turns it into a start error.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConnectorError(pub String);
 
-pub const INPUTS: &[&str] = &["http", "push", "schedule", "system", "telegram", "watch"];
-pub const OUTPUTS: &[&str] = &["file", "http", "sqlite", "stdout", "telegram"];
+pub const INPUTS: &[&str] = &["http", "pipeline", "push", "schedule", "system", "telegram", "watch"];
+pub const OUTPUTS: &[&str] = &["file", "http", "pipeline", "sqlite", "stdout", "telegram"];
 pub const TAPS: &[&str] = &["emit", "exec", "file", "http", "telegram"];
 pub const TRANSFORMS: &[&str] = &["exec", "http"];
 
 pub fn make_input(ctx: &ConnectorContext) -> Result<Box<dyn InputAdapter>, ConnectorError> {
     let w = &ctx.with;
-    match ctx.pipeline.input.via.as_str() {
+    let via = ctx.input.as_ref().map(|(_, i)| i.via.as_str()).unwrap_or_default();
+    match via {
+        // A `pipeline` input is fed by the control op `deliver` (D77), like `push` by `push`: nothing to listen on.
         "push" => Ok(Box::new(push::PushInput)),
+        "pipeline" => Ok(Box::new(push::PipelineInput {
+            from: w
+                .get("from")
+                .and_then(|f| f.as_array())
+                .map(|a| a.iter().map(string_of).collect())
+                .unwrap_or_default(),
+        })),
         "http" => Ok(Box::new(http_input::HttpInput::from_context(ctx)?)),
         "schedule" => schedule::ScheduleInput::new(
             schedule::ScheduleOptions {
@@ -181,15 +212,18 @@ pub fn make_input(ctx: &ConnectorContext) -> Result<Box<dyn InputAdapter>, Conne
         )
         .map(|i| Box::new(i) as Box<dyn InputAdapter>)
         .map_err(|e| ConnectorError(format!("schedule input: {e}"))),
-        "watch" => Ok(Box::new(watch::WatchInput::new(watch::WatchOptions {
-            path: w.get("path").map(string_of).unwrap_or_default(),
-            dir: ctx.dir.clone(),
-            events: w.get("events").and_then(|e| e.as_array()).map(|a| a.iter().map(string_of).collect()),
-            read: w.get("read").and_then(|r| r.as_str()).map(str::to_owned),
-            debounce_ms: None,
-            poll_ms: None,
-            log: Some(ctx.log.clone()),
-        }))),
+        "watch" => Ok(Box::new(
+            watch::WatchInput::new(watch::WatchOptions {
+                path: w.get("path").map(string_of).unwrap_or_default(),
+                dir: ctx.dir.clone(),
+                events: w.get("events").and_then(|e| e.as_array()).map(|a| a.iter().map(string_of).collect()),
+                read: w.get("read").and_then(|r| r.as_str()).map(str::to_owned),
+                debounce_ms: None,
+                poll_ms: None,
+                log: Some(ctx.log.clone()),
+            })
+            .scoped(ctx.scope("")),
+        )),
         "system" => system::SystemInput::new(system::SystemOptions {
             every: w.get("every").map(string_of).unwrap_or_default(),
             metrics: w.get("metrics").and_then(|m| m.as_array()).map(|a| a.iter().map(string_of).collect()),
@@ -200,7 +234,7 @@ pub fn make_input(ctx: &ConnectorContext) -> Result<Box<dyn InputAdapter>, Conne
         .map_err(|e| ConnectorError(format!("system input: {e}"))),
         "telegram" => {
             let make = || -> Result<telegram::TelegramInput, String> {
-                let bot = crate::bots::pick_bot(ctx.bots.as_deref(), w, "input")?;
+                let bot = crate::bots::pick_bot(ctx.bots.as_deref(), w, &ctx.pipeline.input_path(ctx.input_name()))?;
                 telegram::TelegramInput::new(telegram::TelegramInputOptions {
                     bot,
                     allow: w.get("allow").and_then(|a| a.as_array()).map(|a| a.iter().filter_map(as_i64).collect()),
@@ -209,6 +243,7 @@ pub fn make_input(ctx: &ConnectorContext) -> Result<Box<dyn InputAdapter>, Conne
                     files_dir: ctx.home.join("pipelines").join(&ctx.pipeline.name).join("files"),
                     log: Some(ctx.log.clone()),
                 })
+                .map(|t| t.scoped(ctx.scope("")))
             };
             make()
                 .map(|i| Box::new(i) as Box<dyn InputAdapter>)
@@ -225,6 +260,7 @@ pub fn make_output(ctx: &ConnectorContext) -> Result<Box<dyn OutputAdapter>, Con
         "sqlite" => Ok(Box::new(sqlite_out::SqliteOutput::new(&ctx.dir))),
         "http" => Ok(Box::new(http_out::HttpOutput)),
         "telegram" => Ok(Box::new(telegram::TelegramOutput { bots: ctx.bots.clone(), dir: ctx.dir.clone() })),
+        "pipeline" => Ok(Box::new(pipeline_out::PipelineOutput::new(ctx.pipeline.name.clone(), ctx.home.clone()))),
         other => Err(ConnectorError(format!("no implementation for output '{other}'"))),
     }
 }

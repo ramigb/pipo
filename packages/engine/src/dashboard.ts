@@ -4,7 +4,8 @@
 // versions) read from the journal. Nothing here writes.
 import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { IN_FLIGHT, Journal, PENDING } from "@pipo/runner";
-import { load, type Pipeline, parseDuration } from "@pipo/spec";
+import { asList, inputsOf, load, type Pipeline, parseDuration } from "@pipo/spec";
+import { pinnedSource } from "./events";
 import type { RunnerInfo } from "./supervisor";
 
 export interface Lifetime {
@@ -103,6 +104,35 @@ const anchor = (path: string): number | null =>
       .get(...LIFETIME_ENDS) as { at: number } | null;
     return row ? row.at : null;
   });
+
+export interface Chain {
+  /** The pipeline this one's `to: pipeline` output feeds, or null. */
+  feeds: string | null;
+  /** The pipelines its `via: pipeline` inputs take packets from. */
+  fed_by: string[];
+}
+
+/** Who a pipeline feeds and who feeds it (§3.14, D77), from the version in force, else the file. */
+export function chainOf(info: RunnerInfo, journal: string): Chain {
+  let source = info.version === null ? null : pinnedSource(journal, info.version);
+  if (source === null) {
+    try {
+      source = readFileSync(info.file, "utf8");
+    } catch {
+      return { feeds: null, fed_by: [] };
+    }
+  }
+  const p = load(source).value as Pipeline | undefined;
+  if (!p || typeof p !== "object") return { feeds: null, fed_by: [] };
+  const to = p.output?.to === "pipeline" ? (p.output.with as { pipeline?: unknown } | undefined)?.pipeline : null;
+  const fedBy = inputsOf(p).flatMap(([, i]) =>
+    i.via === "pipeline" ? asList((i.with as { from?: unknown } | undefined)?.from as string[] | undefined) : [],
+  );
+  return {
+    feeds: typeof to === "string" ? to : null,
+    fed_by: [...new Set(fedBy.filter((s) => typeof s === "string"))],
+  };
+}
 
 export function lifetimeOf(info: RunnerInfo, journal: string, now = Date.now()): Lifetime {
   let ttl = info.ttl;

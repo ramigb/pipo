@@ -8,7 +8,7 @@ const DURATION = { type: "string", pattern: "^\\d+(\\.\\d+)?(ms|s|m|h|d)$", exam
 const EXPR = { type: "string", description: "Expression (docs/spec.md §3.2)" };
 const ID = { type: "string", pattern: "^[A-Za-z_][A-Za-z0-9_-]*$" };
 const FROM = {
-  description: "Where packets come from: input, a node id, a route branch (node.branch) or a list",
+  description: "Where packets come from: an input, a node id, a route branch (node.branch) or a list",
   type: ["string", "array"],
   items: { type: "string" },
   minItems: 1,
@@ -76,6 +76,21 @@ export function buildSchema(): JsonSchema {
     allOf: [...withFor("tap", TAPS), ...withFor("transform", TRANSFORMS), ...withFor("agent", AGENTS)],
   };
 
+  const input = {
+    type: "object",
+    properties: {
+      via: { enum: Object.keys(INPUTS) },
+      with: { type: "object" },
+      format: { enum: ["json", "text", "csv", "form", "bytes"] },
+      schema: { type: "string" },
+      validate: { type: "array", items: EXPR },
+      on_invalid: INVALID_POLICY,
+    },
+    required: ["via"],
+    additionalProperties: false,
+    allOf: withFor("via", INPUTS),
+  };
+
   return {
     $schema: "http://json-schema.org/draft-07/schema#",
     $id: "https://ramigb.com/pipo/schema/pipo-1.json",
@@ -105,19 +120,13 @@ export function buildSchema(): JsonSchema {
       concurrency: { type: "integer", minimum: 1 },
       buffer: { type: "object", properties: { max: { type: "integer", minimum: 1 } }, additionalProperties: false },
       errors: ERROR_POLICY,
-      input: {
+      input,
+      inputs: {
         type: "object",
-        properties: {
-          via: { enum: Object.keys(INPUTS) },
-          with: { type: "object" },
-          format: { enum: ["json", "text", "csv", "form", "bytes"] },
-          schema: { type: "string" },
-          validate: { type: "array", items: EXPR },
-          on_invalid: INVALID_POLICY,
-        },
-        required: ["via"],
-        additionalProperties: false,
-        allOf: withFor("via", INPUTS),
+        description: "Several inputs: input name → input (docs/spec.md §3.3.1)",
+        propertyNames: ID,
+        additionalProperties: input,
+        minProperties: 1,
       },
       nodes: { type: "object", propertyNames: ID, additionalProperties: node },
       output: {
@@ -190,7 +199,7 @@ export function buildSchema(): JsonSchema {
         additionalProperties: false,
       },
     },
-    required: ["pipo", "name", "input", "output"],
+    required: ["pipo", "name", "output"],
     additionalProperties: false,
   };
 }

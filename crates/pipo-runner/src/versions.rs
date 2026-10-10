@@ -163,20 +163,29 @@ pub fn bound_changes(current: &Pipeline, next: &Pipeline) -> Vec<String> {
     if current.name != next.name {
         out.push("name".to_string());
     }
-    let input = |p: &Pipeline| -> Map<String, Value> {
-        let mut m = serde_json::to_value(&p.input).ok().and_then(|v| v.as_object().cloned()).unwrap_or_default();
+    // Inputs are compared by name (D76): `input:` and `inputs: {input: …}` are the same input.
+    let bound = |i: &crate::pipeline::Input| -> Map<String, Value> {
+        let mut m = serde_json::to_value(i).ok().and_then(|v| v.as_object().cloned()).unwrap_or_default();
         for k in ["schema", "validate", "on_invalid"] {
             m.remove(k);
         }
         m
     };
-    let (a, b) = (input(current), input(next));
-    let mut keys: Vec<&String> = a.keys().chain(b.keys()).collect();
-    keys.sort();
-    keys.dedup();
-    for k in keys {
-        if differ(a.get(k).unwrap_or(&Value::Null), b.get(k).unwrap_or(&Value::Null)) {
-            out.push(format!("input.{k}"));
+    let names = |p: &Pipeline| p.inputs().into_iter().map(|(n, _)| n.to_string()).collect::<Vec<_>>();
+    let (before, after) = (names(current), names(next));
+    for name in before.iter().filter(|n| !after.contains(n)).chain(after.iter().filter(|n| !before.contains(n))) {
+        out.push(format!("inputs.{name}"));
+    }
+    for name in after.iter().filter(|n| before.contains(n)) {
+        let (Some(a), Some(b)) = (current.input_named(name), next.input_named(name)) else { continue };
+        let (a, b) = (bound(a), bound(b));
+        let mut keys: Vec<&String> = a.keys().chain(b.keys()).collect();
+        keys.sort();
+        keys.dedup();
+        for k in keys {
+            if differ(a.get(k).unwrap_or(&Value::Null), b.get(k).unwrap_or(&Value::Null)) {
+                out.push(format!("{}.{k}", next.input_path(name)));
+            }
         }
     }
     if current.output.to != next.output.to {
@@ -311,7 +320,21 @@ mod tests {
         next["input"]["with"] = json!({"listen": 2});
         next["concurrency"] = json!(8);
         next["output"]["to"] = json!("file");
-        assert_eq!(bound_changes(&pipeline(base), &pipeline(next)), vec!["input.with", "output.to", "concurrency"]);
+        assert_eq!(
+            bound_changes(&pipeline(base.clone()), &pipeline(next)),
+            vec!["input.with", "output.to", "concurrency"]
+        );
+        // Inputs go by name: the shorthand and a map with one input named `input` are the same (D76).
+        let mut named = base.clone();
+        named.as_object_mut().unwrap().remove("input");
+        named["inputs"] = json!({"input": base["input"].clone()});
+        assert!(bound_changes(&pipeline(base.clone()), &pipeline(named.clone())).is_empty());
+        let mut more = named.clone();
+        more["inputs"]["hook"] = json!({"via": "push"});
+        more["inputs"]["input"]["validate"] = json!(["false"]);
+        assert_eq!(bound_changes(&pipeline(named.clone()), &pipeline(more.clone())), vec!["inputs.hook"]);
+        more["inputs"]["input"]["with"] = json!({"listen": 3});
+        assert_eq!(bound_changes(&pipeline(named), &pipeline(more)), vec!["inputs.hook", "inputs.input.with"]);
     }
 
     #[test]

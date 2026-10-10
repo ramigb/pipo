@@ -130,7 +130,15 @@ describe("telegram", () => {
       "the ignored line",
     );
     expect(JSON.parse(readFileSync(join(s.box.home, "run", "echo.json"), "utf8")).telegram_bot).toBe("111");
-    const [packet] = r.query<{ trigger: string; state: string }>("SELECT trigger, state FROM packets");
+    // The fake answers the send before the runner commits the delivery.
+    const packet = await waitFor(
+      () =>
+        r
+          .query<{ trigger: string; state: string }>("SELECT trigger, state FROM packets")
+          .find((p) => p.state === "delivered"),
+      5000,
+      "the delivery",
+    );
     expect(packet).toEqual({ trigger: "telegram", state: "delivered" });
     expect(await r.stop()).toBe(0);
     expect(r.lines().join("\n") + r.stderr()).not.toContain(MAIN);

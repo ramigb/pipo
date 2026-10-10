@@ -232,11 +232,12 @@ export const COMMANDS: CommandHelp[] = [
   {
     name: "push",
     summary: "Push one packet into a running pipeline; prints its packet id once it is journaled",
-    usage: "pipo push <name> --data '{…}'|--file f [--source s]",
+    usage: "pipo push <name> --data '{…}'|--file f [--source s] [--input i]",
     flags: [
       ["--data <json>", "The packet's data, inline JSON"],
       ["--file <f>", "Read the packet's data (JSON) from a file"],
       ["--source <s>", "meta.source for the packet (default cli)"],
+      ["--input <i>", "The input the packet is for, when the pipeline has several (spec §3.3.1)"],
       ["--home <dir>", "Pipo home (default ~/.pipo, or PIPO_HOME)"],
       ["--no-engine", "Do not use the engine: talk to the runner's control socket"],
       JSON_FLAG,

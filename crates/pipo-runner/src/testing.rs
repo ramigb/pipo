@@ -31,7 +31,7 @@ const SECRET: &str = "***";
 /// `meta.source` unless the fixture sets it.
 const SOURCE: &str = "test";
 const FORM: &str = r#"a fixture is the packet's data as JSON, or {"data": …, "meta": {…}, "stubs": {…}}"#;
-const META_KEYS: &[&str] = &["trigger", "source", "received_at"];
+const META_KEYS: &[&str] = &["input", "trigger", "source", "received_at"];
 pub const TEST_OUTCOMES: &[&str] =
     &["delivered", "filtered", "rejected", "dead_lettered", "escalated", "paused", "halted", "failed"];
 const RANK: &[&str] = &["failed", "halted", "paused", "escalated", "dead_lettered", "delivered", "filtered"];
@@ -283,6 +283,8 @@ struct TestHooks<'a> {
     e: &'a ReplayEnv<'a>,
     trace: bool,
     fixture_data: Value,
+    /// The input the fixture comes in through (`meta.input`, D76).
+    input_name: String,
     stubs: Map<String, Value>,
     used: HashMap<String, usize>,
     place: String,
@@ -387,31 +389,26 @@ impl ReplayHooks for TestHooks<'_> {
         true
     }
     fn rejected(&mut self, f: Rejected) {
-        let inv = self.e.plan.pipeline.input.on_invalid.clone();
+        let step = f.meta.get("node").and_then(|n| n.as_str()).unwrap_or("input").to_string();
+        let inv = self.e.plan.pipeline.input_named(&step).and_then(|i| i.on_invalid.clone());
         let ctx = json!({
             "data": self.fixture_data, "meta": f.meta, "env": self.e.env,
-            "error": { "code": f.code, "rule": f.rule, "message": f.message, "node": "input" },
+            "error": { "code": f.code, "rule": f.rule, "message": f.message, "node": step },
         });
         let message = self.message(inv.as_ref().and_then(|i| i.message.as_deref()), &ctx, &f.message);
-        self.rejected = Some(StepError {
-            step: "input".into(),
-            code: f.code,
-            message,
-            rule: Some(f.rule),
-            attempts: None,
-            then: None,
-            hint: None,
-        });
+        self.rejected =
+            Some(StepError { step, code: f.code, message, rule: Some(f.rule), attempts: None, then: None, hint: None });
     }
     fn started(&mut self, u: &ReplayUnit, parent: Option<&ReplayUnit>) {
         let trace = self.trace;
         let from_parent = parent.and_then(|p| self.entries.get(&p.id)).and_then(|e| e.steps.clone());
         let data = self.fixture_data.clone();
+        let input_name = self.input_name.clone();
         let e = self.entry(u);
         if trace {
             e.steps = Some(match parent {
                 Some(_) => from_parent.unwrap_or_default(),
-                None => vec![json!({ "step": "input", "data": data })],
+                None => vec![json!({ "step": input_name, "data": data })],
             });
         }
     }
@@ -549,21 +546,33 @@ async fn run_fixture(
         opts: EvalOptions { clock: Clock::Fixed(now as f64) },
     };
     let meta = fx.meta.clone().unwrap_or_default();
+    // A fixture names its input with meta.input (D76); without it, the first.
+    let inputs = pipeline.inputs();
+    let input_name = match meta.get("input").and_then(|t| t.as_str()) {
+        Some(n) => n.to_string(),
+        None => inputs.first().map(|(n, _)| n.to_string()).unwrap_or_default(),
+    };
+    let Some(via) = pipeline.input_named(&input_name).map(|i| i.via.clone()) else {
+        let names = inputs.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", ");
+        return json!({
+            "fixture": fx.name, "outcome": "failed", "units": [], "taps": [], "calls": [],
+            "error": { "step": "input", "code": "fixture.input", "message": format!("meta.input '{input_name}' is not an input of {}", pipeline.name), "hint": format!("inputs: {names}") },
+        });
+    };
     let input = PacketInput {
         id: fx.name.clone(),
-        trigger: meta
-            .get("trigger")
-            .and_then(|t| t.as_str())
-            .map(str::to_owned)
-            .unwrap_or_else(|| pipeline.input.via.clone()),
+        trigger: meta.get("trigger").and_then(|t| t.as_str()).map(str::to_owned).unwrap_or(via),
         source: meta.get("source").and_then(|t| t.as_str()).unwrap_or(SOURCE).to_string(),
         received_at: meta.get("received_at").and_then(|t| t.as_f64()).map(|f| f as i64).unwrap_or(now),
         input: fx.data.clone(),
+        input_name: input_name.clone(),
+        upstream: Value::Null,
     };
     let mut h = TestHooks {
         e: &e,
         trace: opts.trace,
         fixture_data: fx.data.clone(),
+        input_name,
         stubs,
         used: HashMap::new(),
         place,

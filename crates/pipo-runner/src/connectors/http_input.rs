@@ -246,6 +246,10 @@ struct Inner {
     conns: RefCell<Vec<JoinHandle<()>>>,
     intake: RefCell<Option<Intake>>,
     await_terminal: RefCell<Option<AwaitTerminal>>,
+    /// The pipeline's other http inputs, served on this one's listener (D76).
+    siblings: RefCell<Vec<Rc<Inner>>>,
+    /// For a sibling: the input whose listener serves it.
+    host: RefCell<Option<std::rc::Weak<Inner>>>,
 }
 
 pub struct HttpInput {
@@ -264,8 +268,20 @@ impl HttpInput {
             conns: RefCell::default(),
             intake: RefCell::new(None),
             await_terminal: RefCell::new(None),
+            siblings: RefCell::default(),
+            host: RefCell::new(None),
         };
         HttpInput { inner: Rc::new(inner), accept: RefCell::new(None) }
+    }
+
+    /// Serve `other` on this input's listener: requests are matched to an input on path, then method (D76).
+    pub fn add_sibling(&self, other: &HttpInput) {
+        *other.inner.host.borrow_mut() = Some(Rc::downgrade(&self.inner));
+        self.inner.siblings.borrow_mut().push(other.inner.clone());
+    }
+
+    fn host(&self) -> Option<Rc<Inner>> {
+        self.inner.host.borrow().as_ref().and_then(|h| h.upgrade())
     }
 
     pub fn from_context(ctx: &ConnectorContext) -> Result<HttpInput, ConnectorError> {
@@ -287,7 +303,7 @@ impl HttpInput {
             method: w.get("method").and_then(|p| p.as_str()).unwrap_or("POST").to_string(),
             port,
             hostname: ctx.hostname.clone().unwrap_or_else(|| "127.0.0.1".into()),
-            format: ctx.pipeline.input.format.clone().unwrap_or_else(|| "json".into()),
+            format: ctx.input.as_ref().and_then(|(_, i)| i.format.clone()).unwrap_or_else(|| "json".into()),
             auth: auth.and_then(|a| a.get("header")).filter(|h| super::truthy(h)).map(|h| {
                 let equals =
                     auth.and_then(|a| a.get("equals")).filter(|e| !e.is_null()).map(string_of).unwrap_or_default();
@@ -356,17 +372,31 @@ impl Inner {
         }
     }
 
+    /// Route a request to this input or a sibling: by path, then by method.
     async fn handle(self: Rc<Self>, req: Request<Incoming>, peer: SocketAddr) -> Reply {
-        let o = &self.opts;
         let raw_path = req.uri().path();
         let trimmed = raw_path.trim_end_matches('/');
         let path = if trimmed.is_empty() { "/" } else { trimmed };
-        if path != self.route {
-            return reply(404, &json!({ "error": format!("no input at {path}") }), &[]);
+        let all: Vec<Rc<Inner>> = std::iter::once(self.clone()).chain(self.siblings.borrow().iter().cloned()).collect();
+        let here: Vec<&Rc<Inner>> = all.iter().filter(|i| i.route == path).collect();
+        if here.is_empty() {
+            let mut body = json!({ "error": format!("no input at {path}") });
+            if all.len() > 1 {
+                let routes: Vec<String> = all.iter().map(|i| format!("{} {}", i.opts.method, i.route)).collect();
+                body["hint"] = json!(format!("inputs here: {}", routes.join(", ")));
+            }
+            return reply(404, &body, &[]);
         }
-        if req.method().as_str() != o.method {
-            return reply(405, &json!({ "error": format!("use {}", o.method) }), &[("Allow", &o.method)]);
-        }
+        let method = req.method().as_str();
+        let Some(input) = here.iter().find(|i| i.opts.method == method).map(|i| (*i).clone()) else {
+            let allow = here.iter().map(|i| i.opts.method.clone()).collect::<Vec<_>>().join(", ");
+            return reply(405, &json!({ "error": format!("use {allow}") }), &[("Allow", &allow)]);
+        };
+        input.handle_here(req, peer).await
+    }
+
+    async fn handle_here(self: Rc<Self>, req: Request<Incoming>, peer: SocketAddr) -> Reply {
+        let o = &self.opts;
         if let Some((header, equals)) = &o.auth {
             let given = req.headers().get(header.as_str()).map(|v| v.as_bytes()).unwrap_or(b"");
             if !same_secret(given, equals.as_bytes()) {
@@ -547,6 +577,12 @@ impl InputAdapter for HttpInput {
     fn start(&self, intake: Intake, runtime: InputRuntime) -> LocalBoxFuture<'_, Result<(), String>> {
         Box::pin(async move {
             let inner = &self.inner;
+            if self.host().is_some() {
+                // A sibling: the host's listener serves it once its intake is set.
+                *inner.intake.borrow_mut() = Some(intake);
+                *inner.await_terminal.borrow_mut() = Some(runtime.await_terminal);
+                return Ok(());
+            }
             let o = &inner.opts;
             let listener = tokio::net::TcpListener::bind((o.hostname.as_str(), o.port)).await.map_err(|e| {
                 format!(
@@ -565,6 +601,10 @@ impl InputAdapter for HttpInput {
 
     fn stop(&self) -> LocalBoxFuture<'_, ()> {
         Box::pin(async move {
+            if self.host().is_some() {
+                *self.inner.intake.borrow_mut() = None;
+                return;
+            }
             let Some(accept) = self.accept.borrow_mut().take() else { return };
             self.inner.stop.stop();
             let _ = accept.await;
@@ -586,11 +626,12 @@ impl InputAdapter for HttpInput {
 
     fn describe(&self) -> String {
         let o = &self.inner.opts;
-        format!("{} http://{}:{}{}", o.method, o.hostname, self.inner.bound.get().unwrap_or(o.port), self.inner.route)
+        let bound = self.host().and_then(|h| h.bound.get()).or(self.inner.bound.get());
+        format!("{} http://{}:{}{}", o.method, o.hostname, bound.unwrap_or(o.port), self.inner.route)
     }
 
     fn port(&self) -> Option<u16> {
-        self.inner.bound.get()
+        if self.host().is_some() { None } else { self.inner.bound.get() }
     }
 }
 
@@ -707,6 +748,46 @@ mod tests {
                 reqwest::Client::new().post(&url).body("{}").send().await.is_err(),
                 "the port is closed after stop"
             );
+        });
+    }
+
+    #[test]
+    fn http_inputs_share_the_first_ones_listener() {
+        local(async {
+            let dir = TempDir::new();
+            let (first_intake, first) = recording_intake(accepted);
+            let (other_intake, other) = recording_intake(accepted);
+            let host = HttpInput::new(HttpOptions { path: "/people".into(), ..opts("json") });
+            let text = HttpInput::new(HttpOptions { path: "/notes".into(), ..opts("text") });
+            let get = HttpInput::new(HttpOptions { path: "/people".into(), method: "GET".into(), ..opts("text") });
+            host.add_sibling(&text);
+            host.add_sibling(&get);
+            host.start(first_intake, runtime(&dir)).await.unwrap();
+            let base = format!("http://127.0.0.1:{}/in/hin", host.port().unwrap());
+            // Not started yet: the route is there, but nothing takes its packets.
+            let (status, _, _) = post(&format!("{base}/notes"), "hi", &[]).await;
+            assert_eq!(status, 503);
+            text.start(other_intake.clone(), runtime(&dir)).await.unwrap();
+            get.start(other_intake, runtime(&dir)).await.unwrap();
+            assert_eq!((text.port(), get.port()), (None, None), "only the host reports the port");
+            assert!(text.describe().ends_with(&format!(":{}/in/hin/notes", host.port().unwrap())));
+            let (status, _, _) = post(&format!("{base}/people"), r#"{"a":1}"#, &[]).await;
+            assert_eq!(status, 202);
+            let (status, _, _) = post(&format!("{base}/notes"), "hi", &[]).await;
+            assert_eq!(status, 202);
+            assert_eq!(first.borrow().len(), 1);
+            assert_eq!(other.borrow()[0].0, json!("hi"));
+            let res = reqwest::Client::new().get(format!("{base}/people")).send().await.unwrap();
+            assert_eq!(res.status().as_u16(), 202, "same path, other method: the GET input");
+            let res = reqwest::Client::new().put(format!("{base}/people")).send().await.unwrap();
+            assert_eq!(res.status().as_u16(), 405);
+            assert_eq!(res.headers()["allow"], "POST, GET");
+            let (status, body, _) = post(&format!("{base}/nope"), "{}", &[]).await;
+            assert_eq!(status, 404);
+            assert_eq!(body["hint"], "inputs here: POST /in/hin/people, POST /in/hin/notes, GET /in/hin/people");
+            for i in [&get, &text, &host] {
+                i.stop().await;
+            }
         });
     }
 

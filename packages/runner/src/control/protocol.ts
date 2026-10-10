@@ -14,6 +14,7 @@ export const OPS = [
   "drain",
   "stop",
   "push",
+  "deliver",
   "ack",
   "events",
   "packets",

@@ -153,8 +153,10 @@ pub fn read_bots(home: &Path) -> Result<BotsFile, String> {
 /// Every telegram `with:` block of a pipeline (input, taps, output), with where it is.
 pub fn telegram_uses(p: &Pipeline) -> Vec<(String, Map<String, Value>)> {
     let mut out = vec![];
-    if p.input.via == "telegram" {
-        out.push(("input".to_string(), p.input.with.clone().unwrap_or_default()));
+    for (name, i) in p.inputs() {
+        if i.via == "telegram" {
+            out.push((p.input_path(name), i.with.clone().unwrap_or_default()));
+        }
     }
     for (id, n) in p.nodes.iter() {
         if n.tap.as_deref() == Some("telegram") {

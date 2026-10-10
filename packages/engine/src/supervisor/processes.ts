@@ -20,7 +20,7 @@ import {
   runnerBinaryAsync,
   runnerEnv,
 } from "@pipo/runner";
-import { formatDuration, type Pipeline } from "@pipo/spec";
+import { formatDuration, inputsOf, type Pipeline } from "@pipo/spec";
 import { EngineError } from "../errors";
 import { journalStop, lastEnd } from "../events";
 import { journalPath, logPath } from "../home";
@@ -397,8 +397,9 @@ export abstract class SupervisorProcesses extends SupervisorBase {
    * the gateway proxies `/in/<name>/…` to (D28). Without a gateway that input could never be reached: refused.
    */
   protected httpPort(pipeline: Pipeline, listen: number | undefined): number | undefined {
-    const declared = (pipeline.input.with as { listen?: unknown } | undefined)?.listen;
-    if (pipeline.input.via !== "http" || listen !== undefined || declared !== undefined) return listen;
+    const http = inputsOf(pipeline).filter(([, i]) => i.via === "http");
+    const declared = http.some(([, i]) => (i.with as { listen?: unknown } | undefined)?.listen !== undefined);
+    if (!http.length || listen !== undefined || declared) return listen;
     if (this.gateway) return 0;
     throw new EngineError(
       "invalid_pipeline",

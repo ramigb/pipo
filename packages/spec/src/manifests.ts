@@ -5,6 +5,7 @@
 type JsonSchema = Record<string, unknown>;
 
 const DURATION = { type: "string", pattern: "^\\d+(\\.\\d+)?(ms|s|m|h|d)$" };
+const PIPELINE_NAME = { type: "string", pattern: "^[a-z0-9][a-z0-9-]*$" };
 const HTTP_METHOD = { enum: ["GET", "POST", "PUT", "PATCH", "DELETE"] };
 
 // Chat bots (§3.13, D69): `bot` names one in `<home>/bots.json` (default: its default bot), `token` sets one inline.
@@ -78,6 +79,11 @@ export const INPUTS: Record<string, InputManifest> = {
     },
   },
   push: { description: "Packets pushed by `pipo push`, the UI or an agent", with: obj({}) },
+  // Chains (§3.14, D77): the pipelines allowed to feed this input with their `to: pipeline` output.
+  pipeline: {
+    description: "Packets from another pipeline's `to: pipeline` output",
+    with: obj({ from: { type: "array", items: PIPELINE_NAME, minItems: 1, uniqueItems: true } }, ["from"]),
+  },
   system: {
     description: "Operating system samples",
     with: obj(
@@ -298,6 +304,12 @@ export const OUTPUTS: Record<string, OutputManifest> = {
   },
   http: { description: "HTTP endpoint", with: HTTP_CALL, checks: ["status", "follow_up"], batch: false },
   telegram: { description: "Telegram message", with: TELEGRAM_SEND, checks: [], batch: false },
+  pipeline: {
+    description: "Another pipeline, fed through its `via: pipeline` input (§3.14)",
+    with: obj({ pipeline: PIPELINE_NAME, data: {} }, ["pipeline"]),
+    checks: ["downstream"],
+    batch: false,
+  },
   stdout: {
     description: "Standard output",
     with: obj({ format: { enum: ["jsonl", "json", "text"] } }),
@@ -344,6 +356,7 @@ export const CHECKS: Record<string, Manifest> = {
     description: "Write response status is in `success`",
     with: obj({ success: { type: "array" } }),
   },
+  downstream: { description: "The receiving pipeline delivered the packet", with: obj({}) },
   follow_up: {
     description: "A GET to `url` succeeds, or its body matches `match`",
     with: obj({ url: { type: "string" }, headers: { type: "object" }, success: { type: "array" }, match: {} }, ["url"]),

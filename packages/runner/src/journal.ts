@@ -48,6 +48,10 @@ export interface PacketRow {
   result: unknown;
   received_at: number;
   updated_at: number;
+  /** The input the packet came in through (D76); `input` for the `input:` shorthand and older journals. */
+  input: string;
+  /** For a packet from another pipeline: `{pipeline, packet_id, key, depth}` (D77); else null. */
+  upstream: { pipeline: string; packet_id: string | null; key: string; depth: number } | null;
 }
 
 export interface PacketPatch {
@@ -403,5 +407,7 @@ function decode(row: unknown): PacketRow {
     data: unjson(r.data),
     error: unjson(r.error) as PacketRow["error"],
     result: unjson(r.result),
+    input: typeof r.input === "string" ? r.input : "input",
+    upstream: (unjson(r.upstream) as PacketRow["upstream"]) ?? null,
   };
 }

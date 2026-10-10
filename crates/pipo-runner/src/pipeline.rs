@@ -262,7 +262,12 @@ pub struct Pipeline {
     pub buffer: Option<Buffer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub errors: Option<ErrorPolicy>,
-    pub input: Input,
+    /// One input, shorthand for `inputs: {input: ...}` (§3.3.1, D76). Read both through `inputs()`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<Input>,
+    /// Input name → input, in file order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inputs: Option<indexmap_like::Ordered<Input>>,
     /// Node id → node, in file order.
     #[serde(default)]
     pub nodes: indexmap_like::Nodes,
@@ -278,19 +283,28 @@ pub struct Pipeline {
 }
 
 pub mod indexmap_like {
-    //! Nodes in file order. serde_json's `preserve_order` keeps object order; this wraps it with typed nodes.
+    //! Nodes and inputs in file order. serde_json's `preserve_order` keeps object order; this wraps it with types.
     use super::Node;
+    use serde::de::DeserializeOwned;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
     use serde_json::{Map, Value};
 
-    #[derive(Debug, Clone, Default, PartialEq)]
-    pub struct Nodes(pub Vec<(String, Node)>);
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct Ordered<T>(pub Vec<(String, T)>);
 
-    impl Nodes {
-        pub fn get(&self, id: &str) -> Option<&Node> {
+    impl<T> Default for Ordered<T> {
+        fn default() -> Self {
+            Ordered(vec![])
+        }
+    }
+
+    pub type Nodes = Ordered<Node>;
+
+    impl<T> Ordered<T> {
+        pub fn get(&self, id: &str) -> Option<&T> {
             self.0.iter().find(|(k, _)| k == id).map(|(_, n)| n)
         }
-        pub fn iter(&self) -> impl Iterator<Item = (&String, &Node)> {
+        pub fn iter(&self) -> impl Iterator<Item = (&String, &T)> {
             self.0.iter().map(|(k, n)| (k, n))
         }
         pub fn is_empty(&self) -> bool {
@@ -301,7 +315,7 @@ pub mod indexmap_like {
         }
     }
 
-    impl Serialize for Nodes {
+    impl<T: Serialize> Serialize for Ordered<T> {
         fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
             let mut m = Map::new();
             for (k, n) in &self.0 {
@@ -311,16 +325,15 @@ pub mod indexmap_like {
         }
     }
 
-    impl<'de> Deserialize<'de> for Nodes {
+    impl<'de, T: DeserializeOwned> Deserialize<'de> for Ordered<T> {
         fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
             let m = Option::<Map<String, Value>>::deserialize(d)?.unwrap_or_default();
             let mut out = Vec::with_capacity(m.len());
             for (k, v) in m {
-                let n: Node =
-                    serde_json::from_value(v).map_err(|e| serde::de::Error::custom(format!("nodes.{k}: {e}")))?;
+                let n: T = serde_json::from_value(v).map_err(|e| serde::de::Error::custom(format!("{k}: {e}")))?;
                 out.push((k, n));
             }
-            Ok(Nodes(out))
+            Ok(Ordered(out))
         }
     }
 }
@@ -350,7 +363,28 @@ impl Pipeline {
     pub fn concurrency(&self) -> u32 {
         self.concurrency.unwrap_or(4)
     }
+
+    /// The inputs as (name, input) in file order: `input:` is the one input named `input` (§3.3.1, D76).
+    pub fn inputs(&self) -> Vec<(&str, &Input)> {
+        match (&self.inputs, &self.input) {
+            (Some(m), _) => m.iter().map(|(k, i)| (k.as_str(), i)).collect(),
+            (None, Some(i)) => vec![(DEFAULT_INPUT, i)],
+            (None, None) => vec![],
+        }
+    }
+
+    pub fn input_named(&self, name: &str) -> Option<&Input> {
+        self.inputs().into_iter().find(|(n, _)| *n == name).map(|(_, i)| i)
+    }
+
+    /// Where input `name` sits in the file, as a dotted path: `input`, or `inputs.<name>`.
+    pub fn input_path(&self, name: &str) -> String {
+        if self.inputs.is_some() { format!("inputs.{name}") } else { DEFAULT_INPUT.to_string() }
+    }
 }
+
+/// The name of the input `input:` declares, and of every packet's input before D76.
+pub const DEFAULT_INPUT: &str = "input";
 
 /// `fn.<name>` references (FN_REF in @pipo/spec): the export name, when `action` is one.
 pub fn fn_ref(action: &str) -> Option<&str> {

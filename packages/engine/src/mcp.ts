@@ -244,19 +244,25 @@ const TOOLS: Tool[] = [
     name: "push",
     title: "Push a packet",
     description:
-      "Push one packet (`data`, optional `source`) into the pipeline; answers with its packet_id once it is journaled. Needs `push` in agent.actions.",
+      "Push one packet (`data`, optional `source`, and `input` when the pipeline has several) into the pipeline; answers with its packet_id once it is journaled. Needs `push` in agent.actions.",
     scope: "operate",
     pipeline: true,
     action: "push",
     readOnly: false,
     inputSchema: input(
-      { pipeline: PIPELINE, data: { description: "The packet's data (any JSON)" }, source: { type: "string" } },
+      {
+        pipeline: PIPELINE,
+        data: { description: "The packet's data (any JSON)" },
+        source: { type: "string" },
+        input: { type: "string", description: "The input's name; needed when the pipeline has several" },
+      },
       ["pipeline", "data"],
     ),
     run({ args }) {
       return this.call("POST", `${at(args.pipeline)}/push`, {
         data: args.data,
         ...(args.source !== undefined && { source: args.source }),
+        ...(args.input !== undefined && { input: args.input }),
       });
     },
   },

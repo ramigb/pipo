@@ -8,7 +8,7 @@ use crate::connectors::{IntakeResult, Origin};
 use crate::journal::{IN_FLIGHT, OUTPUT_STEP, PacketRow, ReplayItem, ReplayLeaf};
 use crate::proposals::{Proposal, ProposalInput};
 use crate::runner::apply::How;
-use crate::runner::{RESOLVE_ACTIONS, Runner, RunnerState};
+use crate::runner::{Arrival, RESOLVE_ACTIONS, Runner, RunnerState};
 use crate::stats::{compute_metrics, compute_stats};
 use crate::time::{iso, now_ms};
 use serde_json::{Map, Value, json};
@@ -51,6 +51,126 @@ fn live(r: &Runner, op: &str) -> Result<(), ControlError> {
         ));
     }
     Ok(())
+}
+
+/// The input a `push` goes to (D76): `input` when given, else the one input, else the one `via: push` input.
+fn push_input(r: &Runner, given: Option<&Value>) -> Result<String, ControlError> {
+    let p = r.pipeline();
+    let inputs = p.inputs();
+    let names = || inputs.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", ");
+    match given {
+        Some(Value::String(name)) => {
+            if inputs.iter().any(|(n, _)| n == name) {
+                Ok(name.clone())
+            } else {
+                Err(ControlError::new("bad_request", format!("no input '{name}'"), format!("inputs: {}", names())))
+            }
+        }
+        Some(_) => {
+            Err(ControlError::new("bad_request", "`input` must be an input's name", format!("inputs: {}", names())))
+        }
+        None => {
+            if let [(only, _)] = inputs.as_slice() {
+                return Ok(only.to_string());
+            }
+            let push: Vec<&str> = inputs.iter().filter(|(_, i)| i.via == "push").map(|(n, _)| *n).collect();
+            match push.as_slice() {
+                [only] => Ok(only.to_string()),
+                _ => Err(ControlError::new(
+                    "bad_request",
+                    "this pipeline has several inputs; say which one the packet is for",
+                    format!("pass `input`, one of: {}", names()),
+                )),
+            }
+        }
+    }
+}
+
+/// How many hand-offs a packet may make along a chain before it is refused (§3.14, D77).
+pub const MAX_CHAIN_DEPTH: u64 = 16;
+
+/// `deliver` (§3.14, D77): a packet from another pipeline's `to: pipeline` output. Deduplicated on `(from, key)`
+/// in the transaction that journals it, so a repeated write gets back the packet it already made.
+async fn deliver(r: &Runner, args: &Map<String, Value>) -> Result<(Value, Option<super::server::After>), ControlError> {
+    live(r, "deliver")?;
+    let text = |k: &str| args.get(k).and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(str::to_owned);
+    let example = r#"{"op":"deliver","args":{"from":"people-intake","key":"01J…","data":{},"upstream":{"packet_id":"01J…","depth":1}}}"#;
+    let (Some(from), Some(key)) = (text("from"), text("key")) else {
+        return Err(ControlError::new("bad_request", "deliver needs `from` and `key`", example));
+    };
+    let data =
+        args.get("data").cloned().ok_or_else(|| ControlError::new("bad_request", "deliver needs `data`", example))?;
+    let upstream = args.get("upstream").and_then(|u| u.as_object()).cloned().unwrap_or_default();
+    let depth = upstream.get("depth").and_then(|d| d.as_u64()).unwrap_or(1).max(1);
+    let me = r.pipeline().name.clone();
+    if depth > MAX_CHAIN_DEPTH {
+        return Err(ControlError::new(
+            "rejected",
+            format!("packet from '{from}' has been handed on {depth} times; the most is {MAX_CHAIN_DEPTH}"),
+            "pipelines feed each other in a cycle; break the cycle, or end it with a filter",
+        ));
+    }
+    let p = r.pipeline();
+    let allowed = |i: &crate::pipeline::Input| {
+        i.via == "pipeline"
+            && i.with
+                .as_ref()
+                .and_then(|w| w.get("from"))
+                .and_then(|f| f.as_array())
+                .is_some_and(|f| f.iter().any(|s| s.as_str() == Some(from.as_str())))
+    };
+    let Some(input) = p.inputs().into_iter().find(|(_, i)| allowed(i)).map(|(n, _)| n.to_string()) else {
+        return Err(ControlError::new(
+            "rejected",
+            format!("pipeline '{me}' doesn't take packets from '{from}'"),
+            format!("add '{from}' to the `from` list of a `via: pipeline` input of '{me}', and restart it"),
+        ));
+    };
+    let found = r
+        .journal
+        .borrow()
+        .inbox_find(&from, &key)
+        .map_err(|e| ControlError::new("internal", e.to_string(), "try again"))?;
+    if let Some(id) = found {
+        let row = r.journal.borrow().get(&id).map_err(|e| ControlError::new("internal", e.to_string(), "try again"))?;
+        if let Some(row) = row.as_ref().filter(|row| row.state == "rejected") {
+            let mut e = ControlError::new(
+                "rejected",
+                row.error.as_ref().map(|e| e.message.clone()).unwrap_or_else(|| "rejected".into()),
+                format!("'{me}' rejected this packet when it first came; fix the data in '{from}'"),
+            );
+            e.packet_id = Some(id);
+            return Err(e);
+        }
+        let state = row.map(|r| r.state).unwrap_or_else(|| "gone".into());
+        return Ok((json!({ "packet_id": id, "duplicate": true, "state": state }), None));
+    }
+    let chain = crate::runner::ChainIn {
+        sender: from.clone(),
+        key: key.clone(),
+        upstream: json!({ "pipeline": from, "packet_id": upstream.get("packet_id").cloned().unwrap_or(Value::Null), "key": key, "depth": depth }),
+    };
+    let origin = Origin { trigger: "pipeline".into(), source: from.clone() };
+    match r.intake(data, origin, None, Arrival { input, chain: Some(chain) }).await {
+        IntakeResult::Accepted { packet_id } => {
+            Ok((json!({ "packet_id": packet_id, "duplicate": false, "state": "accepted" }), None))
+        }
+        IntakeResult::Rejected { packet_id, message, .. } => {
+            let mut e = ControlError::new(
+                "rejected",
+                message,
+                format!(
+                    "'{me}' journaled the packet as rejected; fix the data in '{from}', or check it earlier with output.validate"
+                ),
+            );
+            e.packet_id = Some(packet_id);
+            Err(e)
+        }
+        IntakeResult::Unavailable { reason } => {
+            let hint = unavailable_hint(&reason);
+            Err(ControlError::new("unavailable", reason, hint))
+        }
+    }
 }
 
 fn running(r: &Runner) -> bool {
@@ -363,7 +483,9 @@ pub async fn handle(
                     ));
                 }
             };
-            match r.intake(data, Origin { trigger: "push".into(), source }, None).await {
+            let input = push_input(r, args.get("input"))?;
+            match r.intake(data, Origin { trigger: "push".into(), source }, None, Arrival { input, chain: None }).await
+            {
                 IntakeResult::Accepted { packet_id } => plain(json!({ "packet_id": packet_id, "state": "accepted" })),
                 IntakeResult::Rejected { packet_id, message, .. } => {
                     let mut e = ControlError::new(
@@ -380,6 +502,7 @@ pub async fn handle(
                 }
             }
         }
+        "deliver" => deliver(r, args).await,
         "ack" => {
             let id = args.get("packet_id").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).ok_or_else(|| {
                 ControlError::new("bad_request", "ack needs `packet_id`", r#"{"op":"ack","args":{"packet_id":"01J…"}}"#)

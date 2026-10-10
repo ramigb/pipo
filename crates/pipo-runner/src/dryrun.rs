@@ -160,7 +160,12 @@ pub struct PacketInput {
     pub trigger: String,
     pub source: String,
     pub received_at: i64,
+    /// The payload as the input received it.
     pub input: Value,
+    /// The input it came through (D76).
+    pub input_name: String,
+    /// `meta.upstream` (D77), null unless it came from another pipeline.
+    pub upstream: Value,
 }
 
 /// What a replay runs with.
@@ -192,6 +197,8 @@ impl ReplayEnv<'_> {
             "attempt": attempt,
             "hops": u.hops,
             "iteration": u.iteration,
+            "input": p.input_name,
+            "upstream": p.upstream,
             "key": u.id,
         });
         if node == "output" {
@@ -284,9 +291,18 @@ pub async fn replay_packet(e: &ReplayEnv<'_>, p: &PacketInput, h: &mut dyn Repla
         iteration: 0,
         path: vec![],
     };
-    // Input: the schema and `validate` rules see the original payload.
-    let in_meta = e.meta(p, &root, "input", 1);
-    if let Some(schema) = &plan.input_schema
+    // Input: the schema and `validate` rules of the packet's own input see the original payload.
+    let in_meta = e.meta(p, &root, &p.input_name, 1);
+    let Some(input) = plan.pipeline.input_named(&p.input_name) else {
+        h.rejected(Rejected {
+            code: "input.unknown".into(),
+            rule: "input".into(),
+            message: format!("the pipeline has no input '{}'", p.input_name),
+            meta: in_meta,
+        });
+        return Ok(());
+    };
+    if let Some(schema) = plan.input_schemas.get(&p.input_name)
         && let Some(err) = schema.check(&p.input)
     {
         h.rejected(Rejected {
@@ -297,7 +313,7 @@ pub async fn replay_packet(e: &ReplayEnv<'_>, p: &PacketInput, h: &mut dyn Repla
         });
         return Ok(());
     }
-    for rule in plan.pipeline.input.validate.clone().unwrap_or_default() {
+    for rule in input.validate.clone().unwrap_or_default() {
         let ctx = json!({ "data": p.input, "meta": in_meta, "env": e.env });
         let message = match e.eval(&rule, &ctx) {
             Ok(true) => None,
@@ -311,7 +327,7 @@ pub async fn replay_packet(e: &ReplayEnv<'_>, p: &PacketInput, h: &mut dyn Repla
     }
 
     let mut queue: VecDeque<ReplayUnit> = VecDeque::new();
-    let first = plan.next_of("input").to_vec();
+    let first = plan.next_of(&p.input_name).to_vec();
     if first.len() == 1 {
         let u = ReplayUnit { cursor: first[0].clone(), ..root.clone() };
         h.started(&u, None);
@@ -634,6 +650,8 @@ struct Delivered {
     source: String,
     received_at: i64,
     input: Value,
+    input_name: String,
+    upstream: Value,
 }
 
 fn clip(s: &str) -> String {
@@ -649,7 +667,7 @@ fn delivered_packets(db: &Connection, n: u32) -> rusqlite::Result<(Vec<Delivered
     let mut picked = vec![];
     let mut skipped = 0;
     let mut page = db.prepare(
-        "SELECT id, version, trigger, source, received_at, data IS NULL AS cleared FROM packets
+        "SELECT id, version, trigger, source, received_at, data IS NULL AS cleared, input, upstream FROM packets
          WHERE branch = '' AND state = 'delivered' ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?",
     )?;
     let mut accepted = db.prepare(
@@ -659,14 +677,24 @@ fn delivered_packets(db: &Connection, n: u32) -> rusqlite::Result<(Vec<Delivered
     let mut offset = 0;
     // Skipped packets don't count towards N, but the scan is bounded so a journal emptied by retention stays cheap.
     while (picked.len() as i64) < n && offset < n * 4 {
-        type Row = (String, i64, String, String, i64, bool);
+        type Row = (String, i64, String, String, i64, bool, String, Option<String>);
         let rows: Vec<Row> = page
             .query_map([n, offset], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get::<_, i64>(5)? != 0))
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get::<_, i64>(5)? != 0,
+                    r.get(6)?,
+                    r.get(7)?,
+                ))
             })?
             .collect::<Result<_, _>>()?;
         let len = rows.len() as i64;
-        for (id, version, trigger, source, received_at, cleared) in rows {
+        for (id, version, trigger, source, received_at, cleared, input_name, upstream) in rows {
+            let upstream = upstream.and_then(|u| serde_json::from_str::<Value>(&u).ok()).unwrap_or(Value::Null);
             if picked.len() as i64 >= n {
                 break;
             }
@@ -675,7 +703,9 @@ fn delivered_packets(db: &Connection, n: u32) -> rusqlite::Result<(Vec<Delivered
                 if cleared { None } else { accepted.query_row([&id], |r| r.get(0)).optional()? };
             let data = patch.and_then(|t| serde_json::from_str::<Value>(&t).ok()).and_then(|p| p.get("data").cloned());
             match data {
-                Some(input) => picked.push(Delivered { id, version, trigger, source, received_at, input }),
+                Some(input) => {
+                    picked.push(Delivered { id, version, trigger, source, received_at, input, input_name, upstream })
+                }
                 None => skipped += 1,
             }
         }
@@ -801,7 +831,8 @@ impl ReplayHooks for DryHooks<'_> {
         false
     }
     fn rejected(&mut self, f: Rejected) {
-        self.reasons.push(reason(&self.root, "input", "input.rejected", &f.message));
+        let step = f.meta.get("node").and_then(|n| n.as_str()).unwrap_or("input").to_string();
+        self.reasons.push(reason(&self.root, &step, "input.rejected", &f.message));
     }
     fn tap(&mut self, u: &ReplayUnit, _id: &str, node: &Node, s: &Scope) -> Result<(), HookError> {
         // Mocked: rendered (so a template the proposal broke still fails) but never run, `fn` taps included.
@@ -884,6 +915,8 @@ async fn replay_delivered(db: &Connection, e: &ReplayEnv<'_>, p: Delivered) -> D
         source: p.source,
         received_at: p.received_at,
         input: p.input,
+        input_name: p.input_name,
+        upstream: p.upstream,
     };
     if let Err(err) = replay_packet(e, &input, &mut h).await {
         h.reasons.push(reason(&p.id, "replay", "node.failed", &err));

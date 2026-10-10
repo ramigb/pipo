@@ -47,12 +47,13 @@ impl SchemaCheck {
 pub struct Plan {
     pub version: i64,
     pub pipeline: Rc<Pipeline>,
-    /// Source ref (`input`, node id, `route.branch`) → the steps that consume it, in file order (nodes, then the
-    /// output). More than one is a fan-out: each consumer gets its own copy (spec §3.4, D22).
+    /// Source ref (an input name, node id, `route.branch`) → the steps that consume it, in file order (nodes, then
+    /// the output). More than one is a fan-out: each consumer gets its own copy (spec §3.4, D22).
     pub next: HashMap<String, Vec<String>>,
     /// `fn.<name>` refs this version uses; the code lives in the JsFns host under this version's number.
     pub fns: HashSet<String>,
-    pub input_schema: Option<SchemaCheck>,
+    /// Input name → its `schema` check, for the inputs that declare one (§3.3.1).
+    pub input_schemas: HashMap<String, SchemaCheck>,
     /// Agent node id → its output schema (`with.schema`, spec §3.4).
     pub agent_schemas: HashMap<String, SchemaCheck>,
     /// The fn module's hash as compiled, and its path as written (D60).
@@ -106,12 +107,14 @@ pub async fn build(version: i64, compiled: Rc<Compiled>, fns: &JsFns) -> Result<
 
     let schema =
         |path: &str| compiled.schemas.get(path).cloned().ok_or_else(|| format!("schema {path} was not compiled"));
-    let input_schema = match &pipeline.input.schema {
-        Some(path) => Some(
-            SchemaCheck::new(path, &schema(path)?, 1).map_err(|e| format!("input.schema {path} can't be used: {e}"))?,
-        ),
-        None => None,
-    };
+    let mut input_schemas = HashMap::new();
+    for (name, input) in pipeline.inputs() {
+        if let Some(path) = &input.schema {
+            let check = SchemaCheck::new(path, &schema(path)?, 1)
+                .map_err(|e| format!("{}.schema {path} can't be used: {e}", pipeline.input_path(name)))?;
+            input_schemas.insert(name.to_string(), check);
+        }
+    }
     let mut agent_schemas = HashMap::new();
     for (id, node) in pipeline.nodes.iter() {
         if node.agent.is_none() {
@@ -128,7 +131,7 @@ pub async fn build(version: i64, compiled: Rc<Compiled>, fns: &JsFns) -> Result<
         pipeline,
         next,
         fns: used,
-        input_schema,
+        input_schemas,
         agent_schemas,
         fn_hash: compiled.fn_module.as_ref().map(|m| m.hash.clone()),
         compiled,

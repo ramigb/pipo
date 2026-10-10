@@ -11,7 +11,17 @@ import { type Diagnostic, load, type Path } from "./load";
 import { AGENTS, FN_REF, OUTPUTS, supportedChecks, TAPS, TRANSFORMS } from "./manifests";
 import { buildSchema } from "./schema";
 import { untrustedReason } from "./trust";
-import { asList, NODE_KINDS, type Node, nodeKind, type Pipeline } from "./types";
+import {
+  asList,
+  type Input,
+  inputPath,
+  inputsOf,
+  MAX_INPUTS,
+  NODE_KINDS,
+  type Node,
+  nodeKind,
+  type Pipeline,
+} from "./types";
 
 export interface CheckOptions {
   file?: string;
@@ -42,65 +52,138 @@ export function checkFile(file: string, opts: { home?: string } = {}): Diagnosti
 }
 
 /**
- * Check several files as one project: each file's own diagnostics, plus P039 for a `listen` port two files share and
- * P056 for a telegram bot two files poll.
+ * Check several files as one project: each file's own diagnostics, plus P039 for a `listen` port two files share, P056
+ * for a telegram bot two files poll, and P064 for a chain link declared at one end only, or a cycle of chains.
  */
 export function checkProject(
   files: string[],
   opts: { home?: string } = {},
 ): { file: string; diagnostics: Diagnostic[] }[] {
   const results = files.map((file) => ({ file, diagnostics: checkFile(file, { home: opts.home }) }));
+  const loadedOk = results
+    .filter((r) => !r.diagnostics.some((d) => d.severity === "error"))
+    .map((r) => {
+      const loaded = load(readFileSync(r.file, "utf8"), r.file);
+      return { r, loaded, p: loaded.value as Pipeline };
+    });
+  const warn = (
+    r: (typeof results)[number],
+    loaded: ReturnType<typeof load>,
+    path: Path,
+    code: string,
+    message: string,
+    hint: string,
+    key = false,
+  ) => {
+    r.diagnostics.push({ file: r.file, ...loaded.locate(path, key), severity: "warning", code, message, hint, path });
+    r.diagnostics = sort(r.diagnostics);
+  };
   const owners = new Map<number, string>();
-  for (const r of results) {
-    if (r.diagnostics.some((d) => d.severity === "error")) continue;
-    const loaded = load(readFileSync(r.file, "utf8"), r.file);
-    const input = (loaded.value as Pipeline | undefined)?.input;
-    const port = input?.via === "http" ? (input.with as { listen?: unknown } | undefined)?.listen : undefined;
-    if (typeof port !== "number") continue;
-    const first = owners.get(port);
-    if (first === undefined) {
-      owners.set(port, r.file);
-      continue;
-    }
-    const path: Path = ["input", "with", "listen"];
-    r.diagnostics.push({
-      file: r.file,
-      ...loaded.locate(path),
-      severity: "warning",
-      code: "P039",
-      message: `port ${port} is also the listen port of ${displayPath(first)}; only one of them can bind it`,
-      hint: "give each pipeline its own port, or run them behind the engine gateway (`/in/<pipeline>`) and drop `listen`",
-      path,
-    });
-    r.diagnostics = sort(r.diagnostics);
-  }
-  // P056: Telegram lets one reader take a bot's messages, so two pipelines polling one bot can't both run.
   const pollers = new Map<string, string>();
-  for (const r of results) {
-    if (r.diagnostics.some((d) => d.severity === "error")) continue;
-    const loaded = load(readFileSync(r.file, "utf8"), r.file);
-    const input = (loaded.value as Pipeline | undefined)?.input;
-    if (input?.via !== "telegram") continue;
-    const w = (input.with ?? {}) as { bot?: unknown; token?: unknown };
-    const bot = w.token !== undefined ? `token ${String(w.token)}` : `bot '${String(w.bot ?? "default")}'`;
-    const first = pollers.get(bot);
-    if (first === undefined) {
-      pollers.set(bot, r.file);
-      continue;
+  for (const { r, loaded, p } of loadedOk) {
+    // A file's own inputs clash as P062 (an error), so each port and bot is counted once per file here.
+    const ports = new Set<number>();
+    const bots = new Set<string>();
+    for (const [name, input] of inputsOf(p)) {
+      const at = inputPath(p, name);
+      const port = input.via === "http" ? (input.with as { listen?: unknown } | undefined)?.listen : undefined;
+      if (typeof port === "number" && !ports.has(port)) {
+        ports.add(port);
+        const first = owners.get(port);
+        if (first === undefined) owners.set(port, r.file);
+        else
+          warn(
+            r,
+            loaded,
+            [...at, "with", "listen"],
+            "P039",
+            `port ${port} is also the listen port of ${displayPath(first)}; only one of them can bind it`,
+            "give each pipeline its own port, or run them behind the engine gateway (`/in/<pipeline>`) and drop `listen`",
+          );
+      }
+      // P056: Telegram lets one reader take a bot's messages, so two pipelines polling one bot can't both run.
+      if (input.via !== "telegram") continue;
+      const bot = botOf(input);
+      if (bots.has(bot)) continue;
+      bots.add(bot);
+      const first = pollers.get(bot);
+      if (first === undefined) pollers.set(bot, r.file);
+      else
+        warn(
+          r,
+          loaded,
+          [...at, "with"],
+          "P056",
+          `${bot.startsWith("token") ? "this telegram token" : `telegram ${bot}`} is also the input of ${displayPath(first)}; only one of them can poll it at a time`,
+          "give each pipeline its own bot (`with.bot`), or send from one bot and receive with another",
+          true,
+        );
     }
-    const path: Path = ["input", "with"];
-    r.diagnostics.push({
-      file: r.file,
-      ...loaded.locate(path, true),
-      severity: "warning",
-      code: "P056",
-      message: `${bot.startsWith("token") ? "this telegram token" : `telegram ${bot}`} is also the input of ${displayPath(first)}; only one of them can poll it at a time`,
-      hint: "give each pipeline its own bot (`with.bot`), or send from one bot and receive with another",
-      path,
-    });
-    r.diagnostics = sort(r.diagnostics);
+  }
+  // P064: both ends of a chain declare it (§3.14, D77). A name not in this run isn't checked: it may live elsewhere.
+  const byName = new Map(loadedOk.map((x) => [x.p.name, x]));
+  const feeds = (p: Pipeline) =>
+    p.output.to === "pipeline" ? String((p.output.with as { pipeline?: unknown })?.pipeline ?? "") : undefined;
+  const senders = (p: Pipeline) =>
+    inputsOf(p).flatMap(([name, i]) =>
+      i.via === "pipeline"
+        ? asList((i.with as { from?: string[] } | undefined)?.from).map((s, k) => ({
+            sender: s,
+            at: [...inputPath(p, name), "with", "from", k] as Path,
+          }))
+        : [],
+    );
+  for (const x of loadedOk) {
+    const to = feeds(x.p);
+    const target = to ? byName.get(to) : undefined;
+    if (to && target && !senders(target.p).some((s) => s.sender === x.p.name)) {
+      warn(
+        x.r,
+        x.loaded,
+        ["output", "with", "pipeline"],
+        "P064",
+        `pipeline '${to}' (${displayPath(target.r.file)}) has no \`via: pipeline\` input that lists '${x.p.name}', so it will refuse these packets`,
+        `add '${x.p.name}' to the \`from\` list of a \`via: pipeline\` input in ${displayPath(target.r.file)}`,
+      );
+    }
+    for (const s of senders(x.p)) {
+      const source = byName.get(s.sender);
+      if (source && feeds(source.p) !== x.p.name) {
+        warn(
+          x.r,
+          x.loaded,
+          s.at,
+          "P064",
+          `pipeline '${s.sender}' (${displayPath(source.r.file)}) doesn't send to '${x.p.name}': its output isn't \`to: pipeline\` with \`pipeline: ${x.p.name}\``,
+          `set its output to \`to: pipeline\` and \`with: { pipeline: ${x.p.name} }\`, or remove '${s.sender}' from this list`,
+        );
+      }
+    }
+    // Each pipeline feeds at most one other, so following `feeds` from here either ends or comes back.
+    const seen = [x.p.name];
+    for (let next = to; next && byName.has(next); next = feeds(byName.get(next)?.p as Pipeline)) {
+      if (next === x.p.name) {
+        warn(
+          x.r,
+          x.loaded,
+          ["output", "with", "pipeline"],
+          "P064",
+          `chain cycle: ${[...seen, next].join(" → ")}`,
+          "a packet that goes round a cycle is refused after 16 hand-offs; break the cycle, or make sure a filter ends it",
+        );
+        break;
+      }
+      if (seen.includes(next)) break;
+      seen.push(next);
+    }
   }
   return results;
+}
+
+/** How P056/P062 name the bot a telegram input polls. */
+function botOf(input: Input): string {
+  const w = (input.with ?? {}) as { bot?: unknown; token?: unknown };
+  return w.token !== undefined ? `token ${String(w.token)}` : `bot '${String(w.bot ?? "default")}'`;
 }
 
 export function check(source: string, opts: CheckOptions = {}): Diagnostic[] {
@@ -119,7 +202,7 @@ export function check(source: string, opts: CheckOptions = {}): Diagnostic[] {
 
   const value = loaded.value;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    report([], "P002", "a .pipo file must be a YAML mapping with pipo, name, input and output", {
+    report([], "P002", "a .pipo file must be a YAML mapping with pipo, name, input (or inputs) and output", {
       hint: "start the file with 'pipo: 1', 'name:', then 'input:' and 'output:' blocks; see docs/spec.md §5",
     });
     return out;
@@ -227,6 +310,110 @@ function semantics(p: Pipeline, report: Report, file: string | undefined, home?:
   const nodes: Record<string, Node> = p.nodes ?? {};
   const ids = Object.keys(nodes);
 
+  // Inputs (§3.3.1, D76)
+  if ((p.input === undefined) === (p.inputs === undefined)) {
+    report(
+      p.input ? ["inputs"] : [],
+      "P060",
+      p.input ? "declare `input` or `inputs`, not both" : "the pipeline has no input",
+      {
+        key: !!p.input,
+        hint: p.input
+          ? "keep `input:` for one input, or move it into `inputs:` under a name"
+          : "add an `input:` block (or `inputs:`, a map of name → input); see docs/spec.md §3.3",
+      },
+    );
+    return;
+  }
+  const inputs = inputsOf(p);
+  const inputNames = inputs.map(([n]) => n);
+  const at = (name: string): Path => inputPath(p, name);
+  if (inputs.length > MAX_INPUTS) {
+    report(["inputs"], "P060", `${inputs.length} inputs; a pipeline has at most ${MAX_INPUTS}`, {
+      key: true,
+      hint: "split the pipeline, or feed it from other pipelines through one `via: pipeline` input (§3.14)",
+    });
+  }
+  for (const name of inputNames) {
+    if (name === "output" || (name !== "input" && name in nodes)) {
+      report(
+        at(name),
+        "P061",
+        name === "output"
+          ? "'output' is reserved and can't be an input name"
+          : `input '${name}' has the name of a node`,
+        {
+          key: true,
+          hint: "inputs and nodes share one set of names, since `from:` refers to both; rename one of them",
+        },
+      );
+    }
+  }
+  const routes = new Map<string, string>();
+  const listens = new Map<number, string>();
+  const bots = new Map<string, string>();
+  const senders = new Map<string, string>();
+  for (const [name, input] of inputs) {
+    const w = (input.with ?? {}) as Record<string, unknown>;
+    if (input.via === "http") {
+      const route = `${String(w.method ?? "POST")} ${String(w.path ?? "/")}`;
+      const first = routes.get(route);
+      if (first !== undefined)
+        report([...at(name), "with"], "P062", `inputs '${first}' and '${name}' both take ${route}`, {
+          key: true,
+          hint: "http inputs share the runner's listener; give each its own `path` (or `method`)",
+        });
+      else routes.set(route, name);
+      if (typeof w.listen === "number") {
+        const other = [...listens].find(([port]) => port !== w.listen);
+        if (other)
+          report(
+            [...at(name), "with", "listen"],
+            "P062",
+            `input '${name}' listens on ${w.listen}, input '${other[1]}' on ${other[0]}`,
+            {
+              hint: "http inputs share one listener: set `listen` on one of them, or the same port on each",
+            },
+          );
+        listens.set(w.listen, name);
+      }
+    }
+    if (input.via === "telegram") {
+      const bot = botOf(input);
+      const first = bots.get(bot);
+      if (first !== undefined)
+        report(
+          [...at(name), "with"],
+          "P062",
+          `inputs '${first}' and '${name}' both poll telegram ${bot.startsWith("token") ? "this token" : bot}`,
+          {
+            key: true,
+            hint: "Telegram lets one reader take a bot's messages: use one input for the bot, and route on the data",
+          },
+        );
+      else bots.set(bot, name);
+    }
+    if (input.via === "pipeline") {
+      asList(w.from as string[] | undefined).forEach((sender, i) => {
+        const path: Path = [...at(name), "with", "from", i];
+        if (sender === p.name)
+          report(path, "P063", `pipeline '${p.name}' can't feed itself`, {
+            hint: "loop inside the pipeline with `loop: { back_to, until, max }` instead (§3.4)",
+          });
+        else if (senders.has(sender))
+          report(path, "P063", `'${sender}' already feeds input '${senders.get(sender)}'`, {
+            hint: "a sender feeds one input of a pipeline; remove it from one of the lists",
+          });
+        else senders.set(sender, name);
+      });
+    }
+  }
+  if (p.output.to === "pipeline" && (p.output.with as { pipeline?: unknown } | undefined)?.pipeline === p.name) {
+    report(["output", "with", "pipeline"], "P063", `pipeline '${p.name}' can't feed itself`, {
+      hint: "name another pipeline, whose `via: pipeline` input lists this one (§3.14)",
+    });
+  }
+
   // References and node kinds
   const edges = new Map<string, Set<string>>(); // source → consumers ("$output" for the output)
   const consumedBranches = new Map<string, Set<string>>();
@@ -241,16 +428,16 @@ function semantics(p: Pipeline, report: Report, file: string | undefined, home?:
     const list = asList(from);
     list.forEach((ref, i) => {
       const at: Path = Array.isArray(from) ? [...ownerPath, "from", i] : [...ownerPath, "from"];
-      if (ref === "input") {
-        addEdge("input", owner);
+      if (inputNames.includes(ref)) {
+        addEdge(ref, owner);
         return;
       }
       const [base = "", branch, ...rest] = ref.split(".");
       const target = nodes[base];
       if (!target || rest.length) {
-        const guess = closest(base, ["input", ...ids]);
-        report(at, "P010", `'${ref}' is not a node`, {
-          hint: guess ? `did you mean '${guess}'?` : `known: input, ${ids.join(", ")}`,
+        const guess = closest(base, [...inputNames, ...ids]);
+        report(at, "P010", `'${ref}' is not ${p.inputs ? "an input or a node" : "a node"}`, {
+          hint: guess ? `did you mean '${guess}'?` : `known: ${[...inputNames, ...ids].join(", ")}`,
         });
         return;
       }
@@ -351,10 +538,13 @@ function semantics(p: Pipeline, report: Report, file: string | undefined, home?:
   };
   const forward = (n: string) => edges.get(n) ?? [];
   const backward = (n: string) => [...edges].filter(([, to]) => to.has(n)).map(([from]) => from);
-  const fromInput = reach("input", forward);
+  const reached = new Map(inputNames.map((n) => [n, reach(n, forward)]));
+  const fromInput = new Set([...reached.values()].flatMap((r) => [...r]));
   const toOutput = reach("$output", backward);
+  const fromWhere = p.inputs ? "any input" : "input";
   for (const id of ids) {
-    if (!fromInput.has(id)) report(["nodes", id], "P020", `node '${id}' can't be reached from input`, { key: true });
+    if (!fromInput.has(id))
+      report(["nodes", id], "P020", `node '${id}' can't be reached from ${fromWhere}`, { key: true });
     if (!toOutput.has(id)) {
       report(["nodes", id], "P021", `node '${id}' never leads to the output`, {
         key: true,
@@ -362,7 +552,16 @@ function semantics(p: Pipeline, report: Report, file: string | undefined, home?:
       });
     }
   }
-  if (!fromInput.has("$output")) report(["output", "from"], "P020", "the output can't be reached from input");
+  if (!fromInput.has("$output")) report(["output", "from"], "P020", `the output can't be reached from ${fromWhere}`);
+  else if (p.inputs) {
+    for (const [name, r] of reached) {
+      if (r.has("$output")) continue;
+      report(at(name), "P021", `input '${name}' never leads to the output`, {
+        key: true,
+        hint: `take packets from it in a node or the output (from: ${name})`,
+      });
+    }
+  }
 
   for (const cycle of findCycles(ids, forward)) {
     report(["nodes", cycle[0] as string, "from"], "P022", `cycle ${cycle.join(" → ")}`, {
@@ -459,36 +658,17 @@ function semantics(p: Pipeline, report: Report, file: string | undefined, home?:
       hint: "e.g. `verify: last 20` dry-runs an agent's change on the last 20 delivered packets (docs/spec.md §9.3)",
     });
   }
-  if (p.input.on_invalid?.respond !== undefined && p.input.via !== "http") {
-    report(["input", "on_invalid", "respond"], "P035", "respond only applies to via: http", {
-      key: true,
-      hint: "remove `respond`, or set input.via to http",
-    });
-  }
-  // A telegram send with no chat_id replies to the chat a telegram input's packet came from (§3.13).
-  if (p.input.via !== "telegram") {
-    const sends: [Path, unknown][] = [
-      ...ids
-        .filter((id) => nodes[id]?.tap === "telegram")
-        .map((id): [Path, unknown] => [["nodes", id], nodes[id]?.with]),
-      ...(p.output.to === "telegram" ? [[["output"], p.output.with] as [Path, unknown]] : []),
-    ];
-    for (const [at, w] of sends)
-      if ((w as { chat_id?: unknown } | undefined)?.chat_id === undefined)
-        report(
-          [...at, ...(w ? ["with"] : [])],
-          "P057",
-          "telegram send without chat_id, and the input is not telegram",
-          {
-            key: true,
-            hint: "set with.chat_id (a reply goes back to the sender's chat only for packets from `via: telegram`)",
-          },
-        );
-  }
-  if (p.input.via === "schedule") {
-    const w = (p.input.with ?? {}) as { cron?: unknown; every?: unknown };
+  for (const [name, input] of inputs) {
+    if (input.on_invalid?.respond !== undefined && input.via !== "http") {
+      report([...at(name), "on_invalid", "respond"], "P035", "respond only applies to via: http", {
+        key: true,
+        hint: `remove \`respond\`, or set ${p.inputs ? `inputs.${name}` : "input"}.via to http`,
+      });
+    }
+    if (input.via !== "schedule") continue;
+    const w = (input.with ?? {}) as { cron?: unknown; every?: unknown };
     if ((w.cron === undefined) === (w.every === undefined)) {
-      report(["input", "with"], "P038", "schedule needs exactly one of `cron` or `every`", {
+      report([...at(name), "with"], "P038", "schedule needs exactly one of `cron` or `every`", {
         key: true,
         hint: "e.g. `every: 5m` or `cron: '0 9 * * 1-5'`",
       });
@@ -496,11 +676,35 @@ function semantics(p: Pipeline, report: Report, file: string | undefined, home?:
       try {
         parseCron(w.cron);
       } catch (e) {
-        report(["input", "with", "cron"], "P038", (e as Error).message, {
+        report([...at(name), "with", "cron"], "P038", (e as Error).message, {
           hint: "5 fields: minute hour day-of-month month day-of-week (UTC)",
         });
       }
     }
+  }
+  // A telegram send with no chat_id replies to the chat a telegram input's packet came from (§3.13), so every input
+  // whose packets can reach the send must be a telegram one.
+  const sends: [string, Path, unknown][] = [
+    ...ids
+      .filter((id) => nodes[id]?.tap === "telegram")
+      .map((id): [string, Path, unknown] => [id, ["nodes", id], nodes[id]?.with]),
+    ...(p.output.to === "telegram" ? [["$output", ["output"], p.output.with] as [string, Path, unknown]] : []),
+  ];
+  for (const [step, path, w] of sends) {
+    if ((w as { chat_id?: unknown } | undefined)?.chat_id !== undefined) continue;
+    const other = inputs.find(([name, i]) => i.via !== "telegram" && reached.get(name)?.has(step));
+    if (!other) continue;
+    report(
+      [...path, ...(w ? ["with"] : [])],
+      "P057",
+      p.inputs
+        ? `telegram send without chat_id, and input '${other[0]}' that reaches it is not telegram`
+        : "telegram send without chat_id, and the input is not telegram",
+      {
+        key: true,
+        hint: "set with.chat_id (a reply goes back to the sender's chat only for packets from `via: telegram`)",
+      },
+    );
   }
   if (p.output.to === "sqlite") {
     const w = (p.output.with ?? {}) as { key?: string; columns?: Record<string, unknown> };
@@ -514,7 +718,11 @@ function semantics(p: Pipeline, report: Report, file: string | undefined, home?:
   }
   const policies: [Path, string | undefined, string | null][] = [
     [["errors", "then"], p.errors?.then, "default"],
-    [["input", "on_invalid", "then"], p.input.on_invalid?.then, "input"],
+    ...inputs.map(([name, i]): [Path, string | undefined, string | null] => [
+      [...at(name), "on_invalid", "then"],
+      i.on_invalid?.then,
+      "input",
+    ]),
     [["output", "on_invalid", "then"], p.output.on_invalid?.then, "output"],
     [["output", "on_error", "then"], p.output.on_error?.then, "output"],
     [["delivered", "on_fail", "then"], p.delivered?.on_fail?.then, "delivered"],
@@ -554,9 +762,11 @@ function semantics(p: Pipeline, report: Report, file: string | undefined, home?:
   const templatesIn = (path: Path, value: unknown, vars: string[]) => {
     walkStrings(value, path, (at, s) => checkExpr(at, s, vars, true, p, report));
   };
-  for (const [i, v] of (p.input.validate ?? []).entries()) exprAt(["input", "validate", i], v, VARS.input);
-  templatesIn(["input", "with"], p.input.with, VARS.inputWith);
-  templatesIn(["input", "on_invalid", "message"], p.input.on_invalid?.message, [...VARS.input, "error"]);
+  for (const [name, input] of inputs) {
+    for (const [i, v] of (input.validate ?? []).entries()) exprAt([...at(name), "validate", i], v, VARS.input);
+    templatesIn([...at(name), "with"], input.with, VARS.inputWith);
+    templatesIn([...at(name), "on_invalid", "message"], input.on_invalid?.message, [...VARS.input, "error"]);
+  }
   templatesIn(["errors", "message"], p.errors?.message, [...VARS.node, "error"]);
   for (const id of ids) {
     const n = nodes[id] as Node;
@@ -578,7 +788,7 @@ function semantics(p: Pipeline, report: Report, file: string | undefined, home?:
 
   // Safety: literal credentials in with: blocks
   const withBlocks: [Path, unknown][] = [
-    [["input", "with"], p.input.with],
+    ...inputs.map(([name, i]): [Path, unknown] => [[...at(name), "with"], i.with]),
     [["output", "with"], p.output.with],
     [["delivered", "with"], p.delivered?.with],
     ...ids.map((id): [Path, unknown] => [["nodes", id, "with"], nodes[id]?.with]),
@@ -743,7 +953,7 @@ function checkFiles(p: Pipeline, nodes: Record<string, Node>, file: string, repo
     }
   }
   const files: [Path, unknown][] = [
-    [["input", "schema"], p.input.schema],
+    ...inputsOf(p).map(([name, i]): [Path, unknown] => [[...inputPath(p, name), "schema"], i.schema]),
     ...Object.entries(nodes).map(([id, n]): [Path, unknown] => [
       ["nodes", id, "with", "schema"],
       n.agent ? n.with?.schema : undefined,

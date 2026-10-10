@@ -29,6 +29,7 @@ const TOP = [
   "buffer",
   "errors",
   "input",
+  "inputs",
   "nodes",
   "output",
   "delivered",
@@ -47,10 +48,20 @@ const OPTIONS = { indent: 2, lineWidth: 0, flowCollectionPadding: false } as con
 type Order = { order: string[]; children?: (key: string) => Order | undefined };
 const NODE_ORDER: Order = { order: NODE };
 const NODES_ORDER: Order = { order: [], children: () => NODE_ORDER };
+const INPUT_ORDER: Order = { order: INPUT };
+const INPUTS_ORDER: Order = { order: [], children: () => INPUT_ORDER };
 const ROOT_ORDER: Order = {
   order: TOP,
   children: (k) =>
-    k === "input" ? { order: INPUT } : k === "output" ? { order: OUTPUT } : k === "nodes" ? NODES_ORDER : undefined,
+    k === "input"
+      ? INPUT_ORDER
+      : k === "inputs"
+        ? INPUTS_ORDER
+        : k === "output"
+          ? { order: OUTPUT }
+          : k === "nodes"
+            ? NODES_ORDER
+            : undefined,
 };
 
 const isPlain = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -109,7 +120,8 @@ function fresh(value: unknown): string {
   flowLists(doc.contents);
   if (isMap(doc.contents)) {
     spaced(doc.contents);
-    for (const p of doc.contents.items) if (keyOf(p) === "nodes" && isMap(p.value)) spaced(p.value);
+    for (const p of doc.contents.items)
+      if ((keyOf(p) === "nodes" || keyOf(p) === "inputs") && isMap(p.value)) spaced(p.value);
   }
   return doc.toString(OPTIONS);
 }

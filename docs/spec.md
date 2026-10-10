@@ -10,7 +10,7 @@
 
 ## 1. What Pipo is
 
-Pipo runs **continuous pipelines**. A pipeline has no "done" state, only **delivery**. Events come in from outside (webhooks, API calls, sensors, schedules, file changes) or from inside (CLI, UI, an agent). They pass through a small graph of nodes and are written to a destination: a database, a file or an API. An event counts as finished when Pipo can show it was delivered.
+Pipo runs **continuous pipelines**. A pipeline has no "done" state, only **delivery**. Events come in from outside (webhooks, API calls, sensors, schedules, file changes), from inside (CLI, UI, an agent) or from another pipeline (§3.14). They pass through a small graph of nodes and are written to a destination: a database, a file or an API. An event counts as finished when Pipo can show it was delivered.
 
 Pipo has four parts:
 
@@ -41,7 +41,8 @@ Pipo has four parts:
 
 | Term | Meaning |
 |---|---|
-| **Pipeline** | A named, versioned graph defined in a `.pipo` file: one `input`, any number of `nodes`, one `output`, and an optional `delivered` check. |
+| **Pipeline** | A named, versioned graph defined in a `.pipo` file: one or more inputs, any number of `nodes`, exactly one `output`, and an optional `delivered` check. |
+| **Chain** | Pipelines feeding each other: one pipeline's output (`to: pipeline`) is another's input (`via: pipeline`), handed over exactly once (§3.14). |
 | **Packet** | One unit of data moving through a pipeline. Every packet gets a ULID `packet_id` when it is accepted and is pinned to the pipeline version that accepted it. |
 | **Node** | A step in the graph. Its *kind* (`tap`, `transform`, `filter`, `route` or `agent`) says what it may do to the data. |
 | **Delivery** | A packet is **delivered** when the output connector reports a successful write *and* the `delivered` check passes. Delivered means done. |
@@ -96,7 +97,8 @@ lifetime: {...}         # optional — when the pipeline ends (§3.8)
 concurrency: 4          # optional — packets processed in parallel (default 4; 1 = FIFO)
 buffer: { max: 10000 }  # optional — max accepted-but-unprocessed packets
 errors: {...}           # optional — default error policy (§3.9)
-input: {...}            # required
+input: {...}            # one input, or:
+inputs: {...}           #   several, as a map of input name → input (§3.3.1); exactly one of the two is required
 nodes: {...}            # optional — map of node id → node
 output: {...}           # required
 delivered: {...}        # optional — delivery verification (§3.10); default `check: ack`
@@ -133,7 +135,7 @@ Templates are strings containing `${expr}`. When a whole value is a single `${ex
 | Variable | Available in | Contents |
 |---|---|---|
 | `data` | everywhere a packet exists | The packet payload as this step sees it. |
-| `meta` | same | `packet_id`, `branch` (fan-out path, empty when unbranched, D22), `pipeline`, `version`, `node`, `trigger`, `source`, `received_at`, `attempt`, `hops`, `iteration`, `key` (what the output writes the packet under: `packet_id`, `packet_id:<branch>` for a fan-out copy, or the explicit key from sqlite `columns` or an http `Idempotency-Key` header; D22, D44, D55) |
+| `meta` | same | `packet_id`, `branch` (fan-out path, empty when unbranched, D22), `pipeline`, `version`, `node`, `trigger`, `source`, `received_at`, `attempt`, `hops`, `iteration`, `input` (the name of the input the packet came from: `input` for a pipeline with one `input:`, §3.3.1), `upstream` (for a packet from another pipeline, `{pipeline, packet_id, key, depth}`; else null, §3.14), `key` (what the output writes the packet under: `packet_id`, `packet_id:<branch>` for a fan-out copy, or the explicit key from sqlite `columns` or an http `Idempotency-Key` header; D22, D44, D55) |
 | `env` | everywhere | Environment variables the engine allows through (`engine.env_allow`). |
 | `secrets` | `with:` blocks only | Resolved secrets (§3.7). They are never available in messages or logs. |
 | `output` | `output`, `delivered` | The output block, e.g. `output.with.table`. |
@@ -144,7 +146,7 @@ Templates are strings containing `${expr}`. When a whole value is a single `${ex
 
 ### 3.3 `input`
 
-Every pipeline has exactly one input. It defines how packets arrive, how they're parsed and what makes them valid.
+Every pipeline has at least one input. An input defines how packets arrive, how they're parsed and what makes them valid. Most pipelines have one, written as `input:`; several are declared under `inputs:` (§3.3.1).
 
 ```yaml
 input:
@@ -168,16 +170,51 @@ input:
 | `push` | `pipo push`, the UI or an agent (MCP) | none |
 | `system` | Sampling the operating system | `every`, `metrics: [cpu, memory, disk, battery, network]` |
 | `telegram` | A message to a Telegram bot (§3.13) | `bot` or `token`, `allow`, `poll_every`, `download` |
+| `pipeline` | Another pipeline's output (`to: pipeline`, §3.14) | `from`: the pipelines allowed to feed this input (required) |
 
 Each input's manifest carries a `sample`: what one packet's `data` looks like (`watch`, `system`, `telegram`; `schedule` sends its `payload`). `http` and `push` have none, since the sender decides, unless `schema` names a file (D70).
 
 By default, `http` answers `202 {"packet_id": "..."}` once the packet is in the journal. With `respond: delivered`, it waits for delivery up to `timeout` and returns the final state.
 
+#### 3.3.1 Several inputs
+
+`inputs:` is a map from input name to input, each written exactly like `input:`. `input:` is shorthand for an `inputs:` map with one input named `input`, so a file with one input never changes shape and `from: input` keeps working.
+
+```yaml
+inputs:
+  webhook:
+    via: http
+    with: { path: /people }
+    schema: ./person.schema.json
+  nightly:
+    via: schedule
+    with: { cron: "0 3 * * *", payload: { backfill: true } }
+nodes:
+  fetch:
+    from: nightly
+    transform: http
+    with: { url: "https://example.com/people" }
+  clean:
+    from: [webhook, fetch]     # fan-in: each packet flows through on its own
+    transform: fn.clean
+output:
+  from: clean
+  to: sqlite
+  with: { path: ./people.db, table: people }
+```
+
+- **Names** follow node ids (`[A-Za-z_][A-Za-z0-9_-]*`) and share their namespace: an input can't have the name of a node, nor be called `output` (P061). Nodes and the output take packets from an input by its name.
+- **Each input is its own edge.** It has its own `format`, `schema`, `validate` and `on_invalid`, its own `respond` (http), and its own durable state in the journal (the watch snapshot, the telegram update offset), so adding a second input never resets the first. `meta.input` names the input a packet came from, so a `route` can tell them apart; to give packets from different inputs one shape, put a `transform` after each before they meet.
+- **Shared by the pipeline.** One journal, one `buffer.max`, one `concurrency`, one `lifetime` (`max_packets` counts packets from every input) and one pause: while the pipeline is paused, every input still journals what it receives. When the buffer is full, each input pushes back in its own way: `http` answers 503, `telegram` and `watch` wait and try again, a `schedule` tick is skipped, `push` and `pipeline` answer `unavailable`.
+- **http inputs share the runner's one listener** (`/in/<pipeline><path>`), so two of them need different `path`s or `method`s, and `listen`, if set on more than one, must be the same port. Two telegram inputs of one pipeline can't poll the same bot. Either clash is P062.
+- **`push`** (`pipo push`, MCP, the dashboard) names the input with `input`; it may be left out when there is one input, or exactly one `via: push` input.
+- A pipeline has at most 16 inputs.
+
 ### 3.4 `nodes`
 
 `nodes` is a map from node id to node. Each node has:
 
-- **`from`** (required): where its packets come from. This can be `input`, a node id, a route branch (`triage.urgent`) or a list of these (fan-in: each packet flows through on its own).
+- **`from`** (required): where its packets come from. This can be an input (`input`, or a name from `inputs:`), a node id, a route branch (`triage.urgent`) or a list of these (fan-in: each packet flows through on its own).
 - **Exactly one kind key**, listed in the table below.
 - `with`, `on_error`, `loop` and `label` (optional).
 
@@ -223,12 +260,12 @@ loop:
 
 ### 3.5 `output`
 
-Every pipeline has exactly **one** output in v1. Side effects that need no verification belong in `tap` nodes. The **envelope is the same for every connector**. Only `with:` differs, and it is checked against that connector's schema. The `output` block is designed so that a later `outputs:` map of named outputs can be added without breaking existing files.
+Every pipeline has exactly **one** output, by design (D78): it is where a packet is written once and verified, so "delivered" always means one thing. Side effects that need no verification belong in `tap` nodes. When data has to reach a second destination with the same guarantees, send it to another pipeline (`to: pipeline`, §3.14), whose own output writes and verifies it. The **envelope is the same for every connector**. Only `with:` differs, and it is checked against that connector's schema.
 
 ```yaml
 output:
   from: <node | [nodes]>
-  to: sqlite                # sqlite | file | http | stdout | telegram | (phase 2: postgres, s3, queue, mqtt)
+  to: sqlite                # sqlite | file | http | stdout | telegram | pipeline | (phase 2: postgres, s3, queue, mqtt)
   batch:                    # optional — write several packets in one go (§3.5.1)
     size: 100
     within: 2s
@@ -245,6 +282,7 @@ output:
 | `http` | `method`, `url`, `headers`, `body`, `success: [200-299]` | Sends an `Idempotency-Key: <packet_id>` header |
 | `stdout` | `format` | none |
 | `telegram` | `bot` or `token`, `chat_id`, `text`, `photo`, `document`, `parse_mode` (§3.13) | none: a crash between the send and its commit sends it again |
+| `pipeline` | `pipeline` (required: the pipeline to feed), `data` (template; default the packet's `data`) (§3.14) | The receiving pipeline keeps the key (`meta.key`) of every packet it took from this one, so a repeated write gets back the packet it already has |
 
 #### 3.5.1 Batching
 
@@ -344,20 +382,21 @@ delivered:
 
 **Compatibility matrix.** `pipo check` rejects any combination that isn't listed here:
 
-| Check | sqlite | file | http | stdout | Meaning |
-|---|:-:|:-:|:-:|:-:|---|
-| `ack` (default) | ✓ | ✓ | ✓ | ✓ | The connector's own success report is enough. |
-| `record_exists` | ✓ | | | | A row matching `with.where` exists. |
-| `row_count` | ✓ | | | | `with.query` returns at least `with.min` rows. |
-| `query` | ✓ | | | | A custom SQL query returns true. |
-| `file_exists` | | ✓ | | | `with.path` exists. |
-| `file_nonempty` | | ✓ | | | `with.path` exists and its size is greater than 0. |
-| `line_contains` | | ✓ | | | The file contains a line with `with.value`. |
-| `checksum` | | ✓ | | | The file hash equals `with.sha256`. |
-| `status` | | | ✓ | | The write response status is in `with.success`. |
-| `follow_up` | | | ✓ | | A GET to `with.url` returns success, or a body matching `with.match`. |
-| `external` | ✓ | ✓ | ✓ | ✓ | Wait for an outside acknowledgement (`pipo ack`, `POST /api/.../ack` or MCP) within `within`. |
-| `none` | ✓ | ✓ | ✓ | ✓ | Don't verify. Use it with `lifetime` when something outside Pipo checks the results. |
+| Check | sqlite | file | http | stdout | pipeline | Meaning |
+|---|:-:|:-:|:-:|:-:|:-:|---|
+| `ack` (default) | ✓ | ✓ | ✓ | ✓ | ✓ | The connector's own success report is enough. For `pipeline`: the receiving pipeline has journaled the packet. |
+| `record_exists` | ✓ | | | | | A row matching `with.where` exists. |
+| `row_count` | ✓ | | | | | `with.query` returns at least `with.min` rows. |
+| `query` | ✓ | | | | | A custom SQL query returns true. |
+| `file_exists` | | ✓ | | | | `with.path` exists. |
+| `file_nonempty` | | ✓ | | | | `with.path` exists and its size is greater than 0. |
+| `line_contains` | | ✓ | | | | The file contains a line with `with.value`. |
+| `checksum` | | ✓ | | | | The file hash equals `with.sha256`. |
+| `status` | | | ✓ | | | The write response status is in `with.success`. |
+| `follow_up` | | | ✓ | | | A GET to `with.url` returns success, or a body matching `with.match`. |
+| `downstream` | | | | | ✓ | The receiving pipeline delivered the packet (end to end, §3.14). |
+| `external` | ✓ | ✓ | ✓ | ✓ | ✓ | Wait for an outside acknowledgement (`pipo ack`, `POST /api/.../ack` or MCP) within `within`. |
+| `none` | ✓ | ✓ | ✓ | ✓ | ✓ | Don't verify. Use it with `lifetime` when something outside Pipo checks the results. |
 
 **`with:` fields per check.** All values are templates, rendered per packet.
 
@@ -371,6 +410,7 @@ delivered:
 | `checksum` | `sha256` (required): 64 hex characters, case-insensitive; `path` as above |
 | `status` | `success`: status list as in §3.5 (`204`, `"2xx"`, `"200-299"`); default `2xx` |
 | `follow_up` | `url` (required); `headers`; `success` (default `2xx`); `match`: text the body must contain, or an object that must be a subset of the JSON body |
+| `downstream` | none |
 
 Check queries run on a read-only connection, so a check can never change data. Put data in `params`, never into the SQL text. A check that cannot run (bad SQL, unreadable file, unreachable `follow_up` URL) counts as a failed attempt and is retried until `within`; its message becomes the error.
 
@@ -437,6 +477,41 @@ output:
 - **One poller per bot.** Telegram lets one reader take a bot's updates. A runner records the bot id it polls in its registry entry (`telegram_bot`), and a second pipeline polling the same bot refuses to start, naming the first. `pipo check` on several files warns about it (P056). Sending needs no poll, so any number of pipelines can send with one bot.
 
 ---
+
+### 3.14 Chains: one pipeline feeding another
+
+A pipeline's output can be another pipeline's input. This is how one stream reaches several verified destinations, and how a large pipeline is split into parts that are versioned, paused and restarted on their own. Both ends declare the link (D77):
+
+```yaml
+# people-intake.pipo: the sender
+output:
+  from: clean
+  to: pipeline
+  with: { pipeline: people-store }
+delivered:
+  check: downstream          # optional: wait until people-store has delivered it
+  within: 2m
+```
+
+```yaml
+# people-store.pipo: the receiver
+inputs:
+  intake:
+    via: pipeline
+    with: { from: [people-intake] }
+    schema: ./person.schema.json
+  webhook:
+    via: http
+    with: { path: /people }
+```
+
+- **Both ends declare it.** The receiving input lists the pipelines allowed to feed it in `with.from`; anything else is refused (`rejected`, nothing journaled). One pipeline can't list the same sender in two inputs, and can't feed itself (P063). `pipo check` on several files (a folder) warns when a pipeline names another one in the same check that doesn't name it back, and when chains form a cycle (P064).
+- **Same home.** The sender finds the receiver through its registry entry (`<home>/run/<name>.json`) and writes over its control socket (op `deliver`, §7.2). Both must run under the same Pipo home; distributed engines (§12) will carry chains across machines.
+- **Handed over exactly once.** The receiver journals the packet (or its rejection) with the sender's name and key (`meta.key`) in one transaction before it answers. A write repeated after a crash or a retry gets the packet it already made (`duplicate: true`). The sender then commits the write with the result `{pipeline, packet_id, duplicate}`. So across the hand-off, each sender unit (a packet or a fan-out copy) becomes exactly one receiver packet.
+- **When the write fails.** A receiver that isn't running, is draining or stopping, or has a full buffer, is the write error `downstream_unavailable`, with a hint to start it. The output's `on_error` retries it, packets wait in the sender's journal, and `delivered.stall` sees a lasting outage. Nothing starts the receiver for you. A packet the receiver's input rejects (`schema`, `validate`) is the write error `downstream_rejected` with the receiver's message; the receiver keeps it as `rejected` and applies its own `on_invalid`. The same data is rejected again on every retry, so check what matters earlier with `output.validate`.
+- **When it is delivered.** With the default `check: ack`, the sender's packet is delivered once the receiver has journaled it: from then on, the receiver's journal owns it. `check: downstream` waits for the receiver's packet to settle, re-checking until `within` (default `10s`): `delivered` passes. `dead_lettered`, `filtered` or `rejected`, or a packet the receiver no longer has, fails at once with the receiver's reason, and `on_fail` applies. A receiver that isn't running is a failed attempt, re-checked until `within`. Give `within` room for the receiver's own retries.
+- **What the receiver sees.** `meta.trigger` is `pipeline`, `meta.source` the sender's name, and `meta.upstream` `{pipeline, packet_id, key, depth}`: the sender's packet and its key, and how many hand-offs the data has made. A packet past depth 16 is refused (`rejected`, nothing journaled), so a cycle of pipelines can't run forever.
+- **Pause, change and test.** A paused receiver still journals what it receives, like any input. Changing `output.with.pipeline` is a live change; changing `output.to` or a receiver's `from` list needs a restart (D38). The dry run (§9.3) and `pipo test` mock the output as they always do: the hand-off is rendered and recorded, nothing is sent.
 
 ## 4. Full example
 
@@ -654,8 +729,9 @@ Every finding is reported as `file:line:col severity code message`. The validato
 |---|---|
 | **Schema** | The YAML is well-formed. Required keys are present. Each connector's `with:` matches its schema. Durations and cron expressions parse (`schedule` needs exactly one of `cron` or `every`, P038). `agent.verify` is `last N` with *N* from 1 to 1000 (P055). |
 | **References** | Every `from` target exists. Route branches exist. `fn.<name>` is exported by the `fn` module. Schema files exist and are valid JSON Schema (P054). `${secrets.x}` names are declared. |
-| **Graph** | Every node can be reached from `input`. Every node leads to `output` (no dead ends). The only cycles are declared `loop.back_to` edges, and each has a `max`. `back_to` points upstream. |
-| **Compatibility** | A telegram send without `chat_id` needs `via: telegram` (P057, §3.13). `delivered.check` is supported by `output.to` (§3.10). `batch` is supported by `output.to` (§3.5.1). `then: continue` appears only on taps. `then: agent`, `delivered.stall.then: agent` and `agent.on_stall: handle` require `agent.control` (P034). `respond` is used only with `via: http`. When a fan-out sends more than one copy to the output, an explicit key (the sqlite `columns` key, an http `Idempotency-Key` header) or a `delivered.with` lookup by `meta.packet_id` that doesn't use `meta.branch` is a warning (P026, D22). |
+| **Inputs** | Exactly one of `input` and `inputs`, and at most 16 inputs (P060). An input name is not a node id or `output` (P061). Two inputs of one pipeline don't share an http method and path, a different `listen` port, or a telegram bot (P062). A `via: pipeline` input lists other pipelines, each in one input only, and `to: pipeline` names another pipeline (P063). Across a multi-file `pipo check`, a chain link declared at one end only, or a cycle of chains, is a warning (P064, §3.14). |
+| **Graph** | Every node can be reached from an input, and every input leads somewhere. Every node leads to `output` (no dead ends). The only cycles are declared `loop.back_to` edges, and each has a `max`. `back_to` points upstream. |
+| **Compatibility** | A telegram send without `chat_id` needs every input that reaches it to be `via: telegram` (P057, §3.13). `delivered.check` is supported by `output.to` (§3.10). `batch` is supported by `output.to` (§3.5.1). `then: continue` appears only on taps. `then: agent`, `delivered.stall.then: agent` and `agent.on_stall: handle` require `agent.control` (P034). `respond` is used only with `via: http`. `delivered.check: downstream` is used only with `to: pipeline` (P031). When a fan-out sends more than one copy to the output, an explicit key (the sqlite `columns` key, an http `Idempotency-Key` header) or a `delivered.with` lookup by `meta.packet_id` that doesn't use `meta.branch` is a warning (P026, D22). |
 | **Expressions** | Expressions parse, use only allowed helpers, and use only the context variables available at that position. |
 | **Safety** | Warns about literal credential-like strings. Warns when an exec `command` holds spaces, since it is probably a whole command line that belongs in `args` (P058). `secrets` may not appear outside `with:`. Agent nodes must have a `schema`. Warns when there are agent nodes but no `agent_budget`. Untrusted `fn` modules, and exec nodes in an untrusted pipeline file, are refused (P052). An `fn` module must bundle into one self-contained module that runs without Bun or Node APIs: an import of `node:*`/`bun:*` or a Node built-in, a use of a host global (`Bun`, `process`, `require`, `Buffer`, `fetch`, …, other than in `typeof`), or a failed bundle is an error (P059, §3.6; checked by the CLI's `pipo check` and `pipo compile` once the file has no other errors). Across a multi-file `pipo check` (a folder, or several files), warns when two http inputs declare the same `input.with.listen` port (P039; `listen` is a bare port on the runner's loopback, so equal ports always collide; a single-file check never warns), and when two telegram inputs poll the same bot (P056). |
 
@@ -738,7 +814,7 @@ Before starting, the engine checks that the port is free (the CLI's start goes t
 
 `ttl` is there only when the start passed `--ttl` (D57). Like `listen`, the engine passes it again when it restarts a crashed runner, adopts a live one, or restarts one that died while no engine ran.
 
-**Control socket.** Each runner listens on `run/<name>.sock` (owner-only) and writes its registry entry only once the socket listens. The protocol is newline-delimited JSON: a request `{id, op, args}` gets one response `{id, ok: true, result}` or `{id, ok: false, error: {code, message, hint}}` (an `invalid_pipeline` error adds `diagnostics`, as `pipo check --json` gives them, D60). The ops are `hello` (pipeline, version, pid, state, status, `started_at`: the handshake), `status` (adds `stats`, `paused_reason`, `awaiting_ack`, `last_seq`), `pause` (`reason: manual | agent`), `resume`, `drain`, `stop`, `push` (`data`, optional `source`; replies with the `packet_id` once the packet is journaled), `ack` (`packet_id`, for the `external` check, §3.10), `events` (`after_seq`, `limit`: journal events with their `seq`, so a reattaching engine replays what it missed), the packet reads and DLQ ops of D33 (`packets` (`state`, `limit`, `after`), `packet` (`id`), `dlq`, and `replay` and `purge` (`ids` or `all`)), and the version ops of D38: `versions`, `version` (`version`), `diff` (`from`, `to`), `apply` (`source`, `reason`, `by`) and `rollback` (`version`, `by`), and `apply_proposal` (`id`, `by`: a change proposal becomes the next version, D49), and `resolve` (`ids` or `packet_id`, `action`, `by`, `by_kind`, `reason`: retry, dead-letter or drop packets waiting for the agent, D50). Every response is redacted. A runner refuses to start when a live runner answers on its socket, and removes a socket nothing answers on. Details in D24.
+**Control socket.** Each runner listens on `run/<name>.sock` (owner-only) and writes its registry entry only once the socket listens. The protocol is newline-delimited JSON: a request `{id, op, args}` gets one response `{id, ok: true, result}` or `{id, ok: false, error: {code, message, hint}}` (an `invalid_pipeline` error adds `diagnostics`, as `pipo check --json` gives them, D60). The ops are `hello` (pipeline, version, pid, state, status, `started_at`: the handshake), `status` (adds `stats`, `paused_reason`, `awaiting_ack`, `last_seq`), `pause` (`reason: manual | agent`), `resume`, `drain`, `stop`, `push` (`data`, optional `source`, and `input`, the input's name, needed when there are several, §3.3.1; replies with the `packet_id` once the packet is journaled), `deliver` (`from`, `key`, `data`, `upstream: {packet_id, depth}`: a packet from another pipeline's `to: pipeline` output, §3.14; replies `{packet_id, duplicate}` once the packet is journaled), `ack` (`packet_id`, for the `external` check, §3.10), `events` (`after_seq`, `limit`: journal events with their `seq`, so a reattaching engine replays what it missed), the packet reads and DLQ ops of D33 (`packets` (`state`, `limit`, `after`), `packet` (`id`), `dlq`, and `replay` and `purge` (`ids` or `all`)), and the version ops of D38: `versions`, `version` (`version`), `diff` (`from`, `to`), `apply` (`source`, `reason`, `by`) and `rollback` (`version`, `by`), and `apply_proposal` (`id`, `by`: a change proposal becomes the next version, D49), and `resolve` (`ids` or `packet_id`, `action`, `by`, `by_kind`, `reason`: retry, dead-letter or drop packets waiting for the agent, D50). Every response is redacted. A runner refuses to start when a live runner answers on its socket, and removes a socket nothing answers on. Details in D24.
 
 **Discovery and reattach.** The engine and the CLI both use the registry:
 
@@ -755,6 +831,7 @@ Before starting, the engine checks that the port is free (the CLI's start goes t
 - **At-least-once.** A packet is journaled before it is acknowledged, and each node's result is committed before the next node runs. After a crash, processing resumes from the last committed node, so a tap may run twice.
 - **Idempotency.** Outputs use `meta.packet_id` as their idempotency key (§3.5; `packet_id:<branch>` for a fan-out copy, D22), so a repeated write does not create a duplicate. The same applies to a batch written again after a crash.
 - **Version pinning.** A packet finishes on the pipeline version that accepted it, with that version's own `fn` code and schema files as compiled when the version was stored (`versions.compiled`, D73), never re-read from disk. A new version applies only to newly accepted packets.
+- **Chains.** A hand-off to another pipeline (`to: pipeline`, §3.14) is deduplicated by the receiver on the sender's name and key, in the transaction that journals the packet, so each sending unit becomes exactly one receiving packet, whatever crashes or retries happen on either side.
 - **Ordering.** `concurrency: 1` gives FIFO order. Above that, packets may complete out of order.
 
 ### 7.4 Time and schedules
@@ -929,7 +1006,7 @@ The dashboard's test run uses the same machinery with a trace: each unit also li
 - The visual editor in the UI (built: the builder, §8, D62).
 - Agents through local coding-agent CLIs: `claude_code`, `codex`, `pi`, `opencode` (built: §3.4, D67).
 - More connectors: `postgres`, `mqtt` (sensors), `s3`, queues.
-- Join and window nodes, multiple outputs (`outputs:`), and batch mode for `http`.
+- Join and window nodes, and batch mode for `http` and `pipeline` outputs. (Multiple outputs are not planned: a pipeline has one output by design, and chains carry data further, D78.)
 - A connector SDK and a template registry.
 - **Distributed:** sub-engines on other machines or operating systems, with runners placed remotely and controlled from one engine.
 - OpenTelemetry export (`engine.otlp`, D41).
@@ -1019,6 +1096,9 @@ The dashboard's test run uses the same machinery with a trace: each unit also li
 | D73 | The runner is a Rust binary | **Why.** There is one runner per pipeline, so its idle cost adds up: the Bun runner idled at about 105 MB resident and 24 threads, `pipo-runner` (`crates/pipo-runner`) at about 9 MB and 2 threads. Throughput and a Bun-free deploy were not goals. Pipo had no users, so the switch was made without a compatibility path. **TypeScript checks, Rust executes.** `pipo compile <file.pipo> [--home DIR] [--stdin]` (TS, the CLI) is the only checker. It prints one JSON document, `{diagnostics, pipeline, fn: {path, hash, code, exports}, schemas, files, agents, agent_manifests}`, and exits 1 on errors (64 on bad usage). `diagnostics` are `pipo check --json`'s; the rest is filled only without errors: `load()`'s value, the `fn` module bundled by `Bun.build` (browser target, ESM) into one self-contained module, the parsed schema files, D60's file hashes, the home's agent settings from `config.yaml` (so the runner never parses YAML) with their problems, which refuse the start, and `@pipo/spec`'s agent manifests. The runner runs `$PIPO_COMPILE` (a JSON argv; the engine, `pipo run` and `pipo test` set it to their own Bun and CLI), else `pipo compile`: at start, on `apply`/`rollback` and when it validates a proposal. A compile that doesn't answer within 8 s is killed and run again, up to 3 tries, because Bun under WSL sometimes hangs while loading modules. **Versions keep their compiled form** in `versions.compiled` (the only addition to the journal schema), so a packet pinned to an older version runs that version's code and schemas without reading files or compiling again (§7.3). Before, `fn` modules and schema files were re-read from disk. **Execution.** The runner is single-threaded: a tokio current-thread runtime, with the `fn` module's QuickJS runtime on a second thread (§3.6: an event loop with timers, 4 calls in flight by default, 30 s of wall time per call, 256 MB for the runtime; P059 refuses Bun and Node APIs). Expressions are evaluated by a Rust port of `@pipo/spec`'s subset; both run the shared cases in `packages/spec/test/fixtures/expr-cases.json`. The known differences: `matches()` uses Rust's `regex` crate (§3.2); parsing stops at about 128 levels of redundant parentheses (the TS parser stops at depth 32 for everything else); indexing a string inside a surrogate pair gives U+FFFD. Schemas are checked at run time with the `jsonschema` crate, so its messages (`/category "urgent!" is not one of "outage", "billing" or 2 other candidates`) differ from ajv's, which `pipo check` still uses. Budget days use the system's time zone database (`/usr/share/zoneinfo`; no zone data in the binary), so a runner with agent nodes refuses to start when `engine.timezone` isn't in it (install `tzdata`, or use `UTC`). **One place for pipeline semantics.** `pipo test` (`pipo-runner test`, JSON on stdin), the proposal dry run (§9.3) and reads without a runner (`pipo-runner read`, D34) run in the binary. **Unchanged.** The journal schema (plus `versions.compiled`), the control protocol and its ops, the registry entry, the runner's arguments (`pipo-runner <file.pipo> [--listen N] [--home DIR] [--env-allow A,B] [--engine-id ID] [--detached] [--ttl D]`), its exit codes (0 stopped, 2 halted, 1 failed to start, 64 usage) and its log lines. The engine and CLI find the binary through `runnerBinary()`: `$PIPO_RUNNER_BIN`, else the workspace's `target/release/pipo-runner`, which builds itself: when it is missing or older than any file it is built from (`crates/pipo-runner/src`, its `Cargo.toml`, the workspace's `Cargo.toml` and `Cargo.lock`), `cargo build --release -p pipo-runner` runs first, with cargo's output on stderr. The CLI builds in the foreground before `pipo run`, `pipo test`, `pipo start`/`restart` and before it launches an engine; the engine awaits the build without blocking (concurrent starts share one). A failed build is an error (fix it, or point `PIPO_RUNNER_BIN` at a binary meanwhile); without cargo, a stale binary runs with a warning and a missing one says to install Rust. `bun install` builds it too (a root `postinstall`, which only warns when cargo is missing). **Kept as they were.** `meta.iteration` counts per packet, not per loop (§3.4). | §3.2, §3.4, §3.6, §7.1, §7.3, §10.3, D34 |
 | D74 | Terminal decoration | The CLI decorates only what a person watches, and only on a terminal (`packages/cli/src/tty.ts`, no dependencies): `pipo: …` messages become a coloured symbol (✔ ok, ▲ warning, ✖ error) with a dimmed `hint:`, stdout results get a ✔ when stdout is a terminal, and a spinner (a packet running along a pipe) shows on stderr after 150 ms of waiting, for an engine start, an engine that is reattaching or shutting down, and `start`/`stop`/`pause`/`resume`/`restart`. `pipo ui` prints a wordmark first and, when stdout is a terminal, a labelled dashboard link instead of the bare URL. **Plain is the contract.** With `--json`, `--plain`, `PIPO_PLAIN=1`, `NO_COLOR`, `CI`, `TERM=dumb`, under `bun test`, or when the stream isn't a terminal, output is byte for byte what it was before, so scripts and agents never see an escape code. Each stream is judged on its own: `pipo ui | cat` still gets the banner on stderr and the bare URL on stdout. A spinner is cleared before any message and restores the cursor on exit and Ctrl-C. **Never on the data plane.** `pipo run`, `logs`, `attach`, `status --watch`, the engine and the runner print nothing decorated: their output is streamed or logged, and the runner is about throughput. | §6 |
 | D75 | The builder's City view | A second view of the builder canvas (§8), for delight and a sense of ownership without losing any editing power: it edits the same parsed value through the same builder functions (select, wire, place, delete, undo), so the two views can never disagree. **Drawing.** A 2D canvas in a fixed isometric projection (`city.js`), no 3D library and no build step: buildings are extruded boxes, roofs, cylinders and domes drawn back to front; the static town is cached and only moving things (cars, packets, smoke, beacons) are drawn each frame, with anything standing in front of a moving thing drawn again over it. Labels and ports are HTML over the canvas, so they stay crisp, take focus and use the same text-only DOM helpers. The town is always daylight, in either theme, and honours reduced motion (nothing drives, no packets). **Plan.** `city-plan.js` is pure and unit-tested: the ground is a grid of 3×3-tile lots between 1-tile roads; with no remembered lots the auto-layout's layers and rows become lots so the pipeline reads left to right (a layer is one lot along u and one back along v, a row one along u and two along v), a new block goes one layer past its parent and later blocks move right to make room, a dropped one takes the nearest free lot. A lane leaves its building on the front-right, runs along road centres and enters the fed building on the front-left, so it never crosses a building and both ends stay visible; lanes sharing a road are offset. Scenery is seeded by the file, so a town looks the same every time. **Live.** The dashboard relays its event stream as a `pipo:event` DOM event; the builder passes a running pipeline's events to the city. | §8 |
+| D76 | Several inputs (human, 2026-10-10) | **Shape.** `inputs:` is a map of input name → input; `input:` is shorthand for `inputs: {input: …}`, so existing files and `from: input` are unchanged. A file has exactly one of the two, with 1 to 16 inputs (P060). Names follow node ids and share their namespace; `output` is reserved (P061). `pipo compile` passes `load()`'s value through unchanged (a version keeps the shape it was written in); the runner and `@pipo/spec` (`inputsOf()`) read either form as the same list, in file order. **Why several inputs and one output.** The guarantees sit at the output: the idempotent write, the delivery check, stall detection, the DLQ. Inputs sit before them, and the one invariant there (journal before ack) is already per input, since every input acknowledges in its own way. So many inputs add no new meaning to "delivered"; many outputs would (D78). **Runtime.** Each input is its own adapter, started in file order and stopped together; one failing to start fails the start, and those already started are stopped. `Plan.next` is keyed by input name, so each input fans out on its own (D22). The packet keeps its input in a `packets.input` column (default `input`, added on open; copies inherit it), which gives `meta.input` after a restart, the dry run's replay (which runs the packet's own input's `format`, `schema` and `validate`, D48) and the dashboard's packet view. Durable input state is scoped per input: a scope is `<input>|<kind>:<key>` (`webhook|telegram:<bot id>`), and a baseline replaces only that input's scopes, so adding, removing or editing one input never resets another; scopes from before D76 belong to the input named `input` and are renamed once on open. **http** inputs share the runner's one listener and are matched on method and path in file order (a `HEAD` matches `GET`); a request no input takes is `404` listing the paths there are. `listen` is the port any of them sets (P062 if two differ), overridden by `--listen` as before. The registry's `listen` is that port. **telegram**: the registry entry lists every polled bot (`telegram_bots`; `telegram_bot`, the first, stays for readers of older entries), and the one-poller check (§3.13) covers each. **Address.** The start log and `hello` describe every input, `name: address`, joined with `, ` (a single `input:` reads as before). **push** takes `input`; without it, the one input, else the one `via: push` input, else `bad_request` listing the input names. **Expressions.** `meta.input` everywhere `meta` is. **Checks.** P035, P038 and P057 run per input (P057 asks that every input that reaches the send is telegram); P020 says which input can't reach the output; P021 covers an input nothing takes packets from; P039 and P056 compare every input of every file. **Live changes (D38).** Within an input, `schema`, `validate` and `on_invalid` may change live; adding, removing or renaming an input, or changing anything else in one, is a change to what the runner binds at start, and the hint says to restart. An `agent.edit` pattern covers `inputs.<name>.validate` as it covers `input.validate`. **`pipo test`** fixtures may set `meta.input` (default: the first input), and `trigger` defaults to that input's `via`. **Builder and dashboard.** Inputs are blocks like nodes: the canvas, City view and live graph show one per input, and the builder writes `input:` while there is one input named `input`, and `inputs:` otherwise. | §3.1, §3.3, §3.4, §5, §7.2 |
+| D77 | Chains (human, 2026-10-10) | **Both ends declare.** Sender: `output.to: pipeline` with `with: {pipeline, data?}` (`data` defaults to the packet's `data`). Receiver: an input `via: pipeline` with `with: {from: [names]}` (required, 1 or more). P063: `from` names this pipeline, the same sender in two inputs, or `to: pipeline` naming itself. P064 (warning, multi-file `pipo check`): a sender names a receiver in the run that has no `via: pipeline` input listing it, a receiver lists a sender in the run whose output doesn't name it, or the links form a cycle. A name not in the run is not checked: the other end may live elsewhere. **Transport.** Same home only. The sender reads `<home>/run/<receiver>.json` per write; a missing entry, a dead pid or a socket that refuses is `downstream_unavailable` (`pipeline 'x' is not running`, hint `pipo start x`). The write is one `deliver` op on a fresh connection, with a 10 s timeout (a timeout is `downstream_unavailable` too, and the retry is deduplicated). The receiver answers errors as codes: `unavailable` (stopped, draining, buffer full, lifetime reached) → `downstream_unavailable`; `rejected` (input rejection, sender not allowed, depth over 16) → `downstream_rejected` carrying the receiver's message. A rejection is a write error like any other, retried under `on_error`; the dedup answers the same rejection without journaling it again. **Exactly once.** The receiver has an `inbox` table (`input`, `sender`, `key`, `packet_id`; primary key `(sender, key)`), written in the intake's commit, so the packet (accepted or rejected) and its inbox row land in one transaction before the answer. A `deliver` whose `(sender, key)` is there answers `{packet_id, duplicate: true}` (or the original rejection) and journals nothing. Inbox rows go with their packet when retention deletes it (D39). The sender's key is its unit's output key (`meta.key`: `packet_id`, or `packet_id:<branch>`), so fan-out copies are separate packets downstream. **Meta.** `trigger: pipeline`, `source: <sender>`, `upstream: {pipeline, packet_id, key, depth}`, kept in a `packets.upstream` column (JSON) and inherited by copies; `depth` is the sender packet's own depth plus 1 (1 for a packet with no upstream). **`delivered.check: downstream`.** The result's `packet_id` is looked up with the receiver's `packet` op on every re-check (the same cadence as other checks): `delivered` passes; `dead_lettered`, `filtered`, `rejected` or `not_found` fails without waiting for `within`, with the receiver's error in the message; anything else, or a receiver that can't be reached, is re-checked until `within`. **Not in this decision.** Batching a `pipeline` output (P032), starting a receiver on demand (the sender's retries and stall detection cover a receiver that is down), and chains across homes or machines (§12). **Dashboard.** `GET /api/pipelines` items carry `feeds` (the receiver named by `to: pipeline`) and `fed_by` (the senders a `via: pipeline` input lists), read from the version in force, and the pipelines page shows the links. | §3.5, §3.10, §3.14, §5, §7.2, §7.3 |
+| D78 | One output, by design (human, 2026-10-10) | A pipeline has exactly one `output`, and the planned `outputs:` map (§12 before this decision) is dropped. With several outputs "delivered" would have no single meaning (all of them? any?), a half-written packet would need its own state, and the DLQ, replay and stall detection would each need a per-output form. A second unverified destination is a `tap`; a second verified one is another pipeline fed with `to: pipeline` (D77), whose own output writes and verifies it. | §2, §3.5, §12 |
 
 ## 14. Open questions
 

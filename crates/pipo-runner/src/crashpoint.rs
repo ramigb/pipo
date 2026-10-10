@@ -9,7 +9,7 @@ fn at() -> Option<&'static str> {
 }
 
 /// Named points: `apply.prepared`, `apply.in_transaction`, `apply.committed`, `escalate.prepared`,
-/// `resolve.committed`, `dryrun.replayed`, `dryrun.decided`.
+/// `resolve.committed`, `dryrun.replayed`, `dryrun.decided`, `pipeline.delivered` (D77).
 pub fn crash_point(name: &str) {
     if at() != Some(name) {
         return;

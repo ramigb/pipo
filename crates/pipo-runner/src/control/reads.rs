@@ -178,6 +178,10 @@ struct PacketCols {
     error: Value,
     received_at: i64,
     updated_at: i64,
+    /// The input it came through and, from another pipeline, its sender (D76, D77). A journal from before them,
+    /// read without a runner (D34), has neither column.
+    input: String,
+    upstream: Value,
 }
 
 impl PacketCols {
@@ -193,6 +197,13 @@ impl PacketCols {
             error: unjson(r.get("error")?)?,
             received_at: r.get("received_at")?,
             updated_at: r.get("updated_at")?,
+            input: r.get::<_, String>("input").unwrap_or_else(|_| crate::pipeline::DEFAULT_INPUT.into()),
+            upstream: r
+                .get::<_, Option<String>>("upstream")
+                .ok()
+                .flatten()
+                .and_then(|u| serde_json::from_str(&u).ok())
+                .unwrap_or(Value::Null),
         })
     }
 
@@ -214,6 +225,8 @@ impl PacketCols {
         m.insert("version".into(), json!(self.version));
         m.insert("trigger".into(), json!(self.trigger));
         m.insert("source".into(), json!(self.source));
+        m.insert("input".into(), json!(self.input));
+        m.insert("upstream".into(), self.upstream.clone());
         m.insert("attempt".into(), json!(self.attempt));
         m.insert("error".into(), self.error.clone());
         m.insert("copies".into(), json!(copies));

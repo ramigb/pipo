@@ -115,6 +115,8 @@ mod tests {
             source: "t".into(),
             error: None,
             received_at,
+            input: "input".into(),
+            upstream: serde_json::Value::Null,
         };
         j.insert(&p, "packet.accepted", None, None).unwrap();
     }

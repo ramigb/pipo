@@ -79,6 +79,8 @@ fn packet(id: &str, version: i64, state: &str, cursor: Option<&str>, data: Value
         source: "test".into(),
         error: None,
         received_at,
+        input: "input".into(),
+        upstream: serde_json::Value::Null,
     }
 }
 
@@ -263,6 +265,8 @@ fn packets_page_newest_first_with_filters_and_bad_arguments() {
             "version",
             "trigger",
             "source",
+            "input",
+            "upstream",
             "attempt",
             "error",
             "copies",

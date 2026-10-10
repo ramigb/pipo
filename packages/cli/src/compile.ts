@@ -14,6 +14,7 @@ import {
   check,
   type Diagnostic,
   displayPath,
+  inputsOf,
   load,
   type Pipeline,
 } from "@pipo/spec";
@@ -163,7 +164,7 @@ const sortDiagnostics = (ds: Diagnostic[]) =>
 export function referencedFiles(p: Pipeline): string[] {
   const out = new Set<string>();
   if (typeof p.fn === "string") out.add(p.fn);
-  if (typeof p.input?.schema === "string") out.add(p.input.schema);
+  for (const [, i] of inputsOf(p)) if (typeof i.schema === "string") out.add(i.schema);
   for (const n of Object.values(p.nodes ?? {})) {
     const s = n.agent !== undefined ? n.with?.schema : undefined;
     if (typeof s === "string" && !s.includes("${")) out.add(s);

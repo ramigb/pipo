@@ -315,11 +315,17 @@ export async function cmdPush(args: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args,
     allowPositionals: true,
-    options: { ...COMMON, data: { type: "string" }, file: { type: "string" }, source: { type: "string" } },
+    options: {
+      ...COMMON,
+      data: { type: "string" },
+      file: { type: "string" },
+      source: { type: "string" },
+      input: { type: "string" },
+    },
   });
   const name = positionals[0];
   if (!name || (values.data === undefined) === (values.file === undefined)) {
-    return usage("pipo push <name> --data '{…}'|--file f [--source s]");
+    return usage("pipo push <name> --data '{…}'|--file f [--source s] [--input i]");
   }
   let text = values.data as string;
   if (values.file !== undefined) {
@@ -342,7 +348,8 @@ export async function cmdPush(args: string[]): Promise<number> {
     );
   }
   const ctx = await context(values);
-  const r = await writeOp(ctx, name, "push", { data, source: values.source ?? "cli" }, "/push", "accept packets");
+  const pushArgs = { data, source: values.source ?? "cli", ...(values.input !== undefined && { input: values.input }) };
+  const r = await writeOp(ctx, name, "push", pushArgs, "/push", "accept packets");
   out(ctx, { pipeline: name, result: r }, `pushed ${r.packet_id} into ${name} (${r.state})`);
   return 0;
 }

@@ -15,6 +15,7 @@ pub const OPS: &[&str] = &[
     "drain",
     "stop",
     "push",
+    "deliver",
     "ack",
     "events",
     "packets",

@@ -66,7 +66,9 @@ CREATE TABLE IF NOT EXISTS packets (
   updated_at INTEGER NOT NULL,
   root TEXT,
   parent TEXT,
-  branch TEXT NOT NULL DEFAULT ''
+  branch TEXT NOT NULL DEFAULT '',
+  input TEXT NOT NULL DEFAULT 'input',
+  upstream TEXT
 );
 CREATE INDEX IF NOT EXISTS packets_state ON packets(state);
 CREATE TABLE IF NOT EXISTS events (
@@ -122,6 +124,14 @@ CREATE TABLE IF NOT EXISTS proposals (
   decided_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS proposals_state ON proposals(state, created_at);
+CREATE TABLE IF NOT EXISTS inbox (
+  sender TEXT NOT NULL,
+  key TEXT NOT NULL,
+  input TEXT NOT NULL,
+  packet_id TEXT NOT NULL,
+  PRIMARY KEY (sender, key)
+);
+CREATE INDEX IF NOT EXISTS inbox_packet ON inbox(packet_id);
 CREATE TABLE IF NOT EXISTS input_state (
   scope TEXT NOT NULL REFERENCES input_scopes(scope) ON DELETE CASCADE,
   key TEXT NOT NULL,
@@ -133,8 +143,14 @@ CREATE TABLE IF NOT EXISTS input_state (
 /// Audit columns added to `versions` after it first shipped: D49, D60, and the compiled form (D73).
 const VERSION_AUDIT_COLUMNS: [&str; 4] = ["author_kind", "proposal", "files", "compiled"];
 
-const BRANCH_COLUMNS: [(&str, &str); 3] =
-    [("root", "TEXT"), ("parent", "TEXT"), ("branch", "TEXT NOT NULL DEFAULT ''")];
+/// Packet columns added after the table first shipped: fan-out (D22), then the input and the chain sender (D76, D77).
+const ADDED_COLUMNS: [(&str, &str); 5] = [
+    ("root", "TEXT"),
+    ("parent", "TEXT"),
+    ("branch", "TEXT NOT NULL DEFAULT ''"),
+    ("input", "TEXT NOT NULL DEFAULT 'input'"),
+    ("upstream", "TEXT"),
+];
 
 // ── errors ──────────────────────────────────────────────────────────────────
 
@@ -273,6 +289,16 @@ fn json_opt(v: Option<&Value>) -> Option<String> {
     v.map(js_json)
 }
 
+/// NULL for a JSON null, else the JSON text: for columns that are usually empty (`upstream`).
+fn opt_json(v: &Value) -> Option<String> {
+    if v.is_null() { None } else { Some(js_json(v)) }
+}
+
+/// The prefix of input `name`'s state scopes (D76): `<name>|`.
+pub fn scope_prefix(name: &str) -> String {
+    format!("{name}|")
+}
+
 fn unjson(text: Option<String>) -> Result<Value> {
     Ok(match text {
         None => Value::Null,
@@ -333,6 +359,10 @@ pub struct PacketRow {
     pub parent: Option<String>,
     /// Fan-out path, consumer ids joined by `/`; empty for the packet itself.
     pub branch: String,
+    /// The input the packet came in through (D76); copies inherit it.
+    pub input: String,
+    /// For a packet from another pipeline: `{pipeline, packet_id, key, depth}` (D77); else null. Copies inherit it.
+    pub upstream: Value,
 }
 
 fn decode(r: &Row) -> Result<PacketRow> {
@@ -355,6 +385,8 @@ fn decode(r: &Row) -> Result<PacketRow> {
         root: r.get("root")?,
         parent: r.get("parent")?,
         branch: r.get("branch")?,
+        input: r.get("input")?,
+        upstream: unjson(r.get("upstream")?)?,
     })
 }
 
@@ -418,6 +450,8 @@ pub struct NewPacket {
     pub source: String,
     pub error: Option<PacketError>,
     pub received_at: i64,
+    pub input: String,
+    pub upstream: Value,
 }
 
 /// A branch copy for `insert_copies`.
@@ -661,11 +695,11 @@ impl Journal {
 
     // ── migrations ──────────────────────────────────────────────────────────
 
-    /// Journals created before fan-out (D22) lack the branch columns; adding them is additive.
+    /// Journals created before fan-out (D22) or several inputs (D76) lack those columns; adding them is additive.
     fn migrate(&self) -> Result<()> {
         let missing = |j: &Self| -> Result<Vec<(&str, &str)>> {
             let cols = j.columns("packets")?;
-            Ok(BRANCH_COLUMNS.into_iter().filter(|(n, _)| !cols.contains(*n)).collect())
+            Ok(ADDED_COLUMNS.into_iter().filter(|(n, _)| !cols.contains(*n)).collect())
         };
         if !missing(self)?.is_empty() {
             self.immediate(|j| {
@@ -692,6 +726,7 @@ impl Journal {
         }
         self.migrate_versions()?;
         self.migrate_version_audit()?;
+        self.migrate_input_scopes()?;
         self.db.execute_batch(
             "CREATE INDEX IF NOT EXISTS packets_parent ON packets(parent); CREATE INDEX IF NOT EXISTS packets_root ON packets(root);
              CREATE INDEX IF NOT EXISTS packets_received ON packets(received_at); CREATE INDEX IF NOT EXISTS packets_state_updated ON packets(state, updated_at);
@@ -708,6 +743,25 @@ impl Journal {
             let _ = self.db.execute_batch("ROLLBACK");
         }
         out
+    }
+
+    /// Input state from before several inputs (D76) belongs to the input named `input`: its scopes get that prefix.
+    fn migrate_input_scopes(&self) -> Result<()> {
+        let old = |j: &Self| -> Result<i64> {
+            Ok(j.db.query_row("SELECT count(*) FROM input_scopes WHERE instr(scope, '|') = 0", [], |r| r.get(0))?)
+        };
+        if old(self)? == 0 {
+            return Ok(());
+        }
+        self.immediate(|j| {
+            j.db.execute_batch(&format!(
+                "INSERT OR IGNORE INTO input_scopes (scope, created_at) SELECT '{p}' || scope, created_at FROM input_scopes WHERE instr(scope, '|') = 0;
+                 UPDATE input_state SET scope = '{p}' || scope WHERE instr(scope, '|') = 0;
+                 DELETE FROM input_scopes WHERE instr(scope, '|') = 0;",
+                p = scope_prefix(crate::pipeline::DEFAULT_INPUT)
+            ))?;
+            Ok(())
+        })
     }
 
     /// Journals from before rollback (D38) keep one row per distinct source (`hash` UNIQUE) and have no `reason`. The
@@ -932,8 +986,8 @@ impl Journal {
     ) -> Result<()> {
         self.tx("BEGIN", |j| {
             j.db.prepare_cached(
-                "INSERT INTO packets (id, version, state, cursor, data, trigger, source, error, received_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO packets (id, version, state, cursor, data, trigger, source, error, received_at, updated_at, input, upstream)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )?
             .execute(params![
                 p.id,
@@ -945,7 +999,9 @@ impl Journal {
                 p.source,
                 js_json(&error_value(p.error.as_ref())),
                 p.received_at,
-                p.received_at
+                p.received_at,
+                p.input,
+                opt_json(&p.upstream)
             ])?;
             let patch = PacketPatch {
                 state: Some(p.state.clone()),
@@ -953,7 +1009,8 @@ impl Journal {
                 data: Some(p.data.clone()),
                 ..Default::default()
             };
-            j.event_raw(Some(&p.id), event, None, detail, Some(&patch), None)?;
+            // The input names the step, so a trace shows which input took the packet (D76).
+            j.event_raw(Some(&p.id), event, Some(&p.input), detail, Some(&patch), None)?;
             if let Some(commit) = commit {
                 commit(j)?;
             }
@@ -969,8 +1026,8 @@ impl Journal {
             self.db
                 .prepare_cached(
                     "INSERT INTO packets (id, version, state, cursor, data, trigger, source, attempt, iteration, hops, error, received_at,
-         updated_at, root, parent, branch)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, NULL, ?, ?, ?, ?, ?)",
+         updated_at, root, parent, branch, input, upstream)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)",
                 )?
                 .execute(params![
                     c.id,
@@ -986,7 +1043,9 @@ impl Journal {
                     now,
                     parent.root.as_deref().unwrap_or(&parent.id),
                     parent.id,
-                    c.branch
+                    c.branch,
+                    parent.input,
+                    opt_json(&parent.upstream)
                 ])?;
             let patch = PacketPatch {
                 state: Some(c.state.clone()),
@@ -1112,10 +1171,19 @@ impl Journal {
         Ok(Some(out))
     }
 
-    /// Replace `scope`'s entries in one transaction and mark the scope as started (other scopes are dropped).
+    /// Replace `scope`'s entries in one transaction and mark the scope as started. The same input's other scopes
+    /// (a changed glob, another bot) are dropped; other inputs' are kept (D76).
     pub fn input_baseline(&mut self, scope: &str, entries: &Map<String, Value>) -> Result<()> {
+        let prefix = scope.split_once('|').map(|(p, _)| format!("{p}|")).unwrap_or_default();
         self.tx("BEGIN", |j| {
-            j.db.execute("DELETE FROM input_scopes", [])?;
+            if prefix.is_empty() {
+                j.db.execute("DELETE FROM input_scopes WHERE instr(scope, '|') = 0", [])?;
+            } else {
+                j.db.execute(
+                    "DELETE FROM input_scopes WHERE substr(scope, 1, ?) = ?",
+                    params![prefix.len() as i64, prefix],
+                )?;
+            }
             j.db.execute("INSERT INTO input_scopes (scope, created_at) VALUES (?, ?)", params![scope, now_ms()])?;
             let mut put = j.db.prepare_cached("INSERT INTO input_state (scope, key, value) VALUES (?, ?, ?)")?;
             for (k, v) in entries {
@@ -1420,6 +1488,23 @@ impl Journal {
     }
 
     // ── reads ───────────────────────────────────────────────────────────────
+
+    /// The packet a sender's write already made (D77): the `inbox` row for `(sender, key)`.
+    pub fn inbox_find(&self, sender: &str, key: &str) -> Result<Option<String>> {
+        Ok(self
+            .db
+            .prepare_cached("SELECT packet_id FROM inbox WHERE sender = ? AND key = ?")?
+            .query_row([sender, key], |r| r.get(0))
+            .optional()?)
+    }
+
+    /// Record a sender's write; inside an intake `commit` it joins the packet's transaction.
+    pub fn inbox_put(&self, sender: &str, key: &str, input: &str, packet_id: &str) -> Result<()> {
+        self.db
+            .prepare_cached("INSERT INTO inbox (sender, key, input, packet_id) VALUES (?, ?, ?, ?)")?
+            .execute([sender, key, input, packet_id])?;
+        Ok(())
+    }
 
     pub fn get(&self, id: &str) -> Result<Option<PacketRow>> {
         Ok(self.rows("SELECT * FROM packets WHERE id = ?", [id])?.into_iter().next())

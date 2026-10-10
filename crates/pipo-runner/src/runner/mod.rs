@@ -158,6 +158,24 @@ struct State {
     retention: Option<JoinHandle<()>>,
 }
 
+/// Where a packet comes in (D76), and for one from another pipeline, who sent it (D77).
+#[derive(Debug, Clone)]
+pub struct Arrival {
+    pub input: String,
+    pub chain: Option<ChainIn>,
+}
+
+/// A sender's write (`deliver`, D77): its name and key are the dedup key; `upstream` becomes `meta.upstream`.
+#[derive(Debug, Clone)]
+pub struct ChainIn {
+    pub sender: String,
+    pub key: String,
+    pub upstream: Value,
+}
+
+/// An input's name and its adapter.
+type NamedInput = (String, Rc<dyn InputAdapter>);
+
 pub struct Runner {
     me: Weak<Runner>,
     pub opts: RunnerOptions,
@@ -174,7 +192,8 @@ pub struct Runner {
     /// `env` in expressions: the allowed environment variables.
     pub env: Value,
     output: Box<dyn OutputAdapter>,
-    input: RefCell<Option<Rc<dyn InputAdapter>>>,
+    /// One adapter per input, in file order (http inputs after the first ride on its listener, D76).
+    inputs: RefCell<Vec<NamedInput>>,
     control: RefCell<Option<ControlServer>>,
     s: RefCell<State>,
     plans: RefCell<HashMap<i64, Rc<tokio::sync::OnceCell<Rc<Plan>>>>>,
@@ -186,8 +205,8 @@ pub struct Runner {
     pub agents: AgentRuntime,
     budget: Option<AgentBudget>,
     pub bots: Option<Rc<Bots>>,
-    /// The telegram bot id this runner's input polls, in its registry entry so a second poller refuses to start.
-    polls_bot: RefCell<Option<String>>,
+    /// The telegram bot ids this runner's inputs poll, in its registry entry so a second poller refuses to start.
+    polls_bots: RefCell<Vec<String>>,
     pub proposals: Proposals,
     /// The compiled form of the active version, as `pipo compile` gave it.
     compiled: RefCell<Rc<Compiled>>,
@@ -206,7 +225,11 @@ fn bot_poller(home: &Path, me: &str, id: &str) -> Option<(String, i64)> {
             continue;
         }
         let Some(e) = read_registry(&entry.path()) else { continue };
-        if e.get("telegram_bot").and_then(|b| b.as_str()) == Some(id) && entry_alive_json(&e) {
+        let polls = |e: &Value| match e.get("telegram_bots").and_then(|b| b.as_array()) {
+            Some(list) => list.iter().any(|b| b.as_str() == Some(id)),
+            None => e.get("telegram_bot").and_then(|b| b.as_str()) == Some(id),
+        };
+        if polls(&e) && entry_alive_json(&e) {
             return Some((f.trim_end_matches(".json").to_string(), e.get("pid").and_then(|p| p.as_i64()).unwrap_or(0)));
         }
     }
@@ -374,6 +397,7 @@ impl Runner {
             home: home.clone(),
             bots: bots.clone(),
             redact: redactor,
+            input: None,
         };
         let output = connectors::make_output(&ctx).map_err(|e| StartError::new(e.0))?;
         let (finished, _) = watch::channel(None);
@@ -438,7 +462,7 @@ impl Runner {
                 secrets,
                 env: Value::Object(env.clone()),
                 output,
-                input: RefCell::new(None),
+                inputs: RefCell::new(vec![]),
                 control: RefCell::new(None),
                 s: RefCell::new(state),
                 plans: RefCell::new(HashMap::new()),
@@ -450,7 +474,7 @@ impl Runner {
                 agents,
                 budget,
                 bots,
-                polls_bot: RefCell::new(None),
+                polls_bots: RefCell::new(vec![]),
                 proposals: Proposals::new(
                     journal.clone(),
                     ProposalStoreOptions {
@@ -466,16 +490,17 @@ impl Runner {
             }
         });
 
-        let input = runner.make_input().map_err(StartError::new)?;
-        if let Some(bot) = input.polls_bot() {
+        let inputs = runner.make_inputs().map_err(StartError::new)?;
+        for (_, input) in &inputs {
+            let Some(bot) = input.polls_bot() else { continue };
             if let Some((other, pid)) = bot_poller(&home, &pipeline.name, &bot) {
                 return Err(StartError::new(format!(
                     "telegram bot {bot} is already polled by pipeline '{other}' (pid {pid}); Telegram lets only one reader take a bot's messages. Stop that pipeline, or give this one another bot"
                 )));
             }
-            *runner.polls_bot.borrow_mut() = Some(bot);
+            runner.polls_bots.borrow_mut().push(bot);
         }
-        *runner.input.borrow_mut() = Some(input);
+        *runner.inputs.borrow_mut() = inputs;
         // Binding the socket is also the lock: a live runner still answering on it makes this one refuse.
         let server = ControlServer::listen(&socket, runner.clone())
             .await
@@ -555,14 +580,23 @@ impl Runner {
             self.s.borrow_mut().workers.push(handle);
         }
 
-        let input = self.input.borrow().clone().ok_or_else(|| StartError::new("runner has no input"))?;
+        let inputs = self.inputs.borrow().clone();
+        if inputs.is_empty() {
+            return Err(StartError::new("runner has no input"));
+        }
         self.s.borrow_mut().started_at = now_ms();
         let runtime =
             connectors::InputRuntime { journal: self.journal.clone(), await_terminal: self.await_terminal_fn() };
-        if let Err(e) = input.start(self.intake_fn(), runtime).await {
-            // No registry entry was written yet; don't leave a socket behind that nothing will answer on.
-            self.close_control().await;
-            return Err(StartError::new(e));
+        for (i, (name, input)) in inputs.iter().enumerate() {
+            if let Err(e) = input.start(self.intake_fn(name), runtime.clone()).await {
+                for (_, started) in &inputs[..i] {
+                    started.stop().await;
+                }
+                // No registry entry was written yet; don't leave a socket behind that nothing will answer on.
+                self.close_control().await;
+                let e = if inputs.len() > 1 { format!("input '{name}': {e}") } else { e };
+                return Err(StartError::new(e));
+            }
         }
         // Paused when the journal said so, or when a recovered packet's `then: pause` held it while the input started.
         {
@@ -590,10 +624,12 @@ impl Runner {
         self.log(
             "info",
             &format!(
-                "started v{}{}, input: {}{resuming}",
+                "started v{}{}, {}{resuming}",
                 self.version(),
                 if self.opts.detached { " (detached)" } else { "" },
-                input.describe()
+                self.address()
+                    .map(|a| if inputs.len() > 1 { format!("inputs: {a}") } else { format!("input: {a}") })
+                    .unwrap_or_default()
             ),
         );
         if let Some(r) = &restored {
@@ -701,12 +737,24 @@ impl Runner {
         }));
     }
 
+    /// Every input's address: the one input's as before, else `name: address`, joined with `, ` (D76).
     pub fn address(&self) -> Option<String> {
-        self.input.borrow().as_ref().map(|i| i.describe())
+        let inputs = self.inputs.borrow();
+        match inputs.as_slice() {
+            [] => None,
+            [(_, i)] if self.pipeline().inputs.is_none() => Some(i.describe()),
+            many => Some(many.iter().map(|(n, i)| format!("{n}: {}", i.describe())).collect::<Vec<_>>().join(", ")),
+        }
     }
 
+    /// The port the runner's http inputs share, if it has any.
     pub fn port(&self) -> Option<u16> {
-        self.input.borrow().as_ref().and_then(|i| i.port())
+        self.inputs.borrow().iter().find_map(|(_, i)| i.port())
+    }
+
+    /// The input names in file order, as the version in force declares them.
+    pub fn input_names(&self) -> Vec<String> {
+        self.pipeline().inputs().into_iter().map(|(n, _)| n.to_string()).collect()
     }
 
     pub fn started_at(&self) -> i64 {
@@ -936,6 +984,14 @@ impl Runner {
         s.queue.is_empty() && s.busy == 0 && s.awaiting.is_empty()
     }
 
+    /// Stop every input, in reverse order, so http inputs that ride on the first one's listener stop before it.
+    async fn stop_inputs(&self) {
+        let inputs = self.inputs.borrow().clone();
+        for (_, i) in inputs.iter().rev() {
+            i.stop().await;
+        }
+    }
+
     /// Stop intake, let in-flight packets finish (bounded by drain_timeout), then stop.
     pub async fn drain(&self) {
         let (draining, stopping) = {
@@ -952,10 +1008,7 @@ impl Runner {
         self.s.borrow_mut().state = RunnerState::Draining;
         self.event("pipeline.draining", None, None, None);
         self.log("info", "draining");
-        let input = self.input.borrow().clone();
-        if let Some(i) = input {
-            i.stop().await;
-        }
+        self.stop_inputs().await;
         let timeout =
             parse_duration(self.pipeline().lifetime.as_ref().and_then(|l| l.drain_timeout.as_deref()).unwrap_or("2m"))
                 .unwrap_or(120_000);
@@ -1008,10 +1061,7 @@ impl Runner {
             }
             failed
         };
-        let input = self.input.borrow().clone();
-        if let Some(i) = input {
-            i.stop().await;
-        }
+        self.stop_inputs().await;
         self.wake(true);
         let workers: Vec<JoinHandle<()>> = self.s.borrow_mut().workers.drain(..).collect();
         let all = futures_join_all(workers);
@@ -1110,6 +1160,8 @@ impl Runner {
             "attempt": attempt,
             "hops": row.hops,
             "iteration": row.iteration,
+            "input": row.input,
+            "upstream": row.upstream,
             "key": row.id,
         });
         // At the output and the delivery check, `meta.key` is what the output writes with (D55).
@@ -1132,29 +1184,59 @@ impl Runner {
         self.secrets.redact(&text)
     }
 
-    fn make_input(&self) -> Result<Rc<dyn InputAdapter>, String> {
+    /// One adapter per input, in file order (D76). http inputs share one listener: the first binds the port
+    /// (`--listen`, else the first `with.listen`), and the others ride on it, matched on method and path.
+    fn make_inputs(&self) -> Result<Vec<NamedInput>, String> {
         let p = self.pipeline();
         let ctx_vars = json!({ "env": self.env, "secrets": self.secrets.values });
-        let with = crate::expr::render(&Value::Object(p.input.with.clone().unwrap_or_default()), &ctx_vars)
-            .map_err(|e| format!("input.with: {e}"))?;
-        let me = self.me.clone();
-        let ctx = ConnectorContext {
-            pipeline: p.clone(),
-            dir: self.dir.clone(),
-            log: Rc::new(move |level: &str, message: &str| {
-                if let Some(r) = me.upgrade() {
-                    r.log(level, message);
+        let mut rendered = vec![];
+        for (name, input) in p.inputs() {
+            let with = crate::expr::render(&Value::Object(input.with.clone().unwrap_or_default()), &ctx_vars)
+                .map_err(|e| format!("{}.with: {e}", p.input_path(name)))?;
+            rendered.push((name.to_string(), input.clone(), with.as_object().cloned().unwrap_or_default()));
+        }
+        let shared_port = self.opts.listen.or_else(|| {
+            rendered
+                .iter()
+                .filter(|(_, i, _)| i.via == "http")
+                .find_map(|(_, _, w)| w.get("listen").and_then(|l| l.as_u64()).map(|l| l as u16))
+        });
+        let many = p.inputs.is_some();
+        let mut host: Option<Rc<connectors::http_input::HttpInput>> = None;
+        let mut out: Vec<NamedInput> = vec![];
+        for (name, input, with) in rendered {
+            let me = self.me.clone();
+            let http = input.via == "http";
+            let ctx = ConnectorContext {
+                pipeline: p.clone(),
+                dir: self.dir.clone(),
+                log: Rc::new(move |level: &str, message: &str| {
+                    if let Some(r) = me.upgrade() {
+                        r.log(level, message);
+                    }
+                }),
+                print: self.opts.print.clone(),
+                listen: if http { shared_port } else { self.opts.listen },
+                hostname: self.opts.hostname.clone(),
+                with,
+                home: self.home.clone(),
+                bots: self.bots.clone(),
+                redact: self.redactor(),
+                input: Some((name.clone(), input)),
+            };
+            let named = |e: connectors::ConnectorError| if many { format!("input '{name}': {}", e.0) } else { e.0 };
+            if http {
+                let h = Rc::new(connectors::http_input::HttpInput::from_context(&ctx).map_err(named)?);
+                match &host {
+                    Some(first) => first.add_sibling(&h),
+                    None => host = Some(h.clone()),
                 }
-            }),
-            print: self.opts.print.clone(),
-            listen: self.opts.listen,
-            hostname: self.opts.hostname.clone(),
-            with: with.as_object().cloned().unwrap_or_default(),
-            home: self.home.clone(),
-            bots: self.bots.clone(),
-            redact: self.redactor(),
-        };
-        connectors::make_input(&ctx).map(Rc::from).map_err(|e| e.0)
+                out.push((name, h));
+            } else {
+                out.push((name.clone(), Rc::from(connectors::make_input(&ctx).map_err(named)?)));
+            }
+        }
+        Ok(out)
     }
 
     pub fn redactor(&self) -> Rc<dyn Fn(&str) -> String> {
@@ -1175,9 +1257,12 @@ impl Runner {
         entry.insert("file".into(), json!(self.file.display().to_string()));
         entry.insert("socket".into(), json!(self.socket.display().to_string()));
         entry.insert("listen".into(), json!(self.port()));
-        if let Some(bot) = self.polls_bot.borrow().as_ref() {
-            entry.insert("telegram_bot".into(), json!(bot));
+        let bots = self.polls_bots.borrow();
+        if let Some(first) = bots.first() {
+            entry.insert("telegram_bot".into(), json!(first));
+            entry.insert("telegram_bots".into(), json!(*bots));
         }
+        drop(bots);
         entry.insert("detached".into(), json!(self.opts.detached));
         if let Some(ttl) = &self.opts.ttl {
             entry.insert("ttl".into(), json!(ttl));

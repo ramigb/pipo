@@ -27,6 +27,7 @@ const CHECKS: &[&str] = &[
     "checksum",
     "status",
     "follow_up",
+    "downstream",
     "external",
 ];
 const THEN: &[&str] = &["dead_letter", "drop", "continue", "pause", "halt", "agent"];
@@ -34,13 +35,16 @@ const THEN: &[&str] = &["dead_letter", "drop", "continue", "pause", "halt", "age
 pub fn gaps(p: &Pipeline) -> Vec<Gap> {
     let mut out = vec![];
     let mut refuse = |path: String, feature: String| out.push(Gap { path, feature, level: "refuse" });
-    if !INPUTS.contains(&p.input.via.as_str()) {
-        refuse("input.via".into(), format!("input '{}' (spec §3.3)", p.input.via));
-    }
-    if p.input.via == "http" {
-        let format = p.input.format.as_deref().unwrap_or("json");
-        if !HTTP_FORMATS.contains(&format) {
-            refuse("input.format".into(), format!("http format '{format}'"));
+    for (name, input) in p.inputs() {
+        let at = p.input_path(name);
+        if !INPUTS.contains(&input.via.as_str()) {
+            refuse(format!("{at}.via"), format!("input '{}' (spec §3.3)", input.via));
+        }
+        if input.via == "http" {
+            let format = input.format.as_deref().unwrap_or("json");
+            if !HTTP_FORMATS.contains(&format) {
+                refuse(format!("{at}.format"), format!("http format '{format}'"));
+            }
         }
     }
     for (id, n) in p.nodes.iter() {

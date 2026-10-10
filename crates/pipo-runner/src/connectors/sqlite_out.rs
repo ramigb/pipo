@@ -273,7 +273,7 @@ mod tests {
     use crate::connectors::test_util::TempDir;
 
     fn item(id: &str, data: Value, w: Value) -> WriteItem {
-        WriteItem { packet_id: id.into(), data, with: w.as_object().cloned().unwrap(), origin: None }
+        WriteItem { packet_id: id.into(), data, with: w.as_object().cloned().unwrap(), origin: None, chain_depth: 0 }
     }
 
     fn setup(b: &TempDir) -> (SqliteOutput, WriteItem) {

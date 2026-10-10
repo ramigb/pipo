@@ -4,7 +4,7 @@
 // the file.
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { type Pipeline, parseDuration } from "@pipo/spec";
+import { inputsOf, type Pipeline, parseDuration } from "@pipo/spec";
 import { defaultResolver, type Resolver } from "./secrets";
 
 export const TELEGRAM_API = "https://api.telegram.org";
@@ -106,7 +106,8 @@ export function writeBots(home: string, file: BotsFile): void {
 /** Every telegram `with:` block of a pipeline (input, taps, output), with where it is. */
 export function telegramUses(p: Pipeline): { at: string; with: Record<string, unknown> }[] {
   const out: { at: string; with: Record<string, unknown> }[] = [];
-  if (p.input.via === "telegram") out.push({ at: "input", with: p.input.with ?? {} });
+  for (const [name, i] of inputsOf(p))
+    if (i.via === "telegram") out.push({ at: p.inputs ? `inputs.${name}` : "input", with: i.with ?? {} });
   for (const [id, n] of Object.entries(p.nodes ?? {}))
     if (n.tap === "telegram") out.push({ at: `nodes.${id}`, with: (n.with ?? {}) as Record<string, unknown> });
   if (p.output.to === "telegram") out.push({ at: "output", with: p.output.with ?? {} });

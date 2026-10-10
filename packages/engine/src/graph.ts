@@ -4,7 +4,7 @@
 import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "node:fs";
 import { Journal } from "@pipo/runner";
-import { asList, load, nodeKind, type Pipeline } from "@pipo/spec";
+import { asList, inputsOf, load, nodeKind, type Pipeline } from "@pipo/spec";
 import { pinnedSource } from "./events";
 
 export interface GraphNode {
@@ -64,23 +64,23 @@ export function pipelineGraph(name: string, file: string, journal: string, versi
     }
   }
   const p = load(source).value as Pipeline | undefined;
-  if (!p?.input || !p.output) return null;
+  const inputs = p ? inputsOf(p) : [];
+  if (!p || !inputs.length || !p.output) return null;
   const c = counts(journal);
   const n = (id: string, ...types: string[]) => types.reduce((s, t) => s + (c.get(id)?.[t] ?? 0), 0);
-  const nodes: GraphNode[] = [
-    {
-      id: "input",
-      kind: "input",
-      label: p.input.via ?? null,
-      from: [],
-      counts: {
-        in: n("input", "packet.accepted", "packet.rejected"),
-        ok: n("input", "packet.accepted"),
-        failed: n("input", "packet.rejected"),
-        filtered: 0,
-      },
+  // One node per input, named as in the file (`input` for the `input:` shorthand, D76).
+  const nodes: GraphNode[] = inputs.map(([id, input]) => ({
+    id,
+    kind: "input",
+    label: input.via ?? null,
+    from: [],
+    counts: {
+      in: n(id, "packet.accepted", "packet.rejected"),
+      ok: n(id, "packet.accepted"),
+      failed: n(id, "packet.rejected"),
+      filtered: 0,
     },
-  ];
+  }));
   for (const [id, node] of Object.entries(p.nodes ?? {})) {
     const ok = n(id, "node.done", "node.looped");
     const failed = n(id, "packet.dead_lettered", "node.failed_continued", "packet.dropped");

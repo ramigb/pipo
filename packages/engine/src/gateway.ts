@@ -22,7 +22,7 @@ import { serveUi } from "@pipo/ui";
 import type { Server } from "bun";
 import { deleteBot, listBots, saveBot, testBot } from "./bots";
 import { Builder } from "./builder";
-import { activityEvents, lifetimeOf, logPage, statsOf } from "./dashboard";
+import { activityEvents, chainOf, lifetimeOf, logPage, statsOf } from "./dashboard";
 import { EngineError } from "./errors";
 import { type EngineEvent, journalEventsAfter, journalEventsTail } from "./events";
 import { CodeStamp } from "./freshness";
@@ -622,6 +622,7 @@ export class Gateway {
           lifetime: lifetimeOf(i, journalPath(engine.home, i.name)),
           stats: statsOf(journalPath(engine.home, i.name)),
           resources: (i.pid && res.get(i.pid)) || null,
+          chain: chainOf(i, journalPath(engine.home, i.name)),
         }));
         return json(200, { pipelines });
       }
@@ -785,11 +786,21 @@ export class Gateway {
         return json(200, await runnerOp(name, () => engine.resume(name)));
       case "push": {
         if (!("data" in body)) {
-          throw new HttpError(400, "push needs `data`", 'send {"data": {...}, "source": "optional"}', "bad_request");
+          throw new HttpError(
+            400,
+            "push needs `data`",
+            'send {"data": {...}, "source": "optional", "input": "optional"}',
+            "bad_request",
+          );
         }
         const source = optional(body, "source", "string");
+        const input = optional(body, "input", "string");
         this.need(name);
-        const args = { data: body.data, ...(source !== undefined && { source }) };
+        const args = {
+          data: body.data,
+          ...(source !== undefined && { source }),
+          ...(input !== undefined && { input }),
+        };
         return json(200, await runnerOp(name, () => engine.request(name, "push", args)));
       }
       case "rollback": {

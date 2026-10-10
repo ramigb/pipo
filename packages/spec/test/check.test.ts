@@ -583,3 +583,179 @@ describe("telegram (P056, P057)", () => {
     ).toEqual([]);
   });
 });
+
+describe("several inputs (P060, P061, P062, D76)", () => {
+  const MULTI = `pipo: 1
+name: m
+inputs:
+  webhook:
+    via: http
+    with: { path: /people }
+  nightly:
+    via: schedule
+    with: { every: 1h }
+nodes:
+  a:
+    from: [webhook, nightly]
+    transform: map
+    with: { data: { from: "\${meta.input}" } }
+output:
+  from: a
+  to: stdout
+`;
+
+  test("inputs: by name pass, and meta.input is available", () => {
+    expect(run(MULTI)).toEqual([]);
+  });
+
+  test("input: is the input named input; from: input still works", () => {
+    expect(run(BASE.replace("${data.n}", "${meta.input}"))).toEqual([]);
+  });
+
+  test("P060: neither or both of input and inputs, or more than 16", () => {
+    const none = errors("pipo: 1\nname: x\noutput: { from: input, to: stdout }\n");
+    expect(codes(none)).toEqual(["P060"]);
+    expect(none[0]?.hint).toContain("input:");
+    const both = errors(MULTI.replace("inputs:", "input: { via: push }\ninputs:"));
+    expect(codes(both)).toEqual(["P060"]);
+    expect(both[0]).toMatchObject({ line: 4 });
+    const many = Array.from({ length: 17 }, (_, i) => `  i${i}: { via: push }`).join("\n");
+    const src = `pipo: 1\nname: x\ninputs:\n${many}\noutput:\n  from: [${Array.from({ length: 17 }, (_, i) => `i${i}`).join(", ")}]\n  to: stdout\n`;
+    expect(codes(errors(src))).toEqual(["P060"]);
+  });
+
+  test("P061: an input can't share a node's name, nor be called output", () => {
+    const clash = MULTI.replace("  a:\n    from: [webhook, nightly]", "  nightly:\n    from: [webhook]").replace(
+      "from: a\n",
+      "from: nightly\n",
+    );
+    expect(codes(errors(clash))).toContain("P061");
+    const out = errors(
+      MULTI.replace("nightly:\n    via", "output:\n    via").replace("[webhook, nightly]", "[webhook, output]"),
+    );
+    expect(codes(out)).toContain("P061");
+  });
+
+  test("P010: an unknown from names the inputs", () => {
+    const e = errors(MULTI.replace("[webhook, nightly]", "[webhok, nightly]")).filter((d) => d.code === "P010");
+    expect(codes(e)).toEqual(["P010"]);
+    expect(e[0]?.message).toContain("an input or a node");
+    expect(e[0]?.hint).toContain("webhook");
+  });
+
+  test("P020/P021: every input leads to the output", () => {
+    const idle = MULTI.replace(
+      "nightly:\n    via: schedule\n    with: { every: 1h }",
+      "nightly:\n    via: schedule\n    with: { every: 1h }\n  spare:\n    via: push",
+    );
+    const e = errors(idle);
+    expect(codes(e)).toEqual(["P021"]);
+    expect(e[0]?.message).toContain("input 'spare'");
+  });
+
+  test("P062: two http inputs on one route or different listen ports, two inputs on one bot", () => {
+    const twoHttp = `pipo: 1\nname: x\ninputs:\n  a: { via: http, with: { path: /x } }\n  b: { via: http, with: { path: /x } }\noutput: { from: [a, b], to: stdout }\n`;
+    expect(codes(errors(twoHttp))).toEqual(["P062"]);
+    expect(errors(twoHttp.replace("path: /x } }\noutput", "path: /x, method: PUT } }\noutput"))).toEqual([]);
+    const ports = `pipo: 1\nname: x\ninputs:\n  a: { via: http, with: { path: /a, listen: 8001 } }\n  b: { via: http, with: { path: /b, listen: 8002 } }\noutput: { from: [a, b], to: stdout }\n`;
+    expect(codes(errors(ports))).toEqual(["P062"]);
+    expect(errors(ports.replace("8002", "8001"))).toEqual([]);
+    const bots = `pipo: 1\nname: x\ninputs:\n  a: { via: telegram }\n  b: { via: telegram, with: { bot: default } }\noutput: { from: [a, b], to: stdout }\n`;
+    expect(codes(errors(bots))).toEqual(["P062"]);
+    expect(errors(bots.replace("bot: default", "bot: other"))).toEqual([]);
+  });
+
+  test("P035, P038 and the expression checks run per input", () => {
+    expect(
+      codes(errors(MULTI.replace("with: { every: 1h }", "with: { every: 1h }\n    on_invalid: { respond: 422 }"))),
+    ).toEqual(["P035"]);
+    expect(codes(errors(MULTI.replace("with: { every: 1h }", "with: {}")))).toEqual(["P038"]);
+    expect(
+      codes(errors(MULTI.replace("with: { path: /people }", "with: { path: /people }\n    validate: [bogus > 1]"))),
+    ).toEqual(["P041"]);
+  });
+
+  test("P057: a send without chat_id needs every input that reaches it to be telegram", () => {
+    const src = `pipo: 1\nname: x\ninputs:\n  chat: { via: telegram }\n  hook: { via: http }\nnodes:\n  reply: { from: chat, tap: telegram, with: { text: hi } }\n  other: { from: hook, transform: map, with: { data: 1 } }\noutput: { from: [reply, other], to: stdout }\n`;
+    expect(errors(src)).toEqual([]);
+    const both = src
+      .replace("from: chat, tap", "from: [chat, hook], tap")
+      .replace("other: { from: hook", "other: { from: chat");
+    const e = errors(both);
+    expect(codes(e)).toEqual(["P057"]);
+    expect(e[0]?.message).toContain("'hook'");
+  });
+});
+
+describe("chains (P063, P064, D77)", () => {
+  const sender = (name: string, to: string) =>
+    `pipo: 1\nname: ${name}\ninput: { via: push }\noutput:\n  from: input\n  to: pipeline\n  with: { pipeline: ${to} }\n`;
+  const receiver = (name: string, from: string[]) =>
+    `pipo: 1\nname: ${name}\ninputs:\n  intake:\n    via: pipeline\n    with: { from: [${from.join(", ")}] }\noutput: { from: intake, to: stdout }\n`;
+
+  test("both ends pass on their own; downstream is a check of to: pipeline only", () => {
+    expect(run(sender("a", "b"))).toEqual([]);
+    expect(run(receiver("b", ["a"]))).toEqual([]);
+    expect(run(`${sender("a", "b")}delivered: { check: downstream, within: 1m }\n`)).toEqual([]);
+    expect(codes(errors(`${BASE}delivered: { check: downstream }\n`))).toEqual(["P031"]);
+    expect(codes(errors(`${sender("a", "b")}output_extra: 1\n`))).toEqual(["P002"]);
+  });
+
+  test("with: is checked: a pipeline name, a non-empty from list", () => {
+    expect(codes(errors(sender("a", "Not_A_Name")))).toEqual(["P002"]);
+    expect(codes(errors(receiver("b", []).replace("from: []", "from: []")))).toContain("P002");
+    expect(codes(errors(`${sender("a", "b")}`.replace("to: pipeline", "to: pipeline\n  batch: { size: 5 }")))).toEqual([
+      "P032",
+    ]);
+  });
+
+  test("P063: no feeding yourself, no sender in two inputs", () => {
+    expect(codes(errors(sender("a", "a")))).toEqual(["P063"]);
+    expect(codes(errors(receiver("b", ["b"])))).toEqual(["P063"]);
+    const twice = `pipo: 1\nname: b\ninputs:\n  one: { via: pipeline, with: { from: [a] } }\n  two: { via: pipeline, with: { from: [c, a] } }\noutput: { from: [one, two], to: stdout }\n`;
+    const e = errors(twice);
+    expect(codes(e)).toEqual(["P063"]);
+    expect(e[0]?.message).toContain("input 'one'");
+  });
+
+  test("P064: a link declared at one end only, and a cycle, across files", () => {
+    const dir = mkdtempSync(join(tmpdir(), "pipo-p064-"));
+    const write = (files: Record<string, string>) =>
+      Object.entries(files).map(([n, src]) => {
+        writeFileSync(join(dir, n), src);
+        return join(dir, n);
+      });
+    const p064 = (paths: string[]) => checkProject(paths).map((r) => r.diagnostics.filter((d) => d.code === "P064"));
+    // Matched ends, and a sender whose receiver isn't in the run: nothing.
+    expect(p064(write({ "a.pipo": sender("a", "b"), "b.pipo": receiver("b", ["a"]) })).flat()).toEqual([]);
+    expect(p064(write({ "a.pipo": sender("a", "elsewhere") })).flat()).toEqual([]);
+    // The receiver doesn't list the sender.
+    const [onA, onB] = p064(write({ "a.pipo": sender("a", "b"), "b.pipo": receiver("b", ["z"]) }));
+    expect(onA).toHaveLength(1);
+    expect(onA?.[0]).toMatchObject({ severity: "warning" });
+    expect(onA?.[0]?.message).toContain("lists 'a'");
+    expect(onB).toEqual([]);
+    // The receiver lists a sender in the run that sends elsewhere.
+    const [, onB2] = p064(write({ "a.pipo": sender("a", "c"), "b.pipo": receiver("b", ["a"]) }));
+    expect(onB2?.[0]?.message).toContain("doesn't send to 'b'");
+    // A cycle: a → b → a.
+    const ring = (name: string, from: string, to: string) =>
+      `pipo: 1\nname: ${name}\ninputs:\n  intake: { via: pipeline, with: { from: [${from}] } }\noutput:\n  from: intake\n  to: pipeline\n  with: { pipeline: ${to} }\n`;
+    const cyc = p064(write({ "a.pipo": ring("a", "b", "b"), "b.pipo": ring("b", "a", "a") }));
+    expect(cyc.map((d) => d.map((x) => x.message))).toEqual([["chain cycle: a → b → a"], ["chain cycle: b → a → b"]]);
+    rmSync(dir, { recursive: true });
+  });
+
+  test("P039 and P056 compare every input of every file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "pipo-p039m-"));
+    const a = `pipo: 1\nname: a\ninputs:\n  x: { via: push }\n  y: { via: http, with: { listen: 8787 } }\n  t: { via: telegram }\noutput: { from: [x, y, t], to: stdout }\n`;
+    const b = `pipo: 1\nname: b\ninputs:\n  h: { via: http, with: { listen: 8787 } }\n  t: { via: telegram }\noutput: { from: [h, t], to: stdout }\n`;
+    const paths = [join(dir, "a.pipo"), join(dir, "b.pipo")];
+    writeFileSync(paths[0] as string, a);
+    writeFileSync(paths[1] as string, b);
+    const [ra, rb] = checkProject(paths);
+    expect(codes(ra!.diagnostics)).toEqual([]);
+    expect(codes(rb!.diagnostics).sort()).toEqual(["P039", "P056"]);
+    rmSync(dir, { recursive: true });
+  });
+});

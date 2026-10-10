@@ -75,7 +75,7 @@ test("catalog: connectors with their with: schemas, node kinds and then values",
   const { status, body } = await get("catalog");
   expect(status).toBe(200);
   expect(body.workspace).toBe(ws);
-  expect(Object.keys(body.inputs)).toEqual(["http", "schedule", "watch", "push", "system", "telegram"]);
+  expect(Object.keys(body.inputs)).toEqual(["http", "schedule", "watch", "push", "pipeline", "system", "telegram"]);
   expect(body.inputs.watch.with.required).toEqual(["path"]);
   expect(body.inputs.telegram.sample.from.username).toBe("ada");
   expect(body.inputs.http.sample).toBeUndefined();

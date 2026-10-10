@@ -250,6 +250,8 @@ struct Inner {
     log: Option<Log>,
     stop: Stopper,
     known: RefCell<BTreeMap<String, Stamp>>,
+    /// `<input>|`, so each input's snapshot is its own (D76); empty in unit tests.
+    scope_prefix: RefCell<String>,
     running: Cell<bool>,
     again: Cell<bool>,
     debounce: RefCell<Option<JoinHandle<()>>>,
@@ -286,6 +288,7 @@ impl WatchInput {
             log: o.log,
             stop: Stopper::default(),
             known: RefCell::default(),
+            scope_prefix: RefCell::default(),
             running: Cell::new(false),
             again: Cell::new(false),
             debounce: RefCell::new(None),
@@ -294,6 +297,12 @@ impl WatchInput {
             journal: RefCell::new(None),
         };
         WatchInput { inner: Rc::new(inner), tasks: RefCell::default(), watcher: RefCell::new(None) }
+    }
+
+    /// Keep the snapshot under `prefix` (an input's `<name>|`, D76). Call before `start`.
+    pub fn scoped(self, prefix: String) -> WatchInput {
+        *self.inner.scope_prefix.borrow_mut() = prefix;
+        self
     }
 }
 
@@ -305,7 +314,7 @@ impl Inner {
     }
 
     fn scope(&self) -> String {
-        format!("watch:{}", self.pattern)
+        format!("{}watch:{}", self.scope_prefix.borrow(), self.pattern)
     }
 
     fn wake(self: &Rc<Self>, delay: u64) {

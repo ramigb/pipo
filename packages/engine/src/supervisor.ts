@@ -15,7 +15,7 @@ import { spawn } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { entryAlive, procStart, readRegistryEntry, ulid } from "@pipo/runner";
-import { formatDuration, type Pipeline, parseDuration } from "@pipo/spec";
+import { formatDuration, inputsOf, type Pipeline, parseDuration } from "@pipo/spec";
 import { type EngineConfig, loadConfig } from "./config";
 import { EngineError } from "./errors";
 import type { EngineEvent } from "./events";
@@ -212,11 +212,13 @@ export class Supervisor extends SupervisorDiscovery {
         `supervise that runner with pipo attach ${name}, or stop it first (SIGTERM drains it)`,
       );
     }
-    const http = pipeline.input.via === "http";
+    const inputs = inputsOf(pipeline);
+    const http = inputs.some(([, i]) => i.via === "http");
     if (opts.listen !== undefined && !http) {
+      const what = inputs.length === 1 ? `a ${inputs[0]?.[1].via} input` : "no http input";
       throw new EngineError(
         "invalid_pipeline",
-        `'${name}' has a ${pipeline.input.via} input: a listen port only applies to an http input`,
+        `'${name}' has ${what}: a listen port only applies to an http input`,
         "start it without --listen",
       );
     }
@@ -590,9 +592,13 @@ function startTtl(text: string): string {
   return text.trim();
 }
 
-/** `input.with.listen` when the file gives a literal port (an expression is only known once the runner renders it). */
+/** An http input's `with.listen` when the file gives a literal port (an expression is only known once the runner renders it). */
 function declaredPort(pipeline: Pipeline): number | undefined {
-  const v = (pipeline.input.with as { listen?: unknown } | undefined)?.listen;
-  const n = typeof v === "string" && /^\d+$/.test(v) ? Number(v) : v;
-  return Number.isInteger(n) && (n as number) > 0 ? (n as number) : undefined;
+  for (const [, input] of inputsOf(pipeline)) {
+    if (input.via !== "http") continue;
+    const v = (input.with as { listen?: unknown } | undefined)?.listen;
+    const n = typeof v === "string" && /^\d+$/.test(v) ? Number(v) : v;
+    if (Number.isInteger(n) && (n as number) > 0) return n as number;
+  }
+  return undefined;
 }

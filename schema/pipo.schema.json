@@ -139,6 +139,7 @@
             "schedule",
             "watch",
             "push",
+            "pipeline",
             "system",
             "telegram"
           ]
@@ -382,6 +383,40 @@
           "if": {
             "properties": {
               "via": {
+                "const": "pipeline"
+              }
+            },
+            "required": [
+              "via"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {
+                  "from": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9-]*$"
+                    },
+                    "minItems": 1,
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "from"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "via": {
                 "const": "system"
               }
             },
@@ -464,6 +499,384 @@
         }
       ]
     },
+    "inputs": {
+      "type": "object",
+      "description": "Several inputs: input name → input (docs/spec.md §3.3.1)",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "via": {
+            "enum": [
+              "http",
+              "schedule",
+              "watch",
+              "push",
+              "pipeline",
+              "system",
+              "telegram"
+            ]
+          },
+          "with": {
+            "type": "object"
+          },
+          "format": {
+            "enum": [
+              "json",
+              "text",
+              "csv",
+              "form",
+              "bytes"
+            ]
+          },
+          "schema": {
+            "type": "string"
+          },
+          "validate": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Expression (docs/spec.md §3.2)"
+            }
+          },
+          "on_invalid": {
+            "type": "object",
+            "properties": {
+              "respond": {
+                "type": "integer",
+                "minimum": 400,
+                "maximum": 599
+              },
+              "then": {
+                "enum": [
+                  "dead_letter",
+                  "drop",
+                  "continue",
+                  "pause",
+                  "halt",
+                  "agent"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "via"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "via": {
+                  "const": "http"
+                }
+              },
+              "required": [
+                "via"
+              ]
+            },
+            "then": {
+              "properties": {
+                "with": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "pattern": "^/",
+                      "default": "/"
+                    },
+                    "method": {
+                      "enum": [
+                        "GET",
+                        "POST",
+                        "PUT",
+                        "PATCH",
+                        "DELETE"
+                      ]
+                    },
+                    "auth": {
+                      "type": "object",
+                      "properties": {
+                        "header": {
+                          "type": "string"
+                        },
+                        "equals": {
+                          "type": "string"
+                        },
+                        "hmac": {
+                          "type": "object",
+                          "properties": {
+                            "header": {
+                              "type": "string"
+                            },
+                            "secret": {
+                              "type": "string"
+                            },
+                            "algorithm": {
+                              "enum": [
+                                "sha256",
+                                "sha1"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "header",
+                            "secret"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "respond": {
+                      "enum": [
+                        "accepted",
+                        "delivered"
+                      ]
+                    },
+                    "timeout": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$"
+                    },
+                    "listen": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 65535
+                    }
+                  },
+                  "required": [],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "via": {
+                  "const": "schedule"
+                }
+              },
+              "required": [
+                "via"
+              ]
+            },
+            "then": {
+              "properties": {
+                "with": {
+                  "type": "object",
+                  "properties": {
+                    "cron": {
+                      "type": "string"
+                    },
+                    "every": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$"
+                    },
+                    "payload": {}
+                  },
+                  "required": [],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "via": {
+                  "const": "watch"
+                }
+              },
+              "required": [
+                "via"
+              ]
+            },
+            "then": {
+              "properties": {
+                "with": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "events": {
+                      "type": "array",
+                      "items": {
+                        "enum": [
+                          "create",
+                          "change",
+                          "delete"
+                        ]
+                      }
+                    },
+                    "read": {
+                      "enum": [
+                        "content",
+                        "path"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "via": {
+                  "const": "push"
+                }
+              },
+              "required": [
+                "via"
+              ]
+            },
+            "then": {
+              "properties": {
+                "with": {
+                  "type": "object",
+                  "properties": {},
+                  "required": [],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "via": {
+                  "const": "pipeline"
+                }
+              },
+              "required": [
+                "via"
+              ]
+            },
+            "then": {
+              "properties": {
+                "with": {
+                  "type": "object",
+                  "properties": {
+                    "from": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-z0-9][a-z0-9-]*$"
+                      },
+                      "minItems": 1,
+                      "uniqueItems": true
+                    }
+                  },
+                  "required": [
+                    "from"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "via": {
+                  "const": "system"
+                }
+              },
+              "required": [
+                "via"
+              ]
+            },
+            "then": {
+              "properties": {
+                "with": {
+                  "type": "object",
+                  "properties": {
+                    "every": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$"
+                    },
+                    "metrics": {
+                      "type": "array",
+                      "items": {
+                        "enum": [
+                          "cpu",
+                          "memory",
+                          "disk",
+                          "battery",
+                          "network"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "every"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "via": {
+                  "const": "telegram"
+                }
+              },
+              "required": [
+                "via"
+              ]
+            },
+            "then": {
+              "properties": {
+                "with": {
+                  "type": "object",
+                  "properties": {
+                    "bot": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                    },
+                    "token": {
+                      "type": "string"
+                    },
+                    "allow": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      }
+                    },
+                    "poll_every": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$"
+                    },
+                    "download": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        ]
+      },
+      "minProperties": 1
+    },
     "nodes": {
       "type": "object",
       "propertyNames": {
@@ -474,7 +887,7 @@
         "type": "object",
         "properties": {
           "from": {
-            "description": "Where packets come from: input, a node id, a route branch (node.branch) or a list",
+            "description": "Where packets come from: an input, a node id, a route branch (node.branch) or a list",
             "type": [
               "string",
               "array"
@@ -1290,7 +1703,7 @@
       "type": "object",
       "properties": {
         "from": {
-          "description": "Where packets come from: input, a node id, a route branch (node.branch) or a list",
+          "description": "Where packets come from: an input, a node id, a route branch (node.branch) or a list",
           "type": [
             "string",
             "array"
@@ -1306,6 +1719,7 @@
             "file",
             "http",
             "telegram",
+            "pipeline",
             "stdout"
           ]
         },
@@ -1625,6 +2039,36 @@
           "if": {
             "properties": {
               "to": {
+                "const": "pipeline"
+              }
+            },
+            "required": [
+              "to"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {
+                  "pipeline": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9-]*$"
+                  },
+                  "data": {}
+                },
+                "required": [
+                  "pipeline"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "to": {
                 "const": "stdout"
               }
             },
@@ -1669,6 +2113,7 @@
             "line_contains",
             "checksum",
             "status",
+            "downstream",
             "follow_up"
           ]
         },
@@ -2084,6 +2529,28 @@
           "if": {
             "properties": {
               "check": {
+                "const": "downstream"
+              }
+            },
+            "required": [
+              "check"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "check": {
                 "const": "follow_up"
               }
             },
@@ -2225,7 +2692,6 @@
   "required": [
     "pipo",
     "name",
-    "input",
     "output"
   ],
   "additionalProperties": false

@@ -24,7 +24,7 @@ export const TEST_VERSION = 1;
 /** Fixture files that are not fixtures: the agent-classifier scaffold's sample response, `pipo test`'s run-wide stubs, and snapshots. */
 const NOT_FIXTURES = (file: string) => file === "expected.json" || file === "stubs.json" || file.endsWith(".snap.json");
 const FIXTURE_KEYS = ["data", "meta", "stubs"];
-const META_KEYS = ["trigger", "source", "received_at"];
+const META_KEYS = ["input", "trigger", "source", "received_at"];
 const FORM = 'a fixture is the packet\'s data as JSON, or {"data": …, "meta": {…}, "stubs": {…}}';
 
 /** Node id → its response, or a list of responses used one per call in order (retries and loop passes included). */

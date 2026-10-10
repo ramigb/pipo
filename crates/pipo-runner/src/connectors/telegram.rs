@@ -148,7 +148,8 @@ struct Inner {
     log: Option<Log>,
     stop: Stopper,
     offset: Cell<i64>,
-    scope: String,
+    /// `[<input>|]telegram:<bot id>` (D76).
+    scope: RefCell<String>,
     journal: RefCell<Option<Rc<RefCell<Journal>>>>,
 }
 
@@ -175,10 +176,17 @@ impl TelegramInput {
             log: o.log,
             stop: Stopper::default(),
             offset: Cell::new(0),
-            scope,
+            scope: RefCell::new(scope),
             journal: RefCell::new(None),
         };
         Ok(TelegramInput { inner: Rc::new(inner), task: RefCell::new(None) })
+    }
+
+    /// Keep the update offset under `prefix` (an input's `<name>|`, D76). Call before `start`.
+    pub fn scoped(self, prefix: String) -> TelegramInput {
+        let scope = format!("{prefix}{}", self.inner.scope.borrow());
+        *self.inner.scope.borrow_mut() = scope;
+        self
     }
 }
 
@@ -213,7 +221,7 @@ impl Inner {
     /// Saves the offset outside a packet (an ignored or non-message update advances it on its own).
     fn save_offset(&self, next: i64) -> Result<(), String> {
         if let Some(j) = self.journal.borrow().as_ref() {
-            j.borrow().input_put(&self.scope, "offset", Some(&json!(next))).map_err(|e| e.to_string())?;
+            j.borrow().input_put(&self.scope.borrow(), "offset", Some(&json!(next))).map_err(|e| e.to_string())?;
         }
         Ok(())
     }
@@ -286,7 +294,7 @@ impl Inner {
             return skip();
         }
         let payload = self.packet(m).await;
-        let scope = self.scope.clone();
+        let scope = self.scope.borrow().clone();
         let commit: super::Commit = Box::new(move |j: &mut Journal| j.input_put(&scope, "offset", Some(&json!(next))));
         let source = chat.map(|c| c.to_string()).unwrap_or_else(|| "NaN".into());
         match intake(payload, Origin { trigger: "telegram".into(), source }, Some(commit)).await {
@@ -407,9 +415,13 @@ impl InputAdapter for TelegramInput {
     fn start(&self, intake: Intake, runtime: InputRuntime) -> LocalBoxFuture<'_, Result<(), String>> {
         Box::pin(async move {
             let inner = &self.inner;
-            let saved = runtime.journal.borrow().input_load(&inner.scope).map_err(|e| e.to_string())?;
+            let saved = runtime.journal.borrow().input_load(&inner.scope.borrow()).map_err(|e| e.to_string())?;
             if saved.is_none() {
-                runtime.journal.borrow_mut().input_baseline(&inner.scope, &Map::new()).map_err(|e| e.to_string())?;
+                runtime
+                    .journal
+                    .borrow_mut()
+                    .input_baseline(&inner.scope.borrow(), &Map::new())
+                    .map_err(|e| e.to_string())?;
             }
             inner.offset.set(saved.as_ref().and_then(|s| s.get("offset")).and_then(as_i64).unwrap_or(0));
             *inner.journal.borrow_mut() = Some(runtime.journal.clone());
@@ -858,6 +870,7 @@ mod tests {
                 data: json!({"a": 1}),
                 with: w.as_object().cloned().unwrap(),
                 origin: Some(origin),
+                chain_depth: 0,
             };
             let r = out.write(vec![item]).await.unwrap();
             assert_eq!(r, vec![json!({"chat_id": 42, "message_id": 1})]);
@@ -886,7 +899,8 @@ mod tests {
             assert_eq!(sends[2].body, json!({"chat_id": 99, "parse_mode": "HTML", "text": "{\n  \"a\": 1\n}"}));
 
             // Without a chat id, and with a 429 that never ends.
-            let none = WriteItem { packet_id: "p".into(), data: json!("x"), with: Map::new(), origin: None };
+            let none =
+                WriteItem { packet_id: "p".into(), data: json!("x"), with: Map::new(), origin: None, chain_depth: 0 };
             let e = out.write(vec![none]).await.unwrap_err();
             assert_eq!(
                 e,
@@ -908,7 +922,13 @@ mod tests {
                 .verify(
                     "status",
                     &Map::new(),
-                    &WriteItem { packet_id: "p".into(), data: Value::Null, with: Map::new(), origin: None },
+                    &WriteItem {
+                        packet_id: "p".into(),
+                        data: Value::Null,
+                        with: Map::new(),
+                        origin: None,
+                        chain_depth: 0,
+                    },
                     &Value::Null,
                 )
                 .await

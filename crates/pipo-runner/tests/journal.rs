@@ -43,6 +43,8 @@ fn packet(id: &str, version: i64, data: Value) -> NewPacket {
         source: "in".into(),
         error: None,
         received_at: 1000,
+        input: "input".into(),
+        upstream: serde_json::Value::Null,
     }
 }
 
@@ -157,10 +159,13 @@ fn migrates_an_old_journal() {
         cols("versions"),
         ["version", "hash", "source", "author", "reason", "created_at", "author_kind", "proposal", "files", "compiled"]
     );
-    assert!(cols("packets").ends_with(&["root".into(), "parent".into(), "branch".into()]));
+    let tail = ["root", "parent", "branch", "input", "upstream"].map(String::from);
+    assert!(cols("packets").ends_with(&tail));
     assert!(cols("events").ends_with(&["patch".into(), "ms".into()]));
     let old = j.get("old").unwrap().unwrap();
     assert_eq!((old.branch.as_str(), old.root.clone(), old.data.clone()), ("", None, json!({ "k": 1 })));
+    // A packet from before several inputs came through the input named `input` (D76).
+    assert_eq!((old.input.as_str(), old.upstream.clone()), ("input", serde_json::Value::Null));
     assert_eq!(j.version_source(1).unwrap(), "old source");
     assert_eq!(j.version_files(1).unwrap(), None);
     assert_eq!(j.version_compiled(1).unwrap(), None);
@@ -330,6 +335,28 @@ fn input_state_joins_the_intake_transaction() {
 
     j.input_state("other").put("cursor", None).unwrap();
     assert_eq!(j.input_load("other").unwrap(), Some(Map::new()));
+}
+
+#[test]
+fn each_input_keeps_its_own_state_and_old_scopes_belong_to_input() {
+    let t = Tmp::new();
+    {
+        let mut j = Journal::open(t.db()).unwrap();
+        let mut entries = Map::new();
+        entries.insert("offset".into(), json!(41));
+        // Written as a journal from before D76 would have it: no input prefix.
+        j.input_state("telegram:123").baseline(&entries).unwrap();
+    }
+    let mut j = Journal::open(t.db()).unwrap();
+    assert_eq!(j.input_load("telegram:123").unwrap(), None);
+    assert_eq!(j.input_load("input|telegram:123").unwrap().unwrap()["offset"], json!(41));
+    // A baseline replaces only the same input's scopes (D76).
+    j.input_state("hook|watch:/a/*").baseline(&Map::new()).unwrap();
+    assert!(j.input_load("input|telegram:123").unwrap().is_some());
+    j.input_state("hook|watch:/b/*").baseline(&Map::new()).unwrap();
+    assert_eq!(j.input_load("hook|watch:/a/*").unwrap(), None);
+    assert!(j.input_load("hook|watch:/b/*").unwrap().is_some());
+    assert!(j.input_load("input|telegram:123").unwrap().is_some());
 }
 
 #[test]

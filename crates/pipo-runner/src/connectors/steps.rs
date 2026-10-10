@@ -80,7 +80,7 @@ impl StepAdapter for FileTap {
             if !i.with.get("path").is_some_and(super::truthy) {
                 return Err(format!("nodes.{}.with.path is empty after rendering; check the template", i.node));
             }
-            let item = WriteItem { packet_id: key(&i), data: i.data, with: i.with, origin: None };
+            let item = WriteItem { packet_id: key(&i), data: i.data, with: i.with, origin: None, chain_depth: 0 };
             self.file.write_now(std::slice::from_ref(&item))?;
             Ok(StepResult::default())
         })
