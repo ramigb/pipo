@@ -36,8 +36,12 @@ a Bun-free deploy aren't goals yet.
 - **Each version stores its compiled form** in `versions.compiled` (JSON: pipeline, fn bundle, schemas). A packet
   pinned to an old version runs that version's own code and schemas, without reading files or compiling again. This
   tightens §7.3: before, `fn` modules and schema files were re-read from disk.
-- **Expressions are evaluated in Rust** (`expr/`), a port of `@pipo/spec`'s jsep subset. `packages/spec/test/expr.test.ts`
-  cases are exported to `crates/pipo-runner/tests/fixtures/expr.json`, and both implementations must pass them.
+- **Expressions are evaluated in Rust** (`expr/`), a port of `@pipo/spec`'s jsep subset. The conformance cases live in
+  `packages/spec/test/fixtures/expr-cases.json`; `expr.test.ts` and `crates/pipo-runner/tests/expr_conformance.rs`
+  both run them. Known differences: `matches()` runs on the `regex` crate, so lookaround and backreferences are
+  errors and syntax-error wording differs (both start "Invalid regular expression"); parsing stops at about 128
+  levels of redundant parentheses (TS stops at depth 32 for anything else); and indexing a string inside a
+  surrogate pair gives U+FFFD. `now()`/`iso()` read the clock passed in `EvalOptions`.
 - **`fn` modules run in an embedded QuickJS** (`rquickjs`, `jsfn.rs`), one runtime per runner on its own thread; calls
   are serialized over a channel. Each version's bundle is loaded as its own module, values cross as JSON, a call is
   stopped after 30 s and the runtime is capped at 256 MB. A module can't use Bun or Node APIs: if its bundle imports

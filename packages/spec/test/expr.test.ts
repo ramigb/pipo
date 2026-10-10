@@ -1,107 +1,94 @@
-// Conformance suite for the expression language (docs/spec.md §3.2). Any replacement for
-// jsep must pass this file unchanged.
-import { describe, expect, test } from "bun:test";
+// Conformance suite for the expression language (docs/spec.md §3.2). The cases live in fixtures/expr-cases.json,
+// which the Rust runner runs too (crates/pipo-runner/tests/expr_conformance.rs). Any replacement for jsep, and
+// any port, must pass them unchanged.
+//
+// A case is { name, ctx?, now?, expr | template | render | segments, expect | error, index? }:
+// - `expr` goes through evaluate(), `template` through renderString(), `render` through render() (compared as
+//   JSON, so undefined is dropped from objects and null elsewhere), `segments` through segments().
+// - `ctx` (the context variables) defaults to {}. `now` fixes the clock, in epoch ms, for now() and iso().
+// - `expect` writes undefined as {"$undefined": true}, and NaN, Infinity, -Infinity and -0 as {"$number": "NaN"} etc.
+// - `error` is a substring of the ExprError's message, and `index` its position when the parser reports one.
+import { describe, expect, setSystemTime, test } from "bun:test";
 import { ExprError, evaluate, parse, render, renderString, segments } from "../src";
+import cases from "./fixtures/expr-cases.json";
 
-const ctx = {
-  data: { name: " Ada ", age: 36, tags: ["a", "b"], nested: { x: 1 }, nil: null },
-  meta: { packet_id: "01J9", received_at: 1_000 },
-  env: {},
-};
+interface Case {
+  name: string;
+  ctx?: Record<string, unknown>;
+  now?: number;
+  expr?: string;
+  template?: string;
+  render?: unknown;
+  segments?: string;
+  expect?: unknown;
+  error?: string;
+  index?: number;
+}
 
-describe("evaluate", () => {
-  test.each([
-    ["data.age > 30", true],
-    ["data.age > 30 && len(trim(data.name)) > 0", true],
-    ["data.missing.deep.path", undefined],
-    ["data.nil?.x ?? 'fallback'", "fallback"],
-    ["data.tags[1]", "b"],
-    ["'a' in data.tags", true],
-    ["'x' in data.nested", true],
-    ["'da' in 'Ada'", true],
-    ["data.age == '36'", false],
-    ["data.tags == ['a', 'b']", true],
-    ["data.age >= 18 ? 'adult' : 'minor'", "adult"],
-    ["{ n: upper(trim(data.name)), y: data.age + 1 }", { n: "ADA", y: 37 }],
-    ["exists(data.nil)", false],
-    ["type(data.tags)", "array"],
-    ["default(data.missing, 5)", 5],
-    ["matches(data.name, '^\\\\s*A')", true],
-    ["duration('2m')", 120_000],
-    ["!exists(data.missing)", true],
-    ["-data.age", -36],
-  ])("%s", (source, expected) => {
-    expect(evaluate(source, ctx)).toEqual(expected as any);
+function decode(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(decode);
+  if (v && typeof v === "object") {
+    const keys = Object.keys(v);
+    if (keys.length === 1 && keys[0] === "$undefined") return undefined;
+    if (keys.length === 1 && keys[0] === "$number") return Number((v as { $number: string }).$number);
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, decode(x)]));
+  }
+  return v;
+}
+
+function run(c: Case): unknown {
+  const ctx = c.ctx ?? {};
+  if (c.expr !== undefined) return evaluate(c.expr, ctx);
+  if (c.template !== undefined) return renderString(c.template, ctx);
+  if (c.segments !== undefined) return segments(c.segments);
+  return JSON.parse(JSON.stringify(render(c.render, ctx)) ?? "null");
+}
+
+describe("conformance (fixtures/expr-cases.json)", () => {
+  test.each((cases as Case[]).map((c) => [c.name, c] as const))("%s", (_name, c) => {
+    if (c.now !== undefined) setSystemTime(new Date(c.now));
+    try {
+      if (c.error === undefined) {
+        expect(run(c)).toStrictEqual(decode(c.expect));
+        return;
+      }
+      let error: unknown;
+      try {
+        run(c);
+      } catch (e) {
+        error = e;
+      }
+      expect(error).toBeInstanceOf(ExprError);
+      expect((error as ExprError).message).toContain(c.error);
+      if (c.index !== undefined) expect((error as ExprError).index).toBe(c.index);
+    } finally {
+      if (c.now !== undefined) setSystemTime();
+    }
   });
 
-  test("never reaches the prototype chain", () => {
-    expect(evaluate("data.name.length", ctx)).toBe(5);
-    expect(evaluate("data.toString", ctx)).toBeUndefined();
-    expect(evaluate("data['constructor']", ctx)).toBeUndefined();
-  });
-
-  test("unknown variables are errors", () => {
-    expect(() => evaluate("secrets.token", ctx)).toThrow("'secrets' is not available here");
+  test("case names are unique", () => {
+    const names = (cases as Case[]).map((c) => c.name);
+    expect(new Set(names).size).toBe(names.length);
   });
 });
 
-describe("parse rejects anything outside the subset", () => {
-  test.each([
-    ["data.a = 1", ""],
-    ["a, b", "single expression"],
-    ["data.name.toUpperCase()", "only helper functions"],
-    ["eval('1')", "unknown function 'eval'"],
-    ["data.__proto__", "'__proto__'"],
-    ["1 | 2", "operator '|'"],
-    ["this", ""],
-    ["{ [k]: 1 }", ""],
-  ])("%s", (source, message) => {
-    expect(() => parse(source)).toThrow(ExprError);
-    if (message) expect(() => parse(source)).toThrow(message);
-  });
-
-  test("limits nesting", () => {
-    expect(() => parse(`${"!".repeat(40)}1`)).toThrow();
-  });
-
+describe("parse", () => {
   test("reports identifiers and helpers", () => {
     const c = parse("len(data.x) > 0 && meta.attempt < 3");
     expect([...c.identifiers].sort()).toEqual(["data", "meta"]);
     expect([...c.helpers]).toEqual(["len"]);
   });
-});
 
-describe("templates", () => {
-  test("a single expression keeps its type", () => {
-    expect(renderString("${data.age}", ctx)).toBe(36);
-    expect(renderString("${data.tags}", ctx)).toEqual(["a", "b"]);
+  test("is cached", () => {
+    expect(parse("data.a + 1")).toBe(parse("data.a + 1"));
   });
 
-  test("mixed text renders to a string", () => {
-    expect(renderString("age=${data.age} tags=${data.tags} nil=${data.nil}", ctx)).toBe('age=36 tags=["a","b"] nil=');
-  });
-
-  test("handles braces and quotes inside expressions", () => {
-    expect(renderString("${ {a: '}'}.a }!", ctx)).toBe("}!");
-    expect(segments("x ${json({a: 1})} y")).toEqual([
-      { text: "x " },
-      { expr: "json({a: 1})", offset: 4 },
-      { text: " y" },
-    ]);
-  });
-
-  test("$${ escapes a literal ${", () => {
-    expect(renderString("cost: $${data.age}", ctx)).toBe("cost: ${data.age}");
-  });
-
-  test("render walks objects and arrays", () => {
-    expect(render<unknown>({ id: "${meta.packet_id}", list: ["${data.age}", "x"] }, ctx)).toEqual({
-      id: "01J9",
-      list: [36, "x"],
-    });
-  });
-
-  test("unclosed template is an error", () => {
-    expect(() => segments("hello ${data")).toThrow("unclosed");
+  test("errors from vetting the tree have no position", () => {
+    expect(() => parse("eval(1)")).toThrow(ExprError);
+    try {
+      parse("eval(1)");
+    } catch (e) {
+      expect((e as ExprError).index).toBeUndefined();
+    }
   });
 });

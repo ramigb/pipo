@@ -94,7 +94,7 @@ export function parse(source: string): Compiled {
         if (n.callee.type !== "Identifier") {
           throw new ExprError("only helper functions can be called, e.g. len(x) rather than x.length()");
         }
-        if (!(n.callee.name in HELPERS)) throw new ExprError(`unknown function '${n.callee.name}'`);
+        if (!Object.hasOwn(HELPERS, n.callee.name)) throw new ExprError(`unknown function '${n.callee.name}'`);
         compiled.helpers.add(n.callee.name);
         for (const a of n.arguments) visit(a, depth + 1);
         return;
@@ -117,6 +117,7 @@ export function parse(source: string): Compiled {
         return;
       case "ObjectExpression":
         for (const p of n.properties) {
+          if (p.type !== "Property") throw new ExprError("object entries must be 'key: value' pairs or names");
           if (p.computed) throw new ExprError("computed object keys are not allowed");
           visit(p.value ?? p.key, depth + 1);
         }

@@ -1,0 +1,3935 @@
+[
+  {
+    "name": "evaluate: data.age > 30",
+    "expr": "data.age > 30",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": true
+  },
+  {
+    "name": "evaluate: data.age > 30 && len(trim(data.name)) > 0",
+    "expr": "data.age > 30 && len(trim(data.name)) > 0",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": true
+  },
+  {
+    "name": "evaluate: data.missing.deep.path",
+    "expr": "data.missing.deep.path",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "evaluate: data.nil?.x ?? 'fallback'",
+    "expr": "data.nil?.x ?? 'fallback'",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": "fallback"
+  },
+  {
+    "name": "evaluate: data.tags[1]",
+    "expr": "data.tags[1]",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": "b"
+  },
+  {
+    "name": "evaluate: 'a' in data.tags",
+    "expr": "'a' in data.tags",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": true
+  },
+  {
+    "name": "evaluate: 'x' in data.nested",
+    "expr": "'x' in data.nested",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": true
+  },
+  {
+    "name": "evaluate: 'da' in 'Ada'",
+    "expr": "'da' in 'Ada'",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": true
+  },
+  {
+    "name": "evaluate: data.age == '36'",
+    "expr": "data.age == '36'",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": false
+  },
+  {
+    "name": "evaluate: data.tags == ['a', 'b']",
+    "expr": "data.tags == ['a', 'b']",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": true
+  },
+  {
+    "name": "evaluate: data.age >= 18 ? 'adult' : 'minor'",
+    "expr": "data.age >= 18 ? 'adult' : 'minor'",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": "adult"
+  },
+  {
+    "name": "evaluate: { n: upper(trim(data.name)), y: data.age + 1 }",
+    "expr": "{ n: upper(trim(data.name)), y: data.age + 1 }",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": { "n": "ADA", "y": 37 }
+  },
+  {
+    "name": "evaluate: exists(data.nil)",
+    "expr": "exists(data.nil)",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": false
+  },
+  {
+    "name": "evaluate: type(data.tags)",
+    "expr": "type(data.tags)",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": "array"
+  },
+  {
+    "name": "evaluate: default(data.missing, 5)",
+    "expr": "default(data.missing, 5)",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": 5
+  },
+  {
+    "name": "evaluate: matches(data.name, '^\\\\s*A')",
+    "expr": "matches(data.name, '^\\\\s*A')",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": true
+  },
+  {
+    "name": "evaluate: duration('2m')",
+    "expr": "duration('2m')",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": 120000
+  },
+  {
+    "name": "evaluate: !exists(data.missing)",
+    "expr": "!exists(data.missing)",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": true
+  },
+  {
+    "name": "evaluate: -data.age",
+    "expr": "-data.age",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": -36
+  },
+  {
+    "name": "evaluate: data.name.length",
+    "expr": "data.name.length",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": 5
+  },
+  {
+    "name": "evaluate: data.toString",
+    "expr": "data.toString",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "evaluate: data['constructor']",
+    "expr": "data['constructor']",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "evaluate: secrets.token",
+    "expr": "secrets.token",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "error": "'secrets' is not available here"
+  },
+  { "name": "rejects: data.a = 1", "expr": "data.a = 1", "error": "Unexpected \"=\"", "index": 7 },
+  { "name": "rejects: a, b", "expr": "a, b", "error": "only a single expression is allowed (found ',' or ';')" },
+  {
+    "name": "rejects: data.name.toUpperCase()",
+    "expr": "data.name.toUpperCase()",
+    "error": "only helper functions can be called, e.g. len(x) rather than x.length()"
+  },
+  { "name": "rejects: eval('1')", "expr": "eval('1')", "error": "unknown function 'eval'" },
+  { "name": "rejects: data.__proto__", "expr": "data.__proto__", "error": "access to '__proto__' is not allowed" },
+  { "name": "rejects: 1 | 2", "expr": "1 | 2", "error": "operator '|' is not allowed" },
+  { "name": "rejects: this", "expr": "this", "error": "'ThisExpression' is not allowed in expressions" },
+  { "name": "rejects: { [k]: 1 }", "expr": "{ [k]: 1 }", "error": "computed object keys are not allowed" },
+  {
+    "name": "rejects: !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1",
+    "expr": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1",
+    "error": "expression is nested deeper than 32"
+  },
+  {
+    "name": "template: ${data.age}",
+    "template": "${data.age}",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": 36
+  },
+  {
+    "name": "template: ${data.tags}",
+    "template": "${data.tags}",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": ["a", "b"]
+  },
+  {
+    "name": "template: age=${data.age} tags=${data.tags} nil=${data.nil}",
+    "template": "age=${data.age} tags=${data.tags} nil=${data.nil}",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": "age=36 tags=[\"a\",\"b\"] nil="
+  },
+  {
+    "name": "template: ${ {a: '}'}.a }!",
+    "template": "${ {a: '}'}.a }!",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": "}!"
+  },
+  {
+    "name": "template: cost: $${data.age}",
+    "template": "cost: $${data.age}",
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": "cost: ${data.age}"
+  },
+  {
+    "name": "segments: x ${json({a: 1})} y",
+    "segments": "x ${json({a: 1})} y",
+    "expect": [{ "text": "x " }, { "expr": "json({a: 1})", "offset": 4 }, { "text": " y" }]
+  },
+  { "name": "segments: hello ${data", "segments": "hello ${data", "error": "unclosed '${' in template", "index": 6 },
+  {
+    "name": "render: {\"id\":\"${meta.packet_id}\",\"list\":[\"${data.age}\",\"x\"]}",
+    "render": { "id": "${meta.packet_id}", "list": ["${data.age}", "x"] },
+    "ctx": {
+      "data": { "name": " Ada ", "age": 36, "tags": ["a", "b"], "nested": { "x": 1 }, "nil": null },
+      "meta": { "packet_id": "01J9", "received_at": 1000 },
+      "env": {}
+    },
+    "expect": { "id": "01J9", "list": [36, "x"] }
+  },
+  { "name": "literal: 1", "expr": "1", "expect": 1 },
+  { "name": "literal: 1.5", "expr": "1.5", "expect": 1.5 },
+  { "name": "literal: .5", "expr": ".5", "expect": 0.5 },
+  { "name": "literal: 1.", "expr": "1.", "expect": 1 },
+  { "name": "literal: 1e3", "expr": "1e3", "expect": 1000 },
+  { "name": "literal: 1E-3", "expr": "1E-3", "expect": 0.001 },
+  { "name": "literal: 1e+2", "expr": "1e+2", "expect": 100 },
+  { "name": "literal: 0.1 + 0.2", "expr": "0.1 + 0.2", "expect": 0.30000000000000004 },
+  { "name": "literal: -0", "expr": "-0", "expect": { "$number": "-0" } },
+  { "name": "literal: 1/0", "expr": "1/0", "expect": { "$number": "Infinity" } },
+  { "name": "literal: -1/0", "expr": "-1/0", "expect": { "$number": "-Infinity" } },
+  { "name": "literal: 0/0", "expr": "0/0", "expect": { "$number": "NaN" } },
+  { "name": "literal: .e5", "expr": ".e5", "expect": { "$number": "NaN" } },
+  { "name": "literal: 123456789012345678901", "expr": "123456789012345678901", "expect": 123456789012345680000 },
+  { "name": "literal: 9007199254740993", "expr": "9007199254740993", "expect": 9007199254740992 },
+  { "name": "literal: true", "expr": "true", "expect": true },
+  { "name": "literal: false", "expr": "false", "expect": false },
+  { "name": "literal: null", "expr": "null", "expect": null },
+  { "name": "literal: undefined", "expr": "undefined", "error": "'undefined' is not available here" },
+  { "name": "literal: 'a\\nb'", "expr": "'a\\nb'", "expect": "a\nb" },
+  { "name": "literal: 'A'", "expr": "'A'", "expect": "A" },
+  { "name": "literal: 'it\\'s'", "expr": "'it\\'s'", "expect": "it's" },
+  { "name": "literal: \"dq\"", "expr": "\"dq\"", "expect": "dq" },
+  { "name": "literal: '\\x41'", "expr": "'\\x41'", "expect": "x41" },
+  { "name": "literal: 'back\\\\slash'", "expr": "'back\\\\slash'", "expect": "back\\slash" },
+  { "name": "literal: 'tab\tin'", "expr": "'tab\tin'", "expect": "tab\tin" },
+  { "name": "literal: ''", "expr": "''", "expect": "" },
+  {
+    "name": "number syntax: 0x10",
+    "expr": "0x10",
+    "error": "Variable names cannot start with a number (0x)",
+    "index": 1
+  },
+  {
+    "name": "number syntax: 123abc",
+    "expr": "123abc",
+    "error": "Variable names cannot start with a number (123a)",
+    "index": 3
+  },
+  { "name": "number syntax: 1e", "expr": "1e", "error": "Expected exponent (1e)", "index": 2 },
+  { "name": "number syntax: 1e+", "expr": "1e+", "error": "Expected exponent (1e+)", "index": 3 },
+  { "name": "number syntax: 1.2.3", "expr": "1.2.3", "error": "Unexpected period", "index": 3 },
+  { "name": "number syntax: .", "expr": ".", "error": "Unexpected period", "index": 1 },
+  { "name": "number syntax: 1..2", "expr": "1..2", "error": "Unexpected period", "index": 2 },
+  {
+    "name": "number syntax: 5 .x",
+    "expr": "5 .x",
+    "error": "Variable names cannot start with a number (.x)",
+    "index": 3
+  },
+  { "name": "number text: ${1e21}!", "template": "${1e21}!", "expect": "1e+21!" },
+  { "name": "number text: ${1e20}!", "template": "${1e20}!", "expect": "100000000000000000000!" },
+  { "name": "number text: ${0.1 + 0.2}!", "template": "${0.1 + 0.2}!", "expect": "0.30000000000000004!" },
+  { "name": "number text: ${1e-7}!", "template": "${1e-7}!", "expect": "1e-7!" },
+  { "name": "number text: ${0.000001}!", "template": "${0.000001}!", "expect": "0.000001!" },
+  { "name": "number text: ${123e-20}!", "template": "${123e-20}!", "expect": "1.23e-18!" },
+  { "name": "number text: ${-0}!", "template": "${-0}!", "expect": "0!" },
+  { "name": "number text: ${1/0}!", "template": "${1/0}!", "expect": "Infinity!" },
+  { "name": "number text: ${-1/0}!", "template": "${-1/0}!", "expect": "-Infinity!" },
+  { "name": "number text: ${0/0}!", "template": "${0/0}!", "expect": "NaN!" },
+  {
+    "name": "number text: ${123456789012345678901}!",
+    "template": "${123456789012345678901}!",
+    "expect": "123456789012345680000!"
+  },
+  { "name": "number text: ${5e-324}!", "template": "${5e-324}!", "expect": "5e-324!" },
+  {
+    "name": "number text: ${1.7976931348623157e308}!",
+    "template": "${1.7976931348623157e308}!",
+    "expect": "1.7976931348623157e+308!"
+  },
+  { "name": "number text: ${100}!", "template": "${100}!", "expect": "100!" },
+  { "name": "number text: ${2.5}!", "template": "${2.5}!", "expect": "2.5!" },
+  { "name": "number text: ${-1.5e-7}!", "template": "${-1.5e-7}!", "expect": "-1.5e-7!" },
+  { "name": "number text: ${123456789.125}!", "template": "${123456789.125}!", "expect": "123456789.125!" },
+  { "name": "number text: ${1e300 * 1e10}!", "template": "${1e300 * 1e10}!", "expect": "Infinity!" },
+  { "name": "number text: ${0.1 * 3}!", "template": "${0.1 * 3}!", "expect": "0.30000000000000004!" },
+  { "name": "number text: ${1 / 3}!", "template": "${1 / 3}!", "expect": "0.3333333333333333!" },
+  {
+    "name": "json: json(1e21)",
+    "expr": "json(1e21)",
+    "ctx": { "data": { "o": { "1": 2, "b": 1, "a": [3] } } },
+    "expect": "1e+21"
+  },
+  {
+    "name": "json: json(0/0)",
+    "expr": "json(0/0)",
+    "ctx": { "data": { "o": { "1": 2, "b": 1, "a": [3] } } },
+    "expect": "null"
+  },
+  {
+    "name": "json: json(-0)",
+    "expr": "json(-0)",
+    "ctx": { "data": { "o": { "1": 2, "b": 1, "a": [3] } } },
+    "expect": "0"
+  },
+  {
+    "name": "json: json(1/0)",
+    "expr": "json(1/0)",
+    "ctx": { "data": { "o": { "1": 2, "b": 1, "a": [3] } } },
+    "expect": "null"
+  },
+  {
+    "name": "json: json(data.missing)",
+    "expr": "json(data.missing)",
+    "ctx": { "data": { "o": { "1": 2, "b": 1, "a": [3] } } },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "json: json(null)",
+    "expr": "json(null)",
+    "ctx": { "data": { "o": { "1": 2, "b": 1, "a": [3] } } },
+    "expect": "null"
+  },
+  {
+    "name": "json: json(true)",
+    "expr": "json(true)",
+    "ctx": { "data": { "o": { "1": 2, "b": 1, "a": [3] } } },
+    "expect": "true"
+  },
+  {
+    "name": "json: json('a\"\\n')",
+    "expr": "json('a\"\\n')",
+    "ctx": { "data": { "o": { "1": 2, "b": 1, "a": [3] } } },
+    "expect": "\"a\\\"\\n\""
+  },
+  {
+    "name": "json: json([1, data.x, 1/0])",
+    "expr": "json([1, data.x, 1/0])",
+    "ctx": { "data": { "o": { "1": 2, "b": 1, "a": [3] } } },
+    "expect": "[1,null,null]"
+  },
+  {
+    "name": "json: json({a: data.x, b: 1})",
+    "expr": "json({a: data.x, b: 1})",
+    "ctx": { "data": { "o": { "1": 2, "b": 1, "a": [3] } } },
+    "expect": "{\"b\":1}"
+  },
+  {
+    "name": "json: json({b: 1, 2: 'x', 1: 'y', a: 2})",
+    "expr": "json({b: 1, 2: 'x', 1: 'y', a: 2})",
+    "ctx": { "data": { "o": { "1": 2, "b": 1, "a": [3] } } },
+    "expect": "{\"1\":\"y\",\"2\":\"x\",\"b\":1,\"a\":2}"
+  },
+  {
+    "name": "json: json('é😀')",
+    "expr": "json('é😀')",
+    "ctx": { "data": { "o": { "1": 2, "b": 1, "a": [3] } } },
+    "expect": "\"é😀\""
+  },
+  {
+    "name": "json: json('\u0001\t\u001f')",
+    "expr": "json('\u0001\t\u001f')",
+    "ctx": { "data": { "o": { "1": 2, "b": 1, "a": [3] } } },
+    "expect": "\"\\u0001\\t\\u001f\""
+  },
+  {
+    "name": "json: json(data.o)",
+    "expr": "json(data.o)",
+    "ctx": { "data": { "o": { "1": 2, "b": 1, "a": [3] } } },
+    "expect": "{\"1\":2,\"b\":1,\"a\":[3]}"
+  },
+  {
+    "name": "json: json([])",
+    "expr": "json([])",
+    "ctx": { "data": { "o": { "1": 2, "b": 1, "a": [3] } } },
+    "expect": "[]"
+  },
+  {
+    "name": "json: json({})",
+    "expr": "json({})",
+    "ctx": { "data": { "o": { "1": 2, "b": 1, "a": [3] } } },
+    "expect": "{}"
+  },
+  {
+    "name": "json: json(0.1 + 0.2)",
+    "expr": "json(0.1 + 0.2)",
+    "ctx": { "data": { "o": { "1": 2, "b": 1, "a": [3] } } },
+    "expect": "0.30000000000000004"
+  },
+  {
+    "name": "coercion: '5' * '2'",
+    "expr": "'5' * '2'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 10
+  },
+  {
+    "name": "coercion: '5' - 2",
+    "expr": "'5' - 2",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 3
+  },
+  {
+    "name": "coercion: '5' + 2",
+    "expr": "'5' + 2",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "52"
+  },
+  {
+    "name": "coercion: 2 + '5'",
+    "expr": "2 + '5'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "25"
+  },
+  {
+    "name": "coercion: 1 + true",
+    "expr": "1 + true",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 2
+  },
+  {
+    "name": "coercion: null + 1",
+    "expr": "null + 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 1
+  },
+  {
+    "name": "coercion: data.x + 1",
+    "expr": "data.x + 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "$number": "NaN" }
+  },
+  {
+    "name": "coercion: 'a' + null",
+    "expr": "'a' + null",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "anull"
+  },
+  {
+    "name": "coercion: 'a' + data.x",
+    "expr": "'a' + data.x",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "aundefined"
+  },
+  {
+    "name": "coercion: true + 'a'",
+    "expr": "true + 'a'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "truea"
+  },
+  {
+    "name": "coercion: [1,2] + 1",
+    "expr": "[1,2] + 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "1,21"
+  },
+  {
+    "name": "coercion: {} + 1",
+    "expr": "{} + 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "[object Object]1"
+  },
+  {
+    "name": "coercion: [] + []",
+    "expr": "[] + []",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": ""
+  },
+  {
+    "name": "coercion: [null, [1, [2]], {}] + ''",
+    "expr": "[null, [1, [2]], {}] + ''",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": ",1,2,[object Object]"
+  },
+  {
+    "name": "coercion: data.t + ''",
+    "expr": "data.t + ''",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "1,2"
+  },
+  {
+    "name": "coercion: data.o + ''",
+    "expr": "data.o + ''",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "[object Object]"
+  },
+  {
+    "name": "coercion: ' 12 ' * 1",
+    "expr": "' 12 ' * 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 12
+  },
+  {
+    "name": "coercion: '0x10' * 1",
+    "expr": "'0x10' * 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 16
+  },
+  {
+    "name": "coercion: '0X1f' * 1",
+    "expr": "'0X1f' * 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 31
+  },
+  {
+    "name": "coercion: '0b101' * 1",
+    "expr": "'0b101' * 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 5
+  },
+  {
+    "name": "coercion: '0o17' * 1",
+    "expr": "'0o17' * 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 15
+  },
+  {
+    "name": "coercion: '' * 1",
+    "expr": "'' * 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 0
+  },
+  {
+    "name": "coercion: '  ' * 1",
+    "expr": "'  ' * 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 0
+  },
+  {
+    "name": "coercion: '1_0' * 1",
+    "expr": "'1_0' * 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "$number": "NaN" }
+  },
+  {
+    "name": "coercion: '-0x10' * 1",
+    "expr": "'-0x10' * 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "$number": "NaN" }
+  },
+  {
+    "name": "coercion: 'Infinity' * 1",
+    "expr": "'Infinity' * 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "$number": "Infinity" }
+  },
+  {
+    "name": "coercion: '-Infinity' * 1",
+    "expr": "'-Infinity' * 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "$number": "-Infinity" }
+  },
+  {
+    "name": "coercion: 'inf' * 1",
+    "expr": "'inf' * 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "$number": "NaN" }
+  },
+  {
+    "name": "coercion: '.5' * 1",
+    "expr": "'.5' * 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 0.5
+  },
+  {
+    "name": "coercion: '5.' * 1",
+    "expr": "'5.' * 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 5
+  },
+  {
+    "name": "coercion: '+5' * 1",
+    "expr": "'+5' * 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 5
+  },
+  {
+    "name": "coercion: '1e3' - 0",
+    "expr": "'1e3' - 0",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 1000
+  },
+  {
+    "name": "coercion: '1e' * 1",
+    "expr": "'1e' * 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "$number": "NaN" }
+  },
+  {
+    "name": "coercion: '12px' * 1",
+    "expr": "'12px' * 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "$number": "NaN" }
+  },
+  {
+    "name": "coercion: [5] * 2",
+    "expr": "[5] * 2",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 10
+  },
+  {
+    "name": "coercion: [] * 2",
+    "expr": "[] * 2",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 0
+  },
+  {
+    "name": "coercion: [1, 2] * 2",
+    "expr": "[1, 2] * 2",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "$number": "NaN" }
+  },
+  {
+    "name": "coercion: {} * 2",
+    "expr": "{} * 2",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "$number": "NaN" }
+  },
+  {
+    "name": "coercion: true * 2",
+    "expr": "true * 2",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 2
+  },
+  {
+    "name": "coercion: null * 2",
+    "expr": "null * 2",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 0
+  },
+  {
+    "name": "coercion: +'3'",
+    "expr": "+'3'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 3
+  },
+  {
+    "name": "coercion: +data.x",
+    "expr": "+data.x",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "$number": "NaN" }
+  },
+  {
+    "name": "coercion: -'2'",
+    "expr": "-'2'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": -2
+  },
+  {
+    "name": "coercion: +[]",
+    "expr": "+[]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 0
+  },
+  {
+    "name": "coercion: +null",
+    "expr": "+null",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 0
+  },
+  {
+    "name": "coercion: +true",
+    "expr": "+true",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 1
+  },
+  {
+    "name": "coercion: -null",
+    "expr": "-null",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "$number": "-0" }
+  },
+  {
+    "name": "coercion: -'abc'",
+    "expr": "-'abc'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "$number": "NaN" }
+  },
+  {
+    "name": "coercion: 0 * -1",
+    "expr": "0 * -1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "$number": "-0" }
+  },
+  {
+    "name": "coercion: 7 % -3",
+    "expr": "7 % -3",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 1
+  },
+  {
+    "name": "coercion: -7 % 3",
+    "expr": "-7 % 3",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": -1
+  },
+  {
+    "name": "coercion: 5.5 % 2",
+    "expr": "5.5 % 2",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 1.5
+  },
+  {
+    "name": "coercion: 5 % 0",
+    "expr": "5 % 0",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "$number": "NaN" }
+  },
+  {
+    "name": "coercion: -5 % 5",
+    "expr": "-5 % 5",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "$number": "-0" }
+  },
+  {
+    "name": "coercion: 1 - data.x",
+    "expr": "1 - data.x",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "$number": "NaN" }
+  },
+  {
+    "name": "coercion: 10 / 4",
+    "expr": "10 / 4",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 2.5
+  },
+  {
+    "name": "coercion: 1 / -0",
+    "expr": "1 / -0",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "$number": "-Infinity" }
+  },
+  {
+    "name": "compare: 'b' > 'a'",
+    "expr": "'b' > 'a'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "compare: 'abc' < 'abd'",
+    "expr": "'abc' < 'abd'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "compare: 'a' < 1",
+    "expr": "'a' < 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "compare: '2' < 10",
+    "expr": "'2' < 10",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "compare: '10' < '9'",
+    "expr": "'10' < '9'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "compare: [2] < [10]",
+    "expr": "[2] < [10]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "compare: [2] < 10",
+    "expr": "[2] < 10",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "compare: null >= 0",
+    "expr": "null >= 0",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "compare: null > 0",
+    "expr": "null > 0",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "compare: null <= 0",
+    "expr": "null <= 0",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "compare: data.x < 1",
+    "expr": "data.x < 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "compare: data.x >= 0",
+    "expr": "data.x >= 0",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "compare: data.x <= data.x",
+    "expr": "data.x <= data.x",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "compare: 1 <= 1",
+    "expr": "1 <= 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "compare: 2 >= 3",
+    "expr": "2 >= 3",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "compare: 'B' < 'a'",
+    "expr": "'B' < 'a'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "compare: '😀' < '｡'",
+    "expr": "'😀' < '｡'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "compare: 'a' < 'aa'",
+    "expr": "'a' < 'aa'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "compare: true > false",
+    "expr": "true > false",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "compare: '1' >= 1",
+    "expr": "'1' >= 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "compare: (0/0) <= (0/0)",
+    "expr": "(0/0) <= (0/0)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "compare: {} < {}",
+    "expr": "{} < {}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "compare: {} <= {}",
+    "expr": "{} <= {}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "compare: '' < 'a'",
+    "expr": "'' < 'a'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "truthy: !''",
+    "expr": "!''",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "truthy: !'0'",
+    "expr": "!'0'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "truthy: !' '",
+    "expr": "!' '",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "truthy: ![]",
+    "expr": "![]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "truthy: !{}",
+    "expr": "!{}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "truthy: !(0/0)",
+    "expr": "!(0/0)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "truthy: !0",
+    "expr": "!0",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "truthy: !-0",
+    "expr": "!-0",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "truthy: !null",
+    "expr": "!null",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "truthy: !data.x",
+    "expr": "!data.x",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "truthy: !1",
+    "expr": "!1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "truthy: !!'x'",
+    "expr": "!!'x'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "truthy: data.t ? 'y' : 'n'",
+    "expr": "data.t ? 'y' : 'n'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "y"
+  },
+  {
+    "name": "truthy: '' ? 'y' : 'n'",
+    "expr": "'' ? 'y' : 'n'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "n"
+  },
+  {
+    "name": "logic: 0 || 'x'",
+    "expr": "0 || 'x'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "x"
+  },
+  {
+    "name": "logic: '' && 1",
+    "expr": "'' && 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": ""
+  },
+  {
+    "name": "logic: 1 && 'y'",
+    "expr": "1 && 'y'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "y"
+  },
+  {
+    "name": "logic: 0 ?? 1",
+    "expr": "0 ?? 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 0
+  },
+  {
+    "name": "logic: null ?? 1",
+    "expr": "null ?? 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 1
+  },
+  {
+    "name": "logic: data.x ?? null",
+    "expr": "data.x ?? null",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": null
+  },
+  {
+    "name": "logic: false || data.x",
+    "expr": "false || data.x",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "logic: false && nope",
+    "expr": "false && nope",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "logic: true || nope",
+    "expr": "true || nope",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "logic: 1 ?? nope",
+    "expr": "1 ?? nope",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 1
+  },
+  {
+    "name": "logic: true ? 1 : nope",
+    "expr": "true ? 1 : nope",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 1
+  },
+  {
+    "name": "logic: false ? nope : 2",
+    "expr": "false ? nope : 2",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 2
+  },
+  {
+    "name": "logic: data.o && data.o.a",
+    "expr": "data.o && data.o.a",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 1
+  },
+  {
+    "name": "logic: data.t || 1",
+    "expr": "data.t || 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": [1, 2]
+  },
+  { "name": "precedence: 1 + 2 * 3", "expr": "1 + 2 * 3", "expect": 7 },
+  { "name": "precedence: (1 + 2) * 3", "expr": "(1 + 2) * 3", "expect": 9 },
+  { "name": "precedence: 10 - 2 - 3", "expr": "10 - 2 - 3", "expect": 5 },
+  { "name": "precedence: 2 * 3 % 4", "expr": "2 * 3 % 4", "expect": 2 },
+  { "name": "precedence: 12 / 3 / 2", "expr": "12 / 3 / 2", "expect": 2 },
+  { "name": "precedence: 1 < 2 == true", "expr": "1 < 2 == true", "expect": true },
+  { "name": "precedence: 'a' in ['a'] && true", "expr": "'a' in ['a'] && true", "expect": true },
+  { "name": "precedence: 1 + 2 in [3]", "expr": "1 + 2 in [3]", "expect": true },
+  { "name": "precedence: 1 || 0 && 0", "expr": "1 || 0 && 0", "expect": 1 },
+  { "name": "precedence: null ?? 0 || 2", "expr": "null ?? 0 || 2", "expect": 2 },
+  { "name": "precedence: 1 ? 2 : 3 ? 4 : 5", "expr": "1 ? 2 : 3 ? 4 : 5", "expect": 2 },
+  { "name": "precedence: 0 ? 2 : 0 ? 4 : 5", "expr": "0 ? 2 : 0 ? 4 : 5", "expect": 5 },
+  { "name": "precedence: 1 == 1 ? 'y' : 'n'", "expr": "1 == 1 ? 'y' : 'n'", "expect": "y" },
+  { "name": "precedence: !1 == false", "expr": "!1 == false", "expect": true },
+  { "name": "precedence: -2 * -3", "expr": "-2 * -3", "expect": 6 },
+  { "name": "precedence: - -1", "expr": "- -1", "expect": 1 },
+  { "name": "precedence: !!0", "expr": "!!0", "expect": false },
+  { "name": "precedence: 1 - -1", "expr": "1 - -1", "expect": 2 },
+  { "name": "precedence: +-+1", "expr": "+-+1", "expect": -1 },
+  { "name": "precedence: 2 + 3 > 4 && 1", "expr": "2 + 3 > 4 && 1", "expect": 1 },
+  { "name": "precedence: 'a' + 1 + 2", "expr": "'a' + 1 + 2", "expect": "a12" },
+  { "name": "precedence: 1 + 2 + 'a'", "expr": "1 + 2 + 'a'", "expect": "3a" },
+  { "name": "precedence: true ? false ? 1 : 2 : 3", "expr": "true ? false ? 1 : 2 : 3", "expect": 2 },
+  { "name": "precedence: (1 < 2) < 3", "expr": "(1 < 2) < 3", "expect": true },
+  { "name": "precedence: 3 > 2 > 1", "expr": "3 > 2 > 1", "expect": false },
+  {
+    "name": "equality: '1' == 1",
+    "expr": "'1' == 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "equality: 1 === 1",
+    "expr": "1 === 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "equality: {a: data.x} == {b: 1}",
+    "expr": "{a: data.x} == {b: 1}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "equality: [1] == [1]",
+    "expr": "[1] == [1]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "equality: [1, [2]] === [1, [2]]",
+    "expr": "[1, [2]] === [1, [2]]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "equality: {a: 1, b: 2} == {b: 2, a: 1}",
+    "expr": "{a: 1, b: 2} == {b: 2, a: 1}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "equality: [1] == {0: 1}",
+    "expr": "[1] == {0: 1}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "equality: 0 == -0",
+    "expr": "0 == -0",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "equality: (0/0) == (0/0)",
+    "expr": "(0/0) == (0/0)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "equality: null == data.x",
+    "expr": "null == data.x",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "equality: data.x == data.y",
+    "expr": "data.x == data.y",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "equality: 1 != '1'",
+    "expr": "1 != '1'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "equality: [1] !== [1]",
+    "expr": "[1] !== [1]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "equality: data.o == {a: 1}",
+    "expr": "data.o == {a: 1}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "equality: data.t == [1, 2]",
+    "expr": "data.t == [1, 2]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "equality: data.t == [2, 1]",
+    "expr": "data.t == [2, 1]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "equality: {a: 1} == {a: 1, b: 2}",
+    "expr": "{a: 1} == {a: 1, b: 2}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "equality: [] == []",
+    "expr": "[] == []",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "equality: {} == []",
+    "expr": "{} == []",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "equality: null == null",
+    "expr": "null == null",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "equality: 'a' == 'a'",
+    "expr": "'a' == 'a'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "equality: true == 1",
+    "expr": "true == 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "equality: [data.x] == [null]",
+    "expr": "[data.x] == [null]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "equality: [data.x] == [data.y]",
+    "expr": "[data.x] == [data.y]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "equality: data == data",
+    "expr": "data == data",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "in: 1 in [1, '1']",
+    "expr": "1 in [1, '1']",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "c": { "constructor": 1 } } },
+    "expect": true
+  },
+  {
+    "name": "in: '1' in [1]",
+    "expr": "'1' in [1]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "c": { "constructor": 1 } } },
+    "expect": false
+  },
+  {
+    "name": "in: 1 in {'1': 2}",
+    "expr": "1 in {'1': 2}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "c": { "constructor": 1 } } },
+    "expect": true
+  },
+  {
+    "name": "in: 'a' in null",
+    "expr": "'a' in null",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "c": { "constructor": 1 } } },
+    "expect": false
+  },
+  {
+    "name": "in: 'a' in data.x",
+    "expr": "'a' in data.x",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "c": { "constructor": 1 } } },
+    "expect": false
+  },
+  {
+    "name": "in: 1 in 'a1'",
+    "expr": "1 in 'a1'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "c": { "constructor": 1 } } },
+    "expect": false
+  },
+  {
+    "name": "in: '' in 'abc'",
+    "expr": "'' in 'abc'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "c": { "constructor": 1 } } },
+    "expect": true
+  },
+  {
+    "name": "in: null in [null]",
+    "expr": "null in [null]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "c": { "constructor": 1 } } },
+    "expect": true
+  },
+  {
+    "name": "in: data.x in [data.y]",
+    "expr": "data.x in [data.y]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "c": { "constructor": 1 } } },
+    "expect": true
+  },
+  {
+    "name": "in: {} in [{}]",
+    "expr": "{} in [{}]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "c": { "constructor": 1 } } },
+    "expect": true
+  },
+  {
+    "name": "in: [1] in [[1]]",
+    "expr": "[1] in [[1]]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "c": { "constructor": 1 } } },
+    "expect": true
+  },
+  {
+    "name": "in: {a: 1} in [{a: 1}]",
+    "expr": "{a: 1} in [{a: 1}]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "c": { "constructor": 1 } } },
+    "expect": true
+  },
+  {
+    "name": "in: 'length' in data.s",
+    "expr": "'length' in data.s",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "c": { "constructor": 1 } } },
+    "expect": false
+  },
+  {
+    "name": "in: 'length' in [1]",
+    "expr": "'length' in [1]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "c": { "constructor": 1 } } },
+    "expect": false
+  },
+  {
+    "name": "in: '0' in [5]",
+    "expr": "'0' in [5]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "c": { "constructor": 1 } } },
+    "expect": false
+  },
+  {
+    "name": "in: 0 in [5]",
+    "expr": "0 in [5]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "c": { "constructor": 1 } } },
+    "expect": false
+  },
+  {
+    "name": "in: 'a' in data.o",
+    "expr": "'a' in data.o",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "c": { "constructor": 1 } } },
+    "expect": true
+  },
+  {
+    "name": "in: 'b' in data.o",
+    "expr": "'b' in data.o",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "c": { "constructor": 1 } } },
+    "expect": false
+  },
+  {
+    "name": "in: 'toString' in {}",
+    "expr": "'toString' in {}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "c": { "constructor": 1 } } },
+    "expect": false
+  },
+  {
+    "name": "in: 'constructor' in data.c",
+    "expr": "'constructor' in data.c",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "c": { "constructor": 1 } } },
+    "expect": true
+  },
+  {
+    "name": "in: 'b' in 'abc'",
+    "expr": "'b' in 'abc'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "c": { "constructor": 1 } } },
+    "expect": true
+  },
+  {
+    "name": "in: 'ab' in 'abc'",
+    "expr": "'ab' in 'abc'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "c": { "constructor": 1 } } },
+    "expect": true
+  },
+  {
+    "name": "in: 'x' in 5",
+    "expr": "'x' in 5",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "c": { "constructor": 1 } } },
+    "expect": false
+  },
+  {
+    "name": "in: data.t in data.t",
+    "expr": "data.t in data.t",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "c": { "constructor": 1 } } },
+    "expect": false
+  },
+  {
+    "name": "in: 2 in data.t",
+    "expr": "2 in data.t",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "c": { "constructor": 1 } } },
+    "expect": true
+  },
+  {
+    "name": "member: data.t.length",
+    "expr": "data.t.length",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": 2
+  },
+  {
+    "name": "member: data.s[1]",
+    "expr": "data.s[1]",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": "b"
+  },
+  {
+    "name": "member: data.s[-0]",
+    "expr": "data.s[-0]",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": "a"
+  },
+  {
+    "name": "member: data.t[-0]",
+    "expr": "data.t[-0]",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": 1
+  },
+  {
+    "name": "member: data.t['01']",
+    "expr": "data.t['01']",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "member: data.t[1.0]",
+    "expr": "data.t[1.0]",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": 2
+  },
+  {
+    "name": "member: data.t['1']",
+    "expr": "data.t['1']",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": 2
+  },
+  {
+    "name": "member: data.s['length']",
+    "expr": "data.s['length']",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": 3
+  },
+  {
+    "name": "member: data.t[true]",
+    "expr": "data.t[true]",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "member: (1).x",
+    "expr": "(1).x",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "member: true.x",
+    "expr": "true.x",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "member: data.t[5]",
+    "expr": "data.t[5]",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "member: data.t[-1]",
+    "expr": "data.t[-1]",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "member: data.t[0.5]",
+    "expr": "data.t[0.5]",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "member: data.o[data.k]",
+    "expr": "data.o[data.k]",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": 1
+  },
+  {
+    "name": "member: data.o[['a']]",
+    "expr": "data.o[['a']]",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": 1
+  },
+  {
+    "name": "member: data.n[null]",
+    "expr": "data.n[null]",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": 1
+  },
+  {
+    "name": "member: data.n[data.x]",
+    "expr": "data.n[data.x]",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": 2
+  },
+  {
+    "name": "member: data['__proto__']",
+    "expr": "data['__proto__']",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "member: data['prototype']",
+    "expr": "data['prototype']",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "member: data.c['constructor']",
+    "expr": "data.c['constructor']",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "member: data?.o?.a",
+    "expr": "data?.o?.a",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": 1
+  },
+  {
+    "name": "member: data.x?.y",
+    "expr": "data.x?.y",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "member: data?.['o']",
+    "expr": "data?.['o']",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": { "a": 1 }
+  },
+  {
+    "name": "member: data ?. o",
+    "expr": "data ?. o",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": { "a": 1 }
+  },
+  {
+    "name": "member: data.o.a.b.c",
+    "expr": "data.o.a.b.c",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "member: data.s.length.x",
+    "expr": "data.s.length.x",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "member: [10, 20][1]",
+    "expr": "[10, 20][1]",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": 20
+  },
+  {
+    "name": "member: {a: {b: 1}}.a.b",
+    "expr": "{a: {b: 1}}.a.b",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": 1
+  },
+  {
+    "name": "member: 'abc'[2]",
+    "expr": "'abc'[2]",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": "c"
+  },
+  {
+    "name": "member: 'abc'.length",
+    "expr": "'abc'.length",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": 3
+  },
+  {
+    "name": "member: [1, 2, 3].length",
+    "expr": "[1, 2, 3].length",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": 3
+  },
+  {
+    "name": "member: data.nil.x",
+    "expr": "data.nil.x",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "member: data.nil[0]",
+    "expr": "data.nil[0]",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "member: data.s[3]",
+    "expr": "data.s[3]",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "member: len('😀')",
+    "expr": "len('😀')",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": 2
+  },
+  {
+    "name": "member: '😀'.length",
+    "expr": "'😀'.length",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": 2
+  },
+  {
+    "name": "member: data.o.toString",
+    "expr": "data.o.toString",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "member: data.t.map",
+    "expr": "data.t.map",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "member: data.s.toUpperCase",
+    "expr": "data.s.toUpperCase",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "member: data.o.a.toFixed",
+    "expr": "data.o.a.toFixed",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "member: data.t[1][0]",
+    "expr": "data.t[1][0]",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "member: data.deep.a[0].b",
+    "expr": "data.deep.a[0].b",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": "x"
+  },
+  {
+    "name": "member: data.deep['a'][0]['b']",
+    "expr": "data.deep['a'][0]['b']",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": "x"
+  },
+  {
+    "name": "member: data.o.hasOwnProperty",
+    "expr": "data.o.hasOwnProperty",
+    "ctx": {
+      "data": {
+        "o": { "a": 1 },
+        "s": "abc",
+        "t": [1, 2],
+        "k": "a",
+        "n": { "null": 1, "undefined": 2 },
+        "c": { "constructor": 1 },
+        "nil": null,
+        "deep": { "a": [{ "b": "x" }] }
+      }
+    },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "member errors: data.o.constructor",
+    "expr": "data.o.constructor",
+    "error": "access to 'constructor' is not allowed"
+  },
+  {
+    "name": "member errors: data.prototype",
+    "expr": "data.prototype",
+    "error": "access to 'prototype' is not allowed"
+  },
+  { "name": "member errors: data.t.1", "expr": "data.t.1", "error": "Unexpected 1", "index": 7 },
+  { "name": "member errors: data.", "expr": "data.", "error": "Unexpected ", "index": 5 },
+  { "name": "member errors: data[1", "expr": "data[1", "error": "Unclosed [", "index": 6 },
+  { "name": "member errors: data[]", "expr": "data[]", "error": "Unexpected \"]\"", "index": 5 },
+  { "name": "member errors: data?.", "expr": "data?.", "error": "Unexpected ", "index": 6 },
+  { "name": "member errors: data ?.5 : 1", "expr": "data ?.5 : 1", "error": "Unexpected 5", "index": 7 },
+  {
+    "name": "object: {a: 1, a: 2}",
+    "expr": "{a: 1, a: 2}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "a": 2 }
+  },
+  {
+    "name": "object: {b: 1, 2: 'x', 1: 'y'}",
+    "expr": "{b: 1, 2: 'x', 1: 'y'}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "1": "y", "2": "x", "b": 1 }
+  },
+  {
+    "name": "object: {'x y': 1}",
+    "expr": "{'x y': 1}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "x y": 1 }
+  },
+  {
+    "name": "object: {true: 1, null: 2}",
+    "expr": "{true: 1, null: 2}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "true": 1, "null": 2 }
+  },
+  {
+    "name": "object: {1.50: 1}",
+    "expr": "{1.50: 1}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "1.5": 1 }
+  },
+  {
+    "name": "object: {a.b: 1}",
+    "expr": "{a.b: 1}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "undefined": 1 }
+  },
+  {
+    "name": "object: {data}",
+    "expr": "{data}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } }
+  },
+  {
+    "name": "object: {a: 1,}",
+    "expr": "{a: 1,}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "a": 1 }
+  },
+  {
+    "name": "object: {a:1 b:2}",
+    "expr": "{a:1 b:2}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "a": 1, "b": 2 }
+  },
+  {
+    "name": "object: {a: data.x}",
+    "expr": "{a: data.x}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "a": { "$undefined": true } }
+  },
+  {
+    "name": "object: {}",
+    "expr": "{}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": {}
+  },
+  {
+    "name": "object: {a: {b: [1, {c: 2}]}}",
+    "expr": "{a: {b: [1, {c: 2}]}}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "a": { "b": [1, { "c": 2 }] } }
+  },
+  {
+    "name": "object: {\"q\": 1}",
+    "expr": "{\"q\": 1}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "q": 1 }
+  },
+  {
+    "name": "object: {a: 1}.a",
+    "expr": "{a: 1}.a",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 1
+  },
+  {
+    "name": "object: {x: data.o}",
+    "expr": "{x: data.o}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "x": { "a": 1 } }
+  },
+  {
+    "name": "object: {(1 + 1): 2}",
+    "expr": "{(1 + 1): 2}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "undefined": 2 }
+  },
+  {
+    "name": "object: {4294967295: 'a', 4294967294: 'b', 1: 'c'}",
+    "expr": "{4294967295: 'a', 4294967294: 'b', 1: 'c'}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "1": "c", "4294967294": "b", "4294967295": "a" }
+  },
+  {
+    "name": "object: {'01': 1, '1': 2}",
+    "expr": "{'01': 1, '1': 2}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "1": 2, "01": 1 }
+  },
+  {
+    "name": "object errors: {__proto__: 1}",
+    "expr": "{__proto__: 1}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "key '__proto__' is not allowed"
+  },
+  {
+    "name": "object errors: {'constructor': 1}",
+    "expr": "{'constructor': 1}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "key 'constructor' is not allowed"
+  },
+  {
+    "name": "object errors: {prototype: data}",
+    "expr": "{prototype: data}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "key 'prototype' is not allowed"
+  },
+  {
+    "name": "object errors: {1}",
+    "expr": "{1}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "object entries must be 'key: value' pairs or names"
+  },
+  {
+    "name": "object errors: {null}",
+    "expr": "{null}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "object entries must be 'key: value' pairs or names"
+  },
+  {
+    "name": "object errors: {a b}",
+    "expr": "{a b}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "object entries must be 'key: value' pairs or names"
+  },
+  {
+    "name": "object errors: {a.b}",
+    "expr": "{a.b}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "object entries must be 'key: value' pairs or names"
+  },
+  {
+    "name": "object errors: {a:}",
+    "expr": "{a:}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "unexpected object property",
+    "index": 3
+  },
+  {
+    "name": "object errors: {a: 1",
+    "expr": "{a: 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "missing }",
+    "index": 5
+  },
+  {
+    "name": "object errors: {,}",
+    "expr": "{,}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "missing }",
+    "index": 1
+  },
+  {
+    "name": "object errors: {[1]: 2}",
+    "expr": "{[1]: 2}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "computed object keys are not allowed"
+  },
+  {
+    "name": "object errors: {a ? b : c}",
+    "expr": "{a ? b : c}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "object entries must be 'key: value' pairs or names"
+  },
+  {
+    "name": "array: [1,,2]",
+    "expr": "[1,,2]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": [1, { "$undefined": true }, 2]
+  },
+  {
+    "name": "array: [,1]",
+    "expr": "[,1]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": [{ "$undefined": true }, 1]
+  },
+  {
+    "name": "array: [1,]",
+    "expr": "[1,]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": [1]
+  },
+  {
+    "name": "array: [1,,]",
+    "expr": "[1,,]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": [1, { "$undefined": true }]
+  },
+  {
+    "name": "array: []",
+    "expr": "[]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": []
+  },
+  {
+    "name": "array: [1 2]",
+    "expr": "[1 2]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": [1, 2]
+  },
+  {
+    "name": "array: [data.x]",
+    "expr": "[data.x]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": [{ "$undefined": true }]
+  },
+  {
+    "name": "array: [[1], {a: [2]}]",
+    "expr": "[[1], {a: [2]}]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": [[1], { "a": [2] }]
+  },
+  {
+    "name": "array: [1, 2",
+    "expr": "[1, 2",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Expected ]",
+    "index": 5
+  },
+  {
+    "name": "array: [,",
+    "expr": "[,",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Expected ]",
+    "index": 2
+  },
+  {
+    "name": "array: [1;2]",
+    "expr": "[1;2]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Expected comma",
+    "index": 2
+  },
+  {
+    "name": "call: len(1,)",
+    "expr": "len(1,)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Unexpected token )",
+    "index": 7
+  },
+  {
+    "name": "call: len(,1)",
+    "expr": "len(,1)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Unexpected token ,",
+    "index": 5
+  },
+  {
+    "name": "call: len(1 2)",
+    "expr": "len(1 2)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "len() expects a string, array or object, got number"
+  },
+  {
+    "name": "call: len('ab' 'c')",
+    "expr": "len('ab' 'c')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 2
+  },
+  {
+    "name": "call: len(",
+    "expr": "len(",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Expected )",
+    "index": 4
+  },
+  {
+    "name": "call: len('a'",
+    "expr": "len('a'",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Expected )",
+    "index": 7
+  },
+  {
+    "name": "call: len()",
+    "expr": "len()",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 0
+  },
+  {
+    "name": "call: exists()",
+    "expr": "exists()",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "call: toString(1)",
+    "expr": "toString(1)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "unknown function 'toString'"
+  },
+  {
+    "name": "call: constructor(data)",
+    "expr": "constructor(data)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "unknown function 'constructor'"
+  },
+  {
+    "name": "call: hasOwnProperty('a')",
+    "expr": "hasOwnProperty('a')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "unknown function 'hasOwnProperty'"
+  },
+  {
+    "name": "call: data.len(1)",
+    "expr": "data.len(1)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "only helper functions can be called, e.g. len(x) rather than x.length()"
+  },
+  {
+    "name": "call: (len)('ab')",
+    "expr": "(len)('ab')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 2
+  },
+  {
+    "name": "call: len?.('ab')",
+    "expr": "len?.('ab')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 2
+  },
+  {
+    "name": "call: len('ab')('c')",
+    "expr": "len('ab')('c')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "only helper functions can be called, e.g. len(x) rather than x.length()"
+  },
+  {
+    "name": "call: nope(1)",
+    "expr": "nope(1)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "unknown function 'nope'"
+  },
+  {
+    "name": "call: LEN('a')",
+    "expr": "LEN('a')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "unknown function 'LEN'"
+  },
+  {
+    "name": "call: default(1, 2, 3)",
+    "expr": "default(1, 2, 3)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 1
+  },
+  {
+    "name": "call: type()",
+    "expr": "type()",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "undefined"
+  },
+  {
+    "name": "syntax: a b",
+    "expr": "a b",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "only a single expression is allowed (found ',' or ';')"
+  },
+  {
+    "name": "syntax: a; b",
+    "expr": "a; b",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "only a single expression is allowed (found ',' or ';')"
+  },
+  {
+    "name": "syntax: ",
+    "expr": "",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "only a single expression is allowed (found ',' or ';')"
+  },
+  {
+    "name": "syntax:    ",
+    "expr": "   ",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "only a single expression is allowed (found ',' or ';')"
+  },
+  {
+    "name": "syntax: ()",
+    "expr": "()",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "only a single expression is allowed (found ',' or ';')"
+  },
+  {
+    "name": "syntax: ( )",
+    "expr": "( )",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Unexpected \")\"",
+    "index": 2
+  },
+  {
+    "name": "syntax: () + 1",
+    "expr": "() + 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Unexpected \"+\"",
+    "index": 3
+  },
+  {
+    "name": "syntax: (1, 2)",
+    "expr": "(1, 2)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "'SequenceExpression' is not allowed in expressions"
+  },
+  {
+    "name": "syntax: (1",
+    "expr": "(1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Unclosed (",
+    "index": 2
+  },
+  {
+    "name": "syntax: 1 +",
+    "expr": "1 +",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Expected expression after +",
+    "index": 3
+  },
+  {
+    "name": "syntax: 1 + * 2",
+    "expr": "1 + * 2",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Expected expression after +",
+    "index": 4
+  },
+  {
+    "name": "syntax: !",
+    "expr": "!",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "missing unaryOp argument",
+    "index": 1
+  },
+  {
+    "name": "syntax: ~1",
+    "expr": "~1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "operator '~' is not allowed"
+  },
+  {
+    "name": "syntax: 2 ** 3",
+    "expr": "2 ** 3",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "operator '**' is not allowed"
+  },
+  {
+    "name": "syntax: 1 & 2",
+    "expr": "1 & 2",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "operator '&' is not allowed"
+  },
+  {
+    "name": "syntax: 1 ^ 2",
+    "expr": "1 ^ 2",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "operator '^' is not allowed"
+  },
+  {
+    "name": "syntax: 1 << 2",
+    "expr": "1 << 2",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "operator '<<' is not allowed"
+  },
+  {
+    "name": "syntax: 1 >> 2",
+    "expr": "1 >> 2",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "operator '>>' is not allowed"
+  },
+  {
+    "name": "syntax: 1 >>> 2",
+    "expr": "1 >>> 2",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "operator '>>>' is not allowed"
+  },
+  {
+    "name": "syntax: 1 ? 2",
+    "expr": "1 ? 2",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Expected :",
+    "index": 5
+  },
+  {
+    "name": "syntax: 1 ? : 2",
+    "expr": "1 ? : 2",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Expected expression",
+    "index": 4
+  },
+  {
+    "name": "syntax: 1 ? 2 :",
+    "expr": "1 ? 2 :",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Expected expression",
+    "index": 7
+  },
+  {
+    "name": "syntax: `x`",
+    "expr": "`x`",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Unexpected \"`\"",
+    "index": 0
+  },
+  {
+    "name": "syntax: a => 1",
+    "expr": "a => 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Unexpected \"=\"",
+    "index": 2
+  },
+  {
+    "name": "syntax: new Date()",
+    "expr": "new Date()",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "only a single expression is allowed (found ',' or ';')"
+  },
+  {
+    "name": "syntax: x++",
+    "expr": "x++",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "missing unaryOp argument",
+    "index": 3
+  },
+  {
+    "name": "syntax: data instanceof x",
+    "expr": "data instanceof x",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "only a single expression is allowed (found ',' or ';')"
+  },
+  {
+    "name": "syntax: typeof data",
+    "expr": "typeof data",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "only a single expression is allowed (found ',' or ';')"
+  },
+  {
+    "name": "syntax: 'a' in",
+    "expr": "'a' in",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "only a single expression is allowed (found ',' or ';')"
+  },
+  {
+    "name": "syntax: 'abc",
+    "expr": "'abc",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Unclosed quote after \"abc\"",
+    "index": 4
+  },
+  {
+    "name": "syntax: \"abc",
+    "expr": "\"abc",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Unclosed quote after \"abc\"",
+    "index": 4
+  },
+  {
+    "name": "syntax: 'abc\\",
+    "expr": "'abc\\",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Unclosed quote after \"abc\"",
+    "index": 6
+  },
+  {
+    "name": "syntax: #",
+    "expr": "#",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Unexpected \"#\"",
+    "index": 0
+  },
+  {
+    "name": "syntax: @x",
+    "expr": "@x",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Unexpected \"@\"",
+    "index": 0
+  },
+  {
+    "name": "syntax: 1 = 1",
+    "expr": "1 = 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Unexpected \"=\"",
+    "index": 2
+  },
+  {
+    "name": "syntax: data.a += 1",
+    "expr": "data.a += 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Expected expression after +",
+    "index": 8
+  },
+  {
+    "name": "syntax: data.a == = 1",
+    "expr": "data.a == = 1",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Expected expression after ==",
+    "index": 10
+  },
+  {
+    "name": "syntax: )",
+    "expr": ")",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Unexpected \")\"",
+    "index": 0
+  },
+  {
+    "name": "syntax: 1)",
+    "expr": "1)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Unexpected \")\"",
+    "index": 1
+  },
+  {
+    "name": "syntax: }",
+    "expr": "}",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Unexpected \"}\"",
+    "index": 0
+  },
+  {
+    "name": "syntax: ]",
+    "expr": "]",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Unexpected \"]\"",
+    "index": 0
+  },
+  {
+    "name": "limits: [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]",
+    "expr": "[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]",
+    "error": "expression has more than 256 parts"
+  },
+  {
+    "name": "limits: [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+    "expr": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+    "error": "expression is nested deeper than 32"
+  },
+  {
+    "name": "limits: ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((1))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))",
+    "expr": "((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((1))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))",
+    "expect": 1
+  },
+  {
+    "name": "limits: source longer than 2000 characters",
+    "expr": "'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'",
+    "error": "expression is longer than 2000 characters"
+  },
+  {
+    "name": "limits: source of exactly 2000 characters",
+    "expr": "len('xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx')",
+    "expect": 1993
+  },
+  { "name": "limits: unknown identifiers are reported only when read", "expr": "1 || nope", "expect": 1 },
+  {
+    "name": "exists: exists(0)",
+    "expr": "exists(0)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "exists: exists('')",
+    "expr": "exists('')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "exists: exists(null)",
+    "expr": "exists(null)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "exists: exists(data.x)",
+    "expr": "exists(data.x)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "exists: exists(false)",
+    "expr": "exists(false)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "exists: exists([])",
+    "expr": "exists([])",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "len: len('abc')",
+    "expr": "len('abc')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 3
+  },
+  {
+    "name": "len: len(data.t)",
+    "expr": "len(data.t)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 2
+  },
+  {
+    "name": "len: len(data.o)",
+    "expr": "len(data.o)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 1
+  },
+  {
+    "name": "len: len(null)",
+    "expr": "len(null)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 0
+  },
+  {
+    "name": "len: len(data.x)",
+    "expr": "len(data.x)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 0
+  },
+  {
+    "name": "len: len(true)",
+    "expr": "len(true)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "len() expects a string, array or object, got boolean"
+  },
+  {
+    "name": "len: len(5)",
+    "expr": "len(5)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "len() expects a string, array or object, got number"
+  },
+  {
+    "name": "len: len('😀')",
+    "expr": "len('😀')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 2
+  },
+  {
+    "name": "len: len({})",
+    "expr": "len({})",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 0
+  },
+  {
+    "name": "size: size(null)",
+    "expr": "size(null)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 4
+  },
+  {
+    "name": "size: size('é')",
+    "expr": "size('é')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 2
+  },
+  {
+    "name": "size: size('abc')",
+    "expr": "size('abc')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 3
+  },
+  {
+    "name": "size: size(data)",
+    "expr": "size(data)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 44
+  },
+  {
+    "name": "size: size([1, 'é'])",
+    "expr": "size([1, 'é'])",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 8
+  },
+  {
+    "name": "size: size(1.5)",
+    "expr": "size(1.5)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 3
+  },
+  {
+    "name": "size: size(true)",
+    "expr": "size(true)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 4
+  },
+  {
+    "name": "size: size(data.x)",
+    "expr": "size(data.x)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 0
+  },
+  {
+    "name": "size: size({a: data.x})",
+    "expr": "size({a: data.x})",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 2
+  },
+  {
+    "name": "size: size(1/0)",
+    "expr": "size(1/0)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 4
+  },
+  {
+    "name": "size: size('😀')",
+    "expr": "size('😀')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 4
+  },
+  {
+    "name": "size: size(data.o)",
+    "expr": "size(data.o)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 7
+  },
+  {
+    "name": "type: type(1)",
+    "expr": "type(1)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "number"
+  },
+  {
+    "name": "type: type(data.x)",
+    "expr": "type(data.x)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "undefined"
+  },
+  {
+    "name": "type: type({})",
+    "expr": "type({})",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "object"
+  },
+  {
+    "name": "type: type(true)",
+    "expr": "type(true)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "boolean"
+  },
+  {
+    "name": "type: type('')",
+    "expr": "type('')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "string"
+  },
+  {
+    "name": "type: type(null)",
+    "expr": "type(null)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "null"
+  },
+  {
+    "name": "type: type([])",
+    "expr": "type([])",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "array"
+  },
+  {
+    "name": "type: type(0/0)",
+    "expr": "type(0/0)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "number"
+  },
+  {
+    "name": "text: lower('ÀB')",
+    "expr": "lower('ÀB')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "àb"
+  },
+  {
+    "name": "text: upper('ß')",
+    "expr": "upper('ß')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "SS"
+  },
+  {
+    "name": "text: lower('ΑΣ')",
+    "expr": "lower('ΑΣ')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "ας"
+  },
+  {
+    "name": "text: upper('abc')",
+    "expr": "upper('abc')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "ABC"
+  },
+  {
+    "name": "text: lower('İ')",
+    "expr": "lower('İ')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "i̇"
+  },
+  {
+    "name": "text: trim(' \\t x \\n')",
+    "expr": "trim(' \\t x \\n')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "x"
+  },
+  {
+    "name": "text: trim(' x﻿')",
+    "expr": "trim(' x﻿')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "x"
+  },
+  {
+    "name": "text: trim('x')",
+    "expr": "trim('x')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "x"
+  },
+  {
+    "name": "text: trim(' x　')",
+    "expr": "trim(' x　')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": "x"
+  },
+  {
+    "name": "text: lower(1)",
+    "expr": "lower(1)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "lower() expects a string, got number"
+  },
+  {
+    "name": "text: upper(null)",
+    "expr": "upper(null)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "upper() expects a string, got null"
+  },
+  {
+    "name": "text: trim([])",
+    "expr": "trim([])",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "trim() expects a string, got array"
+  },
+  {
+    "name": "text: trim(data.x)",
+    "expr": "trim(data.x)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "trim() expects a string, got undefined"
+  },
+  {
+    "name": "text: lower()",
+    "expr": "lower()",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "lower() expects a string, got undefined"
+  },
+  {
+    "name": "matches: matches('abc', 'b')",
+    "expr": "matches('abc', 'b')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches('abc', 'B')",
+    "expr": "matches('abc', 'B')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "matches: matches('ABC', '^[A-Z]+$')",
+    "expr": "matches('ABC', '^[A-Z]+$')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches('a', '(')",
+    "expr": "matches('a', '(')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Invalid regular expression"
+  },
+  {
+    "name": "matches: matches(1, 'a')",
+    "expr": "matches(1, 'a')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "matches() expects a string, got number"
+  },
+  {
+    "name": "matches: matches('a', 1)",
+    "expr": "matches('a', 1)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "matches() expects a string, got number"
+  },
+  {
+    "name": "matches: matches(1, '(')",
+    "expr": "matches(1, '(')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "Invalid regular expression"
+  },
+  {
+    "name": "matches: matches('a', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')",
+    "expr": "matches('a', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "error": "matches() pattern is longer than 200 characters"
+  },
+  {
+    "name": "matches: matches('a', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')",
+    "expr": "matches('a', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "matches: matches('٣', '\\\\d')",
+    "expr": "matches('٣', '\\\\d')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "matches: matches('3', '^\\\\d$')",
+    "expr": "matches('3', '^\\\\d$')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches('é', '^\\\\w$')",
+    "expr": "matches('é', '^\\\\w$')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "matches: matches('aé', 'a\\\\b')",
+    "expr": "matches('aé', 'a\\\\b')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches('ab', 'a\\\\B')",
+    "expr": "matches('ab', 'a\\\\B')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches('a\\rb', 'a.b')",
+    "expr": "matches('a\\rb', 'a.b')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "matches: matches('a\\nb', 'a.b')",
+    "expr": "matches('a\\nb', 'a.b')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "matches: matches('a b', 'a.b')",
+    "expr": "matches('a b', 'a.b')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches('a/b', 'a\\\\/b')",
+    "expr": "matches('a/b', 'a\\\\/b')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches('a{', 'a{')",
+    "expr": "matches('a{', 'a{')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches('x<', '\\\\<')",
+    "expr": "matches('x<', '\\\\<')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches('aa', '^a{2}$')",
+    "expr": "matches('aa', '^a{2}$')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches('a-b_', '^[\\\\w-]+$')",
+    "expr": "matches('a-b_', '^[\\\\w-]+$')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches('x', '[]')",
+    "expr": "matches('x', '[]')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "matches: matches('\\n', '[^]')",
+    "expr": "matches('\\n', '[^]')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches(' ', '^\\\\s$')",
+    "expr": "matches(' ', '^\\\\s$')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches('', '^\\\\s$')",
+    "expr": "matches('', '^\\\\s$')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "matches: matches('﻿', '^\\\\s$')",
+    "expr": "matches('﻿', '^\\\\s$')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches('A', '\\\\u0041')",
+    "expr": "matches('A', '\\\\u0041')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches('A', '\\\\x41')",
+    "expr": "matches('A', '\\\\x41')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches('a.b', '^a\\\\.b$')",
+    "expr": "matches('a.b', '^a\\\\.b$')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches('axb', '^a\\\\.b$')",
+    "expr": "matches('axb', '^a\\\\.b$')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "matches: matches('ab', '(?:a|b)+')",
+    "expr": "matches('ab', '(?:a|b)+')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches('cat', '^(?<x>c)at$')",
+    "expr": "matches('cat', '^(?<x>c)at$')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches('a+', '\\\\+')",
+    "expr": "matches('a+', '\\\\+')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches('', '^$')",
+    "expr": "matches('', '^$')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches('x', '')",
+    "expr": "matches('x', '')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches('AB', '[a-z]')",
+    "expr": "matches('AB', '[a-z]')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "matches: matches('a&b', '[&]')",
+    "expr": "matches('a&b', '[&]')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches('a]', ']')",
+    "expr": "matches('a]', ']')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches('}', '}')",
+    "expr": "matches('}', '}')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches('a', 'a{1,')",
+    "expr": "matches('a', 'a{1,')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "matches: matches('\\t', '\\\\t')",
+    "expr": "matches('\\t', '\\\\t')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "matches: matches('a', '\\\\p')",
+    "expr": "matches('a', '\\\\p')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  {
+    "name": "matches: matches('p', '\\\\p')",
+    "expr": "matches('p', '\\\\p')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": true
+  },
+  {
+    "name": "default: default(null, 1)",
+    "expr": "default(null, 1)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 1
+  },
+  {
+    "name": "default: default(0, 1)",
+    "expr": "default(0, 1)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": 0
+  },
+  {
+    "name": "default: default('', 'x')",
+    "expr": "default('', 'x')",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": ""
+  },
+  {
+    "name": "default: default(data.x, data.y)",
+    "expr": "default(data.x, data.y)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "default: default(data.o, 1)",
+    "expr": "default(data.o, 1)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": { "a": 1 }
+  },
+  {
+    "name": "default: default(false, 1)",
+    "expr": "default(false, 1)",
+    "ctx": { "data": { "o": { "a": 1 }, "s": "abc", "t": [1, 2], "nil": null } },
+    "expect": false
+  },
+  { "name": "now: now()", "expr": "now()", "ctx": {}, "now": 1767225600000, "expect": 1767225600000 },
+  { "name": "now: now() - 1000", "expr": "now() - 1000", "ctx": {}, "now": 1767225600000, "expect": 1767225599000 },
+  { "name": "now: iso()", "expr": "iso()", "ctx": {}, "now": 1767225600000, "expect": "2026-01-01T00:00:00.000Z" },
+  {
+    "name": "now: iso('x')",
+    "expr": "iso('x')",
+    "ctx": {},
+    "now": 1767225600000,
+    "expect": "2026-01-01T00:00:00.000Z"
+  },
+  {
+    "name": "now: iso(null)",
+    "expr": "iso(null)",
+    "ctx": {},
+    "now": 1767225600000,
+    "expect": "2026-01-01T00:00:00.000Z"
+  },
+  {
+    "name": "now: iso(now())",
+    "expr": "iso(now())",
+    "ctx": {},
+    "now": 1767225600000,
+    "expect": "2026-01-01T00:00:00.000Z"
+  },
+  { "name": "iso: iso(0)", "expr": "iso(0)", "expect": "1970-01-01T00:00:00.000Z" },
+  { "name": "iso: iso(-1)", "expr": "iso(-1)", "expect": "1969-12-31T23:59:59.999Z" },
+  { "name": "iso: iso(1.9)", "expr": "iso(1.9)", "expect": "1970-01-01T00:00:00.001Z" },
+  { "name": "iso: iso(-1.9)", "expr": "iso(-1.9)", "expect": "1969-12-31T23:59:59.999Z" },
+  { "name": "iso: iso(253402300800000)", "expr": "iso(253402300800000)", "expect": "+010000-01-01T00:00:00.000Z" },
+  { "name": "iso: iso(-62198755200001)", "expr": "iso(-62198755200001)", "expect": "-000002-12-31T23:59:59.999Z" },
+  { "name": "iso: iso(1e20)", "expr": "iso(1e20)", "error": "Invalid Date" },
+  { "name": "iso: iso(0/0)", "expr": "iso(0/0)", "error": "Invalid Date" },
+  { "name": "iso: iso(8.64e15)", "expr": "iso(8.64e15)", "expect": "+275760-09-13T00:00:00.000Z" },
+  { "name": "iso: iso(-8.64e15)", "expr": "iso(-8.64e15)", "expect": "-271821-04-20T00:00:00.000Z" },
+  { "name": "iso: iso(8.64e15 + 1)", "expr": "iso(8.64e15 + 1)", "error": "Invalid Date" },
+  { "name": "iso: iso(1767225600000)", "expr": "iso(1767225600000)", "expect": "2026-01-01T00:00:00.000Z" },
+  { "name": "iso: iso(951782400000)", "expr": "iso(951782400000)", "expect": "2000-02-29T00:00:00.000Z" },
+  { "name": "iso: iso(-62135596800000)", "expr": "iso(-62135596800000)", "expect": "0001-01-01T00:00:00.000Z" },
+  { "name": "iso: iso(-62135596800001)", "expr": "iso(-62135596800001)", "expect": "0000-12-31T23:59:59.999Z" },
+  { "name": "duration: duration('2m')", "expr": "duration('2m')", "expect": 120000 },
+  { "name": "duration: duration(' 5m ')", "expr": "duration(' 5m ')", "expect": 300000 },
+  { "name": "duration: duration('1.5ms')", "expr": "duration('1.5ms')", "expect": 1.5 },
+  { "name": "duration: duration('1.5h')", "expr": "duration('1.5h')", "expect": 5400000 },
+  { "name": "duration: duration('7d')", "expr": "duration('7d')", "expect": 604800000 },
+  { "name": "duration: duration('500ms')", "expr": "duration('500ms')", "expect": 500 },
+  { "name": "duration: duration('0s')", "expr": "duration('0s')", "expect": 0 },
+  {
+    "name": "duration: duration('5 m')",
+    "expr": "duration('5 m')",
+    "error": "invalid duration '5 m' (expected e.g. 500ms, 2s, 5m, 1h, 7d)"
+  },
+  { "name": "duration: duration(5)", "expr": "duration(5)", "error": "duration() expects a string, got number" },
+  {
+    "name": "duration: duration('5w')",
+    "expr": "duration('5w')",
+    "error": "invalid duration '5w' (expected e.g. 500ms, 2s, 5m, 1h, 7d)"
+  },
+  {
+    "name": "duration: duration('-5s')",
+    "expr": "duration('-5s')",
+    "error": "invalid duration '-5s' (expected e.g. 500ms, 2s, 5m, 1h, 7d)"
+  },
+  {
+    "name": "duration: duration('.5s')",
+    "expr": "duration('.5s')",
+    "error": "invalid duration '.5s' (expected e.g. 500ms, 2s, 5m, 1h, 7d)"
+  },
+  {
+    "name": "duration: duration('1.s')",
+    "expr": "duration('1.s')",
+    "error": "invalid duration '1.s' (expected e.g. 500ms, 2s, 5m, 1h, 7d)"
+  },
+  {
+    "name": "duration: duration('')",
+    "expr": "duration('')",
+    "error": "invalid duration '' (expected e.g. 500ms, 2s, 5m, 1h, 7d)"
+  },
+  {
+    "name": "duration: duration('30 minutes')",
+    "expr": "duration('30 minutes')",
+    "error": "invalid duration '30 minutes' (expected e.g. 500ms, 2s, 5m, 1h, 7d)"
+  },
+  {
+    "name": "template: a${1}b${2}c",
+    "template": "a${1}b${2}c",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "a1b2c"
+  },
+  {
+    "name": "template: ${'${'}",
+    "template": "${'${'}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "${"
+  },
+  {
+    "name": "template: $${x}",
+    "template": "$${x}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "${x}"
+  },
+  {
+    "name": "template: $$${data.age}",
+    "template": "$$${data.age}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "$${data.age}"
+  },
+  {
+    "name": "template: $${",
+    "template": "$${",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "${"
+  },
+  {
+    "name": "template: $$",
+    "template": "$$",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "$$"
+  },
+  {
+    "name": "template: ${'}'}",
+    "template": "${'}'}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "}"
+  },
+  {
+    "name": "template: ${\"}\"}",
+    "template": "${\"}\"}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "}"
+  },
+  {
+    "name": "template: ${'it\\'s'}",
+    "template": "${'it\\'s'}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "it's"
+  },
+  {
+    "name": "template: ${ {a: {b: 1}}.a.b }",
+    "template": "${ {a: {b: 1}}.a.b }",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": 1
+  },
+  {
+    "name": "template: ${data.x}",
+    "template": "${data.x}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": { "$undefined": true }
+  },
+  {
+    "name": "template: x${data.x}y",
+    "template": "x${data.x}y",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "xy"
+  },
+  {
+    "name": "template: ${null}",
+    "template": "${null}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": null
+  },
+  {
+    "name": "template: n=${null}",
+    "template": "n=${null}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "n="
+  },
+  {
+    "name": "template: ${data.o}",
+    "template": "${data.o}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": { "a": 1 }
+  },
+  {
+    "name": "template: o=${data.o}",
+    "template": "o=${data.o}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "o={\"a\":1}"
+  },
+  {
+    "name": "template: b=${true}",
+    "template": "b=${true}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "b=true"
+  },
+  {
+    "name": "template: ${1}${2}",
+    "template": "${1}${2}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "12"
+  },
+  {
+    "name": "template: ",
+    "template": "",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": ""
+  },
+  {
+    "name": "template: plain",
+    "template": "plain",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "plain"
+  },
+  {
+    "name": "template: $",
+    "template": "$",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "$"
+  },
+  {
+    "name": "template: ${}",
+    "template": "${}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "error": "only a single expression is allowed (found ',' or ';')"
+  },
+  {
+    "name": "template: ${a",
+    "template": "${a",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "error": "unclosed '${' in template",
+    "index": 0
+  },
+  {
+    "name": "template: a ${'}",
+    "template": "a ${'}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "error": "unclosed '${' in template",
+    "index": 2
+  },
+  {
+    "name": "template: ${ data.age ",
+    "template": "${ data.age ",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "error": "unclosed '${' in template",
+    "index": 0
+  },
+  {
+    "name": "template: ${len('}')}",
+    "template": "${len('}')}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": 1
+  },
+  {
+    "name": "template: ${nope}",
+    "template": "${nope}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "error": "'nope' is not available here"
+  },
+  {
+    "name": "template: x ${nope}",
+    "template": "x ${nope}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "error": "'nope' is not available here"
+  },
+  {
+    "name": "template: ${data.t}${data.t}",
+    "template": "${data.t}${data.t}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "[1,\"x\"][1,\"x\"]"
+  },
+  {
+    "name": "template: t=${data.t}",
+    "template": "t=${data.t}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "t=[1,\"x\"]"
+  },
+  {
+    "name": "template: ${'a' + data.age}",
+    "template": "${'a' + data.age}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "a36"
+  },
+  {
+    "name": "template: ${data.age}%",
+    "template": "${data.age}%",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "36%"
+  },
+  {
+    "name": "template: ${{a: 1}}",
+    "template": "${{a: 1}}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": { "a": 1 }
+  },
+  {
+    "name": "template: ${ {} }",
+    "template": "${ {} }",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": {}
+  },
+  {
+    "name": "template: {${data.age}}",
+    "template": "{${data.age}}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "{36}"
+  },
+  {
+    "name": "template: ${data.age}${",
+    "template": "${data.age}${",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "error": "unclosed '${' in template",
+    "index": 11
+  },
+  {
+    "name": "template: 😀${data.age}",
+    "template": "😀${data.age}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "😀36"
+  },
+  {
+    "name": "template: ${\"a\\\"}\"}",
+    "template": "${\"a\\\"}\"}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "a\"}"
+  },
+  {
+    "name": "template: ${1e21} ${0/0} ${-0}",
+    "template": "${1e21} ${0/0} ${-0}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "1e+21 NaN 0"
+  },
+  {
+    "name": "template: ${[1, data.x, null]}!",
+    "template": "${[1, data.x, null]}!",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "[1,null,null]!"
+  },
+  {
+    "name": "template: ${ {a: data.x} }!",
+    "template": "${ {a: data.x} }!",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "{}!"
+  },
+  {
+    "name": "template: ${json(data.o)}",
+    "template": "${json(data.o)}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 }, "t": [1, "x"] } },
+    "expect": "{\"a\":1}"
+  },
+  {
+    "name": "render: {\"a\":\"${data.x}\",\"b\":[\"${data.x}\",1],\"c\":{\"d\":\"${data.age}\"},\"e\":5,\"f\":null,\"g\":true}",
+    "render": { "a": "${data.x}", "b": ["${data.x}", 1], "c": { "d": "${data.age}" }, "e": 5, "f": null, "g": true },
+    "ctx": { "data": { "age": 36, "o": { "a": 1 } } },
+    "expect": { "b": [null, 1], "c": { "d": 36 }, "e": 5, "f": null, "g": true }
+  },
+  {
+    "name": "render: ${data.x}",
+    "render": "${data.x}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 } } },
+    "expect": null
+  },
+  {
+    "name": "render: ${data.age}",
+    "render": "${data.age}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 } } },
+    "expect": 36
+  },
+  {
+    "name": "render: n=${data.age}",
+    "render": "n=${data.age}",
+    "ctx": { "data": { "age": 36, "o": { "a": 1 } } },
+    "expect": "n=36"
+  },
+  {
+    "name": "render: {\"n\":\"${1e21}\",\"m\":\"${0/0}\",\"z\":\"${-0}\",\"h\":\"${0.5}\"}",
+    "render": { "n": "${1e21}", "m": "${0/0}", "z": "${-0}", "h": "${0.5}" },
+    "ctx": { "data": { "age": 36, "o": { "a": 1 } } },
+    "expect": { "n": 1e21, "m": null, "z": 0, "h": 0.5 }
+  },
+  {
+    "name": "render: [[\"${data.age}\"],{\"deep\":{\"deeper\":\"${data.o}\"}}]",
+    "render": [["${data.age}"], { "deep": { "deeper": "${data.o}" } }],
+    "ctx": { "data": { "age": 36, "o": { "a": 1 } } },
+    "expect": [[36], { "deep": { "deeper": { "a": 1 } } }]
+  },
+  {
+    "name": "render: {\"1\":\"${data.age}\",\"b\":1,\"a\":\"$${x}\"}",
+    "render": { "1": "${data.age}", "b": 1, "a": "$${x}" },
+    "ctx": { "data": { "age": 36, "o": { "a": 1 } } },
+    "expect": { "1": 36, "b": 1, "a": "${x}" }
+  },
+  {
+    "name": "render: {\"o\":\"${ {a: data.x, b: [data.x]} }\"}",
+    "render": { "o": "${ {a: data.x, b: [data.x]} }" },
+    "ctx": { "data": { "age": 36, "o": { "a": 1 } } },
+    "expect": { "o": { "b": [null] } }
+  },
+  { "name": "render: 42", "render": 42, "ctx": { "data": { "age": 36, "o": { "a": 1 } } }, "expect": 42 },
+  { "name": "render: null", "render": null, "ctx": { "data": { "age": 36, "o": { "a": 1 } } }, "expect": null },
+  {
+    "name": "render: {\"bad\":\"${nope}\"}",
+    "render": { "bad": "${nope}" },
+    "ctx": { "data": { "age": 36, "o": { "a": 1 } } },
+    "error": "'nope' is not available here"
+  },
+  {
+    "name": "segments: a $${b} ${c}",
+    "segments": "a $${b} ${c}",
+    "expect": [{ "text": "a ${b} " }, { "expr": "c", "offset": 10 }]
+  },
+  {
+    "name": "segments: ${a}${b}",
+    "segments": "${a}${b}",
+    "expect": [{ "expr": "a", "offset": 2 }, { "expr": "b", "offset": 6 }]
+  },
+  { "name": "segments: 😀${a}", "segments": "😀${a}", "expect": [{ "text": "😀" }, { "expr": "a", "offset": 4 }] },
+  { "name": "segments: ", "segments": "", "expect": [] },
+  { "name": "segments: plain", "segments": "plain", "expect": [{ "text": "plain" }] },
+  { "name": "segments: ${'}'}", "segments": "${'}'}", "expect": [{ "expr": "'}'", "offset": 2 }] },
+  { "name": "segments: ${a", "segments": "${a", "error": "unclosed '${' in template", "index": 0 },
+  {
+    "name": "segments: ${ {a: '}'} } x",
+    "segments": "${ {a: '}'} } x",
+    "expect": [{ "expr": " {a: '}'} ", "offset": 2 }, { "text": " x" }]
+  },
+  { "name": "segments: $${a} $$", "segments": "$${a} $$", "expect": [{ "text": "${a} $$" }] },
+  {
+    "name": "segments: ${\"a\\\"}\"}b",
+    "segments": "${\"a\\\"}\"}b",
+    "expect": [{ "expr": "\"a\\\"}\"", "offset": 2 }, { "text": "b" }]
+  }
+]
