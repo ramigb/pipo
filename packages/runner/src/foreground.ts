@@ -1,43 +1,38 @@
-// Run one pipeline in the current process until it ends or is signalled. Used by the runner
-// entry point and by `pipo run`. SIGINT/SIGTERM drain; a second signal stops at once.
-import { formatDiagnostic } from "@pipo/spec";
-import { Runner, type RunnerOptions, StartError } from "./runner";
+// Run one pipeline in the foreground until it ends or is signalled (`pipo run`): the Rust runner binary, in its own
+// process group so a terminal's Ctrl-C reaches it once, through this process. Every SIGINT/SIGTERM is forwarded:
+// the first drains, a second stops at once (the runner's own rule). Its output is this process's.
+import { runnerBinary, runnerEnv } from "./binary";
 
-export async function runForeground(opts: RunnerOptions): Promise<number> {
-  const err = (line: string) => console.error(line);
-  // Handlers go in before anything else exists (registry entry, inputs). A signal that lands
-  // while the runner is still starting is remembered and honoured as soon as it can be.
-  let runner: Runner | undefined;
-  let signals = 0;
-  const onSignal = () => {
-    signals++;
-    if (!runner) return;
-    if (signals === 1) void runner.drain();
-    else void runner.stop(130);
+export interface ForegroundOptions {
+  file: string;
+  home?: string;
+  listen?: number;
+  envAllow?: string[];
+}
+
+export async function runForeground(opts: ForegroundOptions): Promise<number> {
+  const args = [runnerBinary(), opts.file];
+  if (opts.home) args.push("--home", opts.home);
+  if (opts.listen !== undefined) args.push("--listen", String(opts.listen));
+  if (opts.envAllow?.length) args.push("--env-allow", opts.envAllow.join(","));
+  const proc = Bun.spawn(args, {
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+    env: runnerEnv(),
+    detached: true,
+  });
+  const forward = (sig: NodeJS.Signals) => () => {
+    if (proc.exitCode === null) proc.kill(sig);
   };
-  process.on("SIGINT", onSignal);
-  process.on("SIGTERM", onSignal);
-  const release = () => {
-    process.off("SIGINT", onSignal);
-    process.off("SIGTERM", onSignal);
-  };
+  const onInt = forward("SIGINT");
+  const onTerm = forward("SIGTERM");
+  process.on("SIGINT", onInt);
+  process.on("SIGTERM", onTerm);
   try {
-    runner = await Runner.open(opts);
-    if (signals > 0) {
-      await runner.stop();
-      return 0;
-    }
-    await runner.start();
-  } catch (e) {
-    release();
-    if (!(e instanceof StartError)) throw e;
-    err(`pipo: ${e.message}`);
-    for (const d of e.diagnostics) err(formatDiagnostic(d));
-    for (const g of e.gaps) err(`  ${g.level === "refuse" ? "not implemented" : "ignored"}: ${g.feature} at ${g.path}`);
-    return 1;
+    return await proc.exited;
+  } finally {
+    process.off("SIGINT", onInt);
+    process.off("SIGTERM", onTerm);
   }
-  if (signals > 0) void runner.drain();
-  const code = await runner.finished;
-  release();
-  return code;
 }

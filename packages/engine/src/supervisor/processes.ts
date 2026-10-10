@@ -18,7 +18,7 @@ import {
   rmSync,
   statSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import {
   ControlError,
   entryAlive,
@@ -28,6 +28,8 @@ import {
   type RegistryEntry,
   readRegistryEntry,
   registryPath,
+  runnerBinary,
+  runnerEnv,
 } from "@pipo/runner";
 import { formatDuration, type Pipeline } from "@pipo/spec";
 import { EngineError } from "../errors";
@@ -38,8 +40,6 @@ import { RestartTracker } from "../restart";
 import { SupervisorBase } from "./base";
 import { type Adopted, type ExitInfo, type Hello, LIVE, type StartOptions, type Supervised } from "./types";
 import { call, handshake, registered } from "./util";
-
-const RUNNER_MAIN = join(dirname(Bun.resolveSync("@pipo/runner", import.meta.dir)), "main.ts");
 
 /** Spawn attempts per launch when Bun hangs loading modules before any runner code ran (WSL, /mnt). */
 const LOAD_TRIES = 3;
@@ -137,7 +137,7 @@ export abstract class SupervisorProcesses extends SupervisorBase {
   }
 
   protected spawn(s: Supervised, log: string): Bun.Subprocess {
-    const args = [process.execPath, RUNNER_MAIN, s.file, "--home", this.home, "--engine-id", this.engineId];
+    const args = [runnerBinary(), s.file, "--home", this.home, "--engine-id", this.engineId];
     if (s.opts.listen !== undefined) args.push("--listen", String(s.opts.listen));
     if (this.config.env_allow.length) args.push("--env-allow", this.config.env_allow.join(","));
     if (s.opts.detached) args.push("--detached");
@@ -148,7 +148,14 @@ export abstract class SupervisorProcesses extends SupervisorBase {
       // A detached runner gets its own session (setsid): no signal meant for the engine's process group or
       // terminal reaches it, and nothing ties its life to the engine's (D30).
       const detached = !!s.opts.detached;
-      return Bun.spawn(args, { cwd: dirname(s.file), stdin: "ignore", stdout: fd, stderr: fd, detached });
+      return Bun.spawn(args, {
+        cwd: dirname(s.file),
+        stdin: "ignore",
+        stdout: fd,
+        stderr: fd,
+        detached,
+        env: runnerEnv(),
+      });
     } finally {
       closeSync(fd);
     }

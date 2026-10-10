@@ -7,6 +7,7 @@ export {
   probeAgents,
   readAgentSettings,
 } from "./agents";
+export { compilerArgv, RunnerBinaryError, runnerBinary, runnerEnv } from "./binary";
 export {
   BOT_NAME,
   type BotConfig,
