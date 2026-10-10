@@ -4,6 +4,9 @@
 // The runner is single-threaded (a current-thread tokio runtime with a LocalSet), so connectors use `Rc`,
 // `RefCell` and non-`Send` futures, the way the TS version relies on one event loop.
 
+pub mod push;
+pub mod stdout;
+
 use crate::bots::Bots;
 use crate::journal::Journal;
 use crate::pipeline::Pipeline;
@@ -143,22 +146,28 @@ pub struct ConnectorContext {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConnectorError(pub String);
 
-pub const INPUTS: &[&str] = &["push", "schedule", "watch", "system", "telegram", "http"];
-pub const OUTPUTS: &[&str] = &["sqlite", "stdout", "file", "http", "telegram"];
-pub const TAPS: &[&str] = &["http", "file", "emit", "telegram", "exec"];
-pub const TRANSFORMS: &[&str] = &["http", "exec"];
+pub const INPUTS: &[&str] = &["push"];
+pub const OUTPUTS: &[&str] = &["stdout"];
+pub const TAPS: &[&str] = &[];
+pub const TRANSFORMS: &[&str] = &[];
 
-pub fn make_input(_ctx: &ConnectorContext) -> Result<Box<dyn InputAdapter>, ConnectorError> {
-    Err(ConnectorError("inputs are not ported yet".into()))
+pub fn make_input(ctx: &ConnectorContext) -> Result<Box<dyn InputAdapter>, ConnectorError> {
+    match ctx.pipeline.input.via.as_str() {
+        "push" => Ok(Box::new(push::PushInput)),
+        other => Err(ConnectorError(format!("no implementation for input '{other}'"))),
+    }
 }
 
-pub fn make_output(_ctx: &ConnectorContext) -> Result<Box<dyn OutputAdapter>, ConnectorError> {
-    Err(ConnectorError("outputs are not ported yet".into()))
+pub fn make_output(ctx: &ConnectorContext) -> Result<Box<dyn OutputAdapter>, ConnectorError> {
+    match ctx.pipeline.output.to.as_str() {
+        "stdout" => Ok(Box::new(stdout::StdoutOutput { print: ctx.print.clone() })),
+        other => Err(ConnectorError(format!("no implementation for output '{other}'"))),
+    }
 }
 
 /// A tap (`tap: <action>`) or a transform (`transform: <action>`); `log` and `map` are built into the runner.
-pub fn make_step(_kind: &str, _action: &str, _ctx: &ConnectorContext) -> Result<Box<dyn StepAdapter>, ConnectorError> {
-    Err(ConnectorError("steps are not ported yet".into()))
+pub fn make_step(kind: &str, action: &str, _ctx: &ConnectorContext) -> Result<Box<dyn StepAdapter>, ConnectorError> {
+    Err(ConnectorError(format!("{kind} '{action}' is not implemented")))
 }
 
 /// The program an exec step runs, when it can be found (D71): a path with a slash, relative to the pipeline's
