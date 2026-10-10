@@ -8,7 +8,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { Diagnostic } from "@pipo/spec";
-import { runnerBinary, runnerEnv } from "./binary";
+import { runBinaryToFiles } from "./binary";
 
 /** A feature the runner can't run yet (crates/pipo-runner/src/support.rs); "refuse" blocks the run. */
 export interface Gap {
@@ -252,17 +252,7 @@ function validateFixture(fx: Fixture) {
 export async function testPipeline(opts: TestOptions): Promise<TestReport> {
   for (const fx of opts.fixtures) validateFixture(fx);
   const input = JSON.stringify({ ...opts, file: resolve(opts.file) });
-  const proc = Bun.spawn([runnerBinary(), "test"], {
-    stdin: new Blob([input]),
-    stdout: "pipe",
-    stderr: "pipe",
-    env: runnerEnv(),
-  });
-  const [out, err, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
+  const { code, out, err } = await runBinaryToFiles(["test"], input);
   let reply: {
     report?: TestReport;
     error?: { kind: string; message: string; hint?: string; diagnostics?: Diagnostic[]; gaps?: Gap[] };

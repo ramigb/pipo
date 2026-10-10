@@ -1,7 +1,9 @@
 // The runner binary (docs/spec.md §7.1, D73): the data plane is the Rust `pipo-runner` (crates/pipo-runner). The engine,
 // `pipo run` and `pipo test` start it through these helpers, so each finds the same binary and hands it the same
 // compiler: the runner calls `pipo compile` (TypeScript) to check a definition, found through PIPO_COMPILE.
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO = fileURLToPath(new URL("../../../", import.meta.url));
@@ -29,4 +31,29 @@ export function compilerArgv(): string {
 /** The environment a runner process gets: the caller's, plus PIPO_COMPILE. */
 export function runnerEnv(extra: Record<string, string> = {}): Record<string, string> {
   return { ...(process.env as Record<string, string>), PIPO_COMPILE: compilerArgv(), ...extra };
+}
+
+/**
+ * Run the binary to its exit (`pipo-runner read`, `pipo-runner test`) with stdin, stdout and stderr on temp files:
+ * awaiting a subprocess pipe inside `bun test` sometimes never wakes up.
+ */
+export async function runBinaryToFiles(
+  args: string[],
+  stdin = "",
+): Promise<{ code: number; out: string; err: string }> {
+  const dir = mkdtempSync(join(tmpdir(), "pipo-bin-"));
+  try {
+    const paths = { in: join(dir, "in"), out: join(dir, "out"), err: join(dir, "err") };
+    writeFileSync(paths.in, stdin);
+    const proc = Bun.spawn([runnerBinary(), ...args], {
+      stdin: Bun.file(paths.in),
+      stdout: Bun.file(paths.out),
+      stderr: Bun.file(paths.err),
+      env: runnerEnv(),
+    });
+    const code = await proc.exited;
+    return { code, out: readFileSync(paths.out, "utf8"), err: readFileSync(paths.err, "utf8") };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }

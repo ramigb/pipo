@@ -1,10 +1,7 @@
 // Packet, version and proposal reads (docs/spec.md §6, §8, D33, D34): the shapes the runner answers over its control
 // socket, and offlineRead(), the answer from the journal alone when no runner runs. The runner binary does the reading
 // (`pipo-runner read`), so the redaction and the trace logic live in one place (D73).
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { runnerBinary, runnerEnv } from "../binary";
+import { runBinaryToFiles } from "../binary";
 import type { PacketRow } from "../journal";
 import { ControlError, type ErrorCode } from "./protocol";
 
@@ -87,29 +84,26 @@ export async function offlineRead(
   args: Record<string, unknown>,
   pipeline: string,
 ): Promise<{ result: unknown; withheld: string | null } | null> {
-  // Output goes to a file, not a pipe: awaiting a subprocess pipe inside `bun test` sometimes never wakes up.
-  const dir = mkdtempSync(join(tmpdir(), "pipo-read-"));
+  const { code, out, err } = await runBinaryToFiles([
+    "read",
+    "--home",
+    home,
+    "--pipeline",
+    pipeline,
+    "--op",
+    op,
+    "--args",
+    JSON.stringify(args),
+  ]);
+  let body: any;
   try {
-    const out = join(dir, "out.json");
-    const err = join(dir, "err.txt");
-    const proc = Bun.spawn(
-      [runnerBinary(), "read", "--home", home, "--pipeline", pipeline, "--op", op, "--args", JSON.stringify(args)],
-      { stdout: Bun.file(out), stderr: Bun.file(err), env: runnerEnv() },
-    );
-    const code = await proc.exited;
-    const text = readFileSync(out, "utf8").trim();
-    let body: any;
-    try {
-      body = JSON.parse(text);
-    } catch {
-      throw new Error(`pipo-runner read exited ${code}: ${readFileSync(err, "utf8").trim() || text || "no output"}`);
-    }
-    if (body?.error) {
-      const e = body.error as { code: ErrorCode; message: string; hint?: string };
-      throw new ControlError(e.code, e.message, e.hint ?? "");
-    }
-    return body as { result: unknown; withheld: string | null } | null;
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
+    body = JSON.parse(out);
+  } catch {
+    throw new Error(`pipo-runner read exited ${code}: ${err.trim() || out.trim() || "no output"}`);
   }
+  if (body?.error) {
+    const e = body.error as { code: ErrorCode; message: string; hint?: string };
+    throw new ControlError(e.code, e.message, e.hint ?? "");
+  }
+  return body as { result: unknown; withheld: string | null } | null;
 }
