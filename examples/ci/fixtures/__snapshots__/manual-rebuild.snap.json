@@ -1,0 +1,95 @@
+{
+  "fixture": "manual-rebuild",
+  "outcome": "delivered",
+  "units": [
+    {
+      "unit": "manual-rebuild",
+      "branch": "",
+      "outcome": "delivered",
+      "path": ["main", "checkout", "test", "verdict.green", "build", "ship", "output"],
+      "data": {
+        "id": "fx",
+        "repo": "https://github.com/acme/shop-api.git",
+        "name": "acme/shop-api",
+        "sha": "3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090",
+        "short": "3f9c2b1",
+        "branch": "main",
+        "message": "Add FLAT5 coupon",
+        "author": "Ada Lovelace",
+        "url": null,
+        "workspace": "/ci/out/work/fx",
+        "artifact": "/ci/out/artifacts/3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090",
+        "status": "passed",
+        "tests": {
+          "ok": true,
+          "pass": 5,
+          "fail": 0,
+          "failures": [],
+          "log": "test/cart.test.ts:\n\n 5 pass\n 0 fail\n"
+        }
+      },
+      "write": {
+        "key": "manual-rebuild",
+        "to": "pipeline",
+        "with": {
+          "pipeline": "deploy",
+          "data": {
+            "sha": "3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090",
+            "short": "3f9c2b1",
+            "message": "Add FLAT5 coupon",
+            "author": "Ada Lovelace"
+          }
+        }
+      }
+    }
+  ],
+  "taps": [
+    {
+      "unit": "manual-rebuild",
+      "node": "build",
+      "tap": "exec",
+      "with": {
+        "command": "bun",
+        "args": [
+          "build",
+          "./src/app.ts",
+          "--target",
+          "bun",
+          "--outfile",
+          "/ci/out/artifacts/3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090/app.js"
+        ],
+        "cwd": "/ci/out/work/fx",
+        "outputs": ["/ci/out/artifacts/3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090/app.js"],
+        "timeout": "2m"
+      }
+    }
+  ],
+  "calls": [
+    {
+      "unit": "manual-rebuild",
+      "node": "checkout",
+      "kind": "transform",
+      "attempt": 1,
+      "with": {
+        "command": "bun",
+        "args": ["./steps/checkout.ts", "manual-rebuild"],
+        "stdin": "{\"repo\":\"https://github.com/acme/shop-api.git\",\"sha\":\"3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090\"}",
+        "result": "json",
+        "timeout": "2m"
+      }
+    },
+    {
+      "unit": "manual-rebuild",
+      "node": "test",
+      "kind": "transform",
+      "attempt": 1,
+      "with": {
+        "command": "bun",
+        "args": ["./steps/test.ts", "manual-rebuild"],
+        "stdin": "{\"id\":\"fx\",\"repo\":\"https://github.com/acme/shop-api.git\",\"name\":\"acme/shop-api\",\"sha\":\"3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090\",\"short\":\"3f9c2b1\",\"branch\":\"main\",\"message\":\"Add FLAT5 coupon\",\"author\":\"Ada Lovelace\",\"url\":null,\"workspace\":\"/ci/out/work/fx\",\"artifact\":\"/ci/out/artifacts/3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090\"}",
+        "result": "json",
+        "timeout": "5m"
+      }
+    }
+  ]
+}

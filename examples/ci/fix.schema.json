@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "A fix for a red build",
+  "type": "object",
+  "properties": {
+    "summary": { "type": "string", "description": "One sentence: what was wrong and what you changed." },
+    "cause": {
+      "type": "string",
+      "description": "Why the tests failed, in a sentence or two, naming the function or line."
+    },
+    "files": { "type": "array", "items": { "type": "string" }, "description": "The files you changed." }
+  },
+  "required": ["summary", "cause", "files"],
+  "additionalProperties": false
+}

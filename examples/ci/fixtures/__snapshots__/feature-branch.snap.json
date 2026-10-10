@@ -1,0 +1,23 @@
+{
+  "fixture": "feature-branch",
+  "outcome": "filtered",
+  "units": [
+    {
+      "unit": "feature-branch",
+      "branch": "",
+      "outcome": "filtered",
+      "path": ["event", "main"],
+      "data": {
+        "repo": "https://github.com/acme/shop-api.git",
+        "name": "acme/shop-api",
+        "sha": "3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090",
+        "branch": "feature/coupons",
+        "message": "Add FLAT5 coupon",
+        "author": "Ada Lovelace",
+        "url": "https://github.com/acme/shop-api/commit/3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090"
+      }
+    }
+  ],
+  "taps": [],
+  "calls": []
+}

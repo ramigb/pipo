@@ -1,0 +1,108 @@
+{
+  "fixture": "red-fixed",
+  "outcome": "filtered",
+  "units": [
+    {
+      "unit": "red-fixed",
+      "branch": "",
+      "outcome": "filtered",
+      "path": ["event", "main", "checkout", "test", "verdict.red", "fix", "retest", "propose", "ship"],
+      "data": {
+        "id": "fx",
+        "repo": "https://github.com/acme/shop-api.git",
+        "name": "acme/shop-api",
+        "sha": "3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090",
+        "short": "3f9c2b1",
+        "branch": "main",
+        "message": "Add FLAT5 coupon",
+        "author": "Ada Lovelace",
+        "url": null,
+        "workspace": "/ci/out/work/fx",
+        "artifact": "/ci/out/artifacts/3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090",
+        "status": "fixed",
+        "tests": {
+          "ok": true,
+          "pass": 5,
+          "fail": 0,
+          "failures": [],
+          "log": "test/cart.test.ts:\n\n 5 pass\n 0 fail\n"
+        },
+        "fixes": [
+          {
+            "summary": "Free shipping starts at 50.00 again",
+            "cause": "shipping() compared with > instead of >=",
+            "files": ["src/cart.ts"]
+          }
+        ]
+      }
+    }
+  ],
+  "taps": [
+    {
+      "unit": "red-fixed",
+      "node": "propose",
+      "tap": "exec",
+      "with": {
+        "command": "bun",
+        "args": ["./steps/propose.ts"],
+        "stdin": "{\"id\":\"fx\",\"repo\":\"https://github.com/acme/shop-api.git\",\"name\":\"acme/shop-api\",\"sha\":\"3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090\",\"short\":\"3f9c2b1\",\"branch\":\"main\",\"message\":\"Add FLAT5 coupon\",\"author\":\"Ada Lovelace\",\"url\":null,\"workspace\":\"/ci/out/work/fx\",\"artifact\":\"/ci/out/artifacts/3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090\",\"status\":\"fixed\",\"tests\":{\"ok\":true,\"pass\":5,\"fail\":0,\"failures\":[],\"log\":\"test/cart.test.ts:\\n\\n 5 pass\\n 0 fail\\n\"},\"fixes\":[{\"summary\":\"Free shipping starts at 50.00 again\",\"cause\":\"shipping() compared with > instead of >=\",\"files\":[\"src/cart.ts\"]}]}",
+        "timeout": "1m"
+      }
+    }
+  ],
+  "calls": [
+    {
+      "unit": "red-fixed",
+      "node": "checkout",
+      "kind": "transform",
+      "attempt": 1,
+      "with": {
+        "command": "bun",
+        "args": ["./steps/checkout.ts", "red-fixed"],
+        "stdin": "{\"repo\":\"https://github.com/acme/shop-api.git\",\"name\":\"acme/shop-api\",\"sha\":\"3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090\",\"branch\":\"main\",\"message\":\"Add FLAT5 coupon\",\"author\":\"Ada Lovelace\",\"url\":\"https://github.com/acme/shop-api/commit/3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090\"}",
+        "result": "json",
+        "timeout": "2m"
+      }
+    },
+    {
+      "unit": "red-fixed",
+      "node": "test",
+      "kind": "transform",
+      "attempt": 1,
+      "with": {
+        "command": "bun",
+        "args": ["./steps/test.ts", "red-fixed"],
+        "stdin": "{\"id\":\"fx\",\"repo\":\"https://github.com/acme/shop-api.git\",\"name\":\"acme/shop-api\",\"sha\":\"3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090\",\"short\":\"3f9c2b1\",\"branch\":\"main\",\"message\":\"Add FLAT5 coupon\",\"author\":\"Ada Lovelace\",\"url\":null,\"workspace\":\"/ci/out/work/fx\",\"artifact\":\"/ci/out/artifacts/3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090\"}",
+        "result": "json",
+        "timeout": "5m"
+      }
+    },
+    {
+      "unit": "red-fixed",
+      "node": "fix",
+      "kind": "agent",
+      "attempt": 1,
+      "with": {
+        "model": "sonnet",
+        "cwd": "/ci/out/work/fx",
+        "allow_tools": true,
+        "timeout": "10m",
+        "schema": "./fix.schema.json",
+        "prompt": "The tests fail on main at commit 3f9c2b1 (\"Add FLAT5 coupon\" by Ada Lovelace).\nYou are in a checkout of that commit. `bun test` says:\n\ntest/cart.test.ts:\n(fail) cart > shipping is free from exactly 50.00\n\n 4 pass\n 1 fail\n\n\nFind the cause and fix it with the smallest change that makes `bun test` pass. Fix the code, not the\ntests, unless a test is plainly wrong. Run `bun test` to check. Don't commit, push or change git settings.\n"
+      }
+    },
+    {
+      "unit": "red-fixed",
+      "node": "retest",
+      "kind": "transform",
+      "attempt": 1,
+      "with": {
+        "command": "bun",
+        "args": ["./steps/test.ts", "red-fixed", "--after-fix", 0],
+        "stdin": "{\"summary\":\"Free shipping starts at 50.00 again\",\"cause\":\"shipping() compared with > instead of >=\",\"files\":[\"src/cart.ts\"]}",
+        "result": "json",
+        "timeout": "5m"
+      }
+    }
+  ]
+}

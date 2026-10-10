@@ -1,0 +1,45 @@
+{
+  "fixture": "from-ci",
+  "outcome": "delivered",
+  "units": [
+    {
+      "unit": "from-ci",
+      "branch": "",
+      "outcome": "delivered",
+      "path": ["announce", "output"],
+      "data": {
+        "sha": "3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090",
+        "short": "3f9c2b1",
+        "message": "Add FLAT5 coupon",
+        "author": "Ada Lovelace"
+      },
+      "write": {
+        "key": "from-ci",
+        "to": "http",
+        "with": {
+          "method": "POST",
+          "url": "http://127.0.0.1:8795/_deploy",
+          "headers": {
+            "content-type": "application/json"
+          },
+          "body": {
+            "sha": "3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090",
+            "message": "Add FLAT5 coupon"
+          }
+        }
+      }
+    }
+  ],
+  "taps": [
+    {
+      "unit": "from-ci",
+      "node": "announce",
+      "tap": "log",
+      "with": {
+        "level": "info",
+        "message": "Releasing 3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090 (Add FLAT5 coupon)"
+      }
+    }
+  ],
+  "calls": []
+}

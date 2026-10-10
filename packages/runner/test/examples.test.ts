@@ -1,7 +1,7 @@
 // End-to-end runs of the pipelines in examples/ (copied into a sandbox so they write under /tmp), on the Rust runner
 // binary.
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homeAgentBudget } from "../src";
 import { copyExampleDir, rows, sandbox, waitFor } from "./helpers";
@@ -188,4 +188,122 @@ describe("examples", () => {
     expect(rows(db, "SELECT 1 FROM posts")).toHaveLength(3);
     expect(await r.stop()).toBe(0);
   });
+
+  test("ci tests each push, deploys green builds live, has Claude Code fix a red one on a branch; deploy refuses a release that doesn't start", async () => {
+    const box = sandbox();
+    cleanups.push(() => box.cleanup());
+    for (const name of ["ci", "deploy"]) copyExampleDir(join(EXAMPLES, name), join(box.root, name));
+    const ci = join(box.root, "ci");
+    const deploy = join(box.root, "deploy");
+    const { prodServer } = await import(join(deploy, "prod-server.ts"));
+    const prod = await prodServer({
+      port: 0,
+      artifacts: join(ci, "out", "artifacts"),
+      state: join(deploy, "out", "prod.json"),
+      quiet: true,
+    });
+    cleanups.push(() => prod.stop(true));
+    const live = async () => ((await (await fetch(`http://127.0.0.1:${prod.port}/_version`)).json()) as any).sha;
+    const deployFile = join(deploy, "deploy.pipo");
+    writeFileSync(deployFile, readFileSync(deployFile, "utf8").replaceAll("127.0.0.1:8795", `127.0.0.1:${prod.port}`));
+
+    // A fake Claude Code: answers the readiness probes, and on a call fixes the shipping rule in the folder it runs
+    // in (the build's checkout), as the real one would with its tools on.
+    const claude = join(box.root, "claude");
+    const answer = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      structured_output: {
+        summary: "Free shipping starts at 50.00 again",
+        cause: "shipping() used > instead of >=",
+        files: ["src/cart.ts"],
+      },
+      total_cost_usd: 0.05,
+      usage: { input_tokens: 1000, output_tokens: 200 },
+    });
+    writeFileSync(
+      claude,
+      `#!/bin/sh
+case "$*" in
+  --version) echo "2.1 (Claude Code)"; exit 0 ;;
+  "auth status --json") echo '{"loggedIn": true}'; exit 0 ;;
+esac
+cat > "${box.root}/claude.prompt"
+pwd > "${box.root}/claude.cwd"
+sed -i 's/amount > FREE_SHIPPING_FROM/amount >= FREE_SHIPPING_FROM/' src/cart.ts
+printf '%s' '${answer}'
+`,
+    );
+    chmodSync(claude, 0o755);
+    mkdirSync(box.home, { recursive: true });
+    writeFileSync(join(box.home, "config.yaml"), `agents:\n  claude_code:\n    command: ${claude}\n`);
+
+    const d = await open(box, deployFile, "deploy");
+    const c = await open(box, join(ci, "ci.pipo"), "ci", { CI_WEBHOOK_SECRET: "test-secret" });
+    const demo = await import(join(ci, "demo.ts"));
+    const repo = join(ci, "out", "repo");
+    const git = (...args: string[]) =>
+      Bun.spawnSync(["git", ...args], { cwd: repo })
+        .stdout.toString()
+        .trim();
+    const send = async (event = demo.pushEvent(repo), secret = "test-secret") =>
+      demo.sendEvent(event, { url: c.url("/github"), secret }) as Promise<Response>;
+    const build = async () => {
+      const res = await send();
+      expect(res.status).toBe(202);
+      return c.settled(((await res.json()) as { packet_id: string }).packet_id, 60_000);
+    };
+
+    // The first commit: signed like GitHub, tested, built, handed to deploy and verified live.
+    const first = demo.init(repo, false);
+    expect((await send(demo.pushEvent(repo), "wrong-secret")).status).toBe(401);
+    expect((await send({ zen: "Keep it logically awesome.", hook_id: 1 })).status).toBe(202);
+    expect((await build()).state).toBe("delivered");
+    expect(await live()).toBe(first);
+    const quote = await fetch(`http://127.0.0.1:${prod.port}/quote`, {
+      method: "POST",
+      body: JSON.stringify({
+        lines: [
+          { sku: "mug", qty: 2, price: 1250 },
+          { sku: "tee", qty: 1, price: 2500 },
+        ],
+      }),
+    });
+    expect(await quote.json()).toEqual({ subtotal: 5000, discount: 0, shipping: 0, total: 5000 });
+
+    // A commit that breaks a test: Claude Code fixes it in the checkout, the tests pass again, and the fix is pushed to
+    // autofix/<short>. The commit itself is not deployed.
+    const bad = demo.commit(repo, demo.BUG.file, demo.BUG.edit, demo.BUG.message);
+    const red = await build();
+    expect(red.state).toBe("filtered");
+    expect(readFileSync(join(box.root, "claude.cwd"), "utf8").trim()).toBe(join(ci, "out", "work", red.id));
+    expect(readFileSync(join(box.root, "claude.prompt"), "utf8")).toContain("shipping is free from exactly 50.00");
+    const branch = `autofix/${bad.slice(0, 7)}`;
+    expect(git("show", `${branch}:src/cart.ts`)).toContain("amount >= FREE_SHIPPING_FROM");
+    expect(git("log", "-1", "--format=%s", branch)).toBe(`Fix ${bad.slice(0, 7)}: Free shipping starts at 50.00 again`);
+    expect(readFileSync(join(ci, "out", "reports", `${bad.slice(0, 7)}.md`), "utf8")).toContain(
+      "shipping() used > instead of >=",
+    );
+    expect(await live()).toBe(first);
+
+    // Merging the fix is a new push to main, and it goes live.
+    git("merge", "-q", "--ff-only", branch);
+    const fixed = git("rev-parse", "HEAD");
+    expect((await build()).state).toBe("delivered");
+    expect(await live()).toBe(fixed);
+
+    // A release whose /health fails passes the tests, but production refuses it: deploy dead-letters it, so does ci,
+    // and the fixed release keeps serving.
+    demo.commit(repo, demo.CRASH.file, demo.CRASH.edit, demo.CRASH.message);
+    const refused = await build();
+    expect(refused.state).toBe("dead_lettered");
+    expect(refused.error?.message).toContain("release refused");
+    expect(await live()).toBe(fixed);
+
+    // Roll back to the first release by hand.
+    const back = await d.request("push", { input: "rollback", data: { sha: first } });
+    expect((await d.settled(back.packet_id, 15_000)).state).toBe("delivered");
+    expect(await live()).toBe(first);
+  }, 180_000);
 });

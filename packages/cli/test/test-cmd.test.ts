@@ -142,7 +142,7 @@ test("changedPaths lists both sides of every difference", () => {
   ]);
 });
 
-for (const example of ["people-intake", "heartbeat", "inbox-forward", "ticket-triage"]) {
+for (const example of ["people-intake", "heartbeat", "inbox-forward", "ticket-triage", "ci", "deploy"]) {
   test(`examples/${example} passes pipo test (copied into a sandbox; snapshots are committed)`, async () => {
     const dir = join(sb.root, `ex-${example}`);
     copyExampleDir(join(ROOT, "examples", example), dir);

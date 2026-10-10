@@ -198,6 +198,7 @@ Run `bun pipo help <command>` for details. Every command except `run` (which str
 | [`ticket-triage`](examples/ticket-triage) | Classifies support tickets with an agent within a budget; runs against a mock Claude API, no key needed |
 | [`telegram-echo`](examples/telegram-echo) | Answers every message the default Telegram bot gets, and logs who wrote what |
 | [`audio-to-video`](examples/audio-to-video) | Turns each `.mp3` dropped in a folder into an `.mp4` with a cover image, using `ffmpeg` |
+| [`ci`](examples/ci) + [`deploy`](examples/deploy) | CI/CD from GitHub push events: tests each commit, has Claude Code fix red builds on a branch, and releases green ones to production one at a time, delivered only once live |
 
 ## VS Code
 

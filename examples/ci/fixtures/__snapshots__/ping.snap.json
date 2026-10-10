@@ -1,0 +1,18 @@
+{
+  "fixture": "ping",
+  "outcome": "filtered",
+  "units": [
+    {
+      "unit": "ping",
+      "branch": "",
+      "outcome": "filtered",
+      "path": ["event", "main"],
+      "data": {
+        "event": "ignored",
+        "ref": ""
+      }
+    }
+  ],
+  "taps": [],
+  "calls": []
+}

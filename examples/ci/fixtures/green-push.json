@@ -1,0 +1,46 @@
+{
+  "data": {
+    "ref": "refs/heads/main",
+    "before": "0000000000000000000000000000000000000000",
+    "after": "3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090",
+    "deleted": false,
+    "repository": {
+      "full_name": "acme/shop-api",
+      "clone_url": "https://github.com/acme/shop-api.git"
+    },
+    "pusher": {
+      "name": "ada"
+    },
+    "head_commit": {
+      "id": "3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090",
+      "message": "Add FLAT5 coupon\n\nFive off orders of 20.00 or more.",
+      "url": "https://github.com/acme/shop-api/commit/3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090",
+      "author": {
+        "name": "Ada Lovelace"
+      }
+    }
+  },
+  "stubs": {
+    "test": {
+      "id": "fx",
+      "repo": "https://github.com/acme/shop-api.git",
+      "name": "acme/shop-api",
+      "sha": "3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090",
+      "short": "3f9c2b1",
+      "branch": "main",
+      "message": "Add FLAT5 coupon",
+      "author": "Ada Lovelace",
+      "url": null,
+      "workspace": "/ci/out/work/fx",
+      "artifact": "/ci/out/artifacts/3f9c2b1e8d7a6c5b4a39281706f5e4d3c2b1a090",
+      "status": "passed",
+      "tests": {
+        "ok": true,
+        "pass": 5,
+        "fail": 0,
+        "failures": [],
+        "log": "test/cart.test.ts:\n\n 5 pass\n 0 fail\n"
+      }
+    }
+  }
+}

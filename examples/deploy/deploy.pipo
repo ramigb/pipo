@@ -1,0 +1,66 @@
+# Releases the shop API to production (prod-server.ts) one commit at a time: green builds handed over by the ci
+# pipeline, or any earlier build by hand to roll back. A release is delivered only once production reports that
+# commit live (docs/spec.md §3.10 `follow_up`, §3.14). See ../ci/README.md.
+#   bun examples/deploy/prod-server.ts &
+#   bun pipo start examples/deploy/deploy.pipo
+#   bun pipo push deploy --input rollback --data '{"sha": "<an earlier green sha>"}'
+pipo: 1
+name: deploy
+description: Release green ci builds to production one at a time, verified live; roll back by pushing a sha.
+
+# One release at a time, in the order they arrive.
+concurrency: 1
+
+inputs:
+  ci:
+    via: pipeline
+    with: {from: [ci]}
+    validate:
+      - matches(data.sha, "^[0-9a-f]{40}$")
+
+  rollback:
+    via: push
+    validate:
+      - type(data.sha) == "string" && matches(data.sha, "^[0-9a-f]{40}$")
+    on_invalid:
+      message: "Roll back to a full commit sha: pipo push deploy --input rollback --data '{\"sha\": \"<40 hex>\"}'"
+
+nodes:
+  announce:
+    label: Announce
+    from: [ci, rollback]
+    tap: log
+    with:
+      level: info
+      message: "Releasing ${data.sha} (${meta.input == 'rollback' ? 'rollback' : default(data.message, '')})"
+
+output:
+  from: announce
+  to: http
+  with:
+    method: POST
+    url: http://127.0.0.1:8795/_deploy
+    headers: {content-type: application/json}
+    body:
+      sha: "${data.sha}"
+      message: "${meta.input == 'rollback' ? 'rollback' : default(data.message, '')}"
+  # Production answers 422 when the release doesn't start; that won't change on a retry, but a network blip might.
+  on_error:
+    retry: 2
+    delay: 2s
+    then: dead_letter
+    message: "Production did not take ${data.sha}: ${error.message}"
+
+delivered:
+  check: follow_up
+  with:
+    url: http://127.0.0.1:8795/_version
+    match: {sha: "${data.sha}"}
+  within: 30s
+  on_fail:
+    then: dead_letter
+    message: "Production accepted ${data.sha} but isn't serving it: ${error.message}"
+  stall:
+    after: 10m
+    then: notify
+    message: "Deploys are stuck: ${stall.pending} waiting; ${stall.oldest.packet_id}: ${stall.oldest.last_error}"

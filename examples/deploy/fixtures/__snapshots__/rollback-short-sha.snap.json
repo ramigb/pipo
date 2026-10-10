@@ -1,0 +1,13 @@
+{
+  "fixture": "rollback-short-sha",
+  "outcome": "rejected",
+  "units": [],
+  "taps": [],
+  "calls": [],
+  "error": {
+    "step": "rollback",
+    "code": "input.invalid",
+    "message": "Roll back to a full commit sha: pipo push deploy --input rollback --data '{\"sha\": \"<40 hex>\"}'",
+    "rule": "type(data.sha) == \"string\" && matches(data.sha, \"^[0-9a-f]{40}$\")"
+  }
+}
