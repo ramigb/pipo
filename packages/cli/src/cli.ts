@@ -6,6 +6,7 @@ import { parseArgs } from "node:util";
 import { runForeground } from "@pipo/runner";
 import { buildSchema, checkProject, type Diagnostic, displayPath, formatDiagnostic, summarize } from "@pipo/spec";
 import { commandHelp, renderCommandHelp, renderHelp } from "./commands";
+import { cmdCompile, fnDiagnostic } from "./compile";
 import { cmdAttach, cmdEngine, cmdRunners } from "./engine-cmds";
 import { badOption, CliError, errorJson, fail, setCommand, setJsonMode, usageError as usage } from "./errors";
 import { formatPipo } from "./fmt";
@@ -57,6 +58,8 @@ async function dispatch(command: string, rest: string[]): Promise<number> {
   switch (command) {
     case "check":
       return cmdCheck(rest);
+    case "compile":
+      return cmdCompile(rest);
     case "run":
       return cmdRun(rest);
     case "new":
@@ -148,13 +151,22 @@ function findPipoFiles(target: string, out: string[] = []): string[] {
   return out;
 }
 
-function cmdCheck(args: string[]): number {
+async function cmdCheck(args: string[]): Promise<number> {
   const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { json: { type: "boolean" } } });
   const files = (positionals.length ? positionals : ["."]).flatMap((t) => findPipoFiles(t));
-  const results: { file: string; diagnostics: Diagnostic[] }[] = checkProject(files).map((r) => ({
-    file: displayPath(r.file),
-    diagnostics: r.diagnostics.map((d) => ({ ...d, file: displayPath(r.file) })),
-  }));
+  const results: { file: string; diagnostics: Diagnostic[] }[] = [];
+  for (const r of checkProject(files)) {
+    // P059: the fn module must bundle for the runner's QuickJS (only checked once the rest is clean).
+    if (!r.diagnostics.some((d) => d.severity === "error")) {
+      const p059 = await fnDiagnostic(readFileSync(r.file, "utf8"), r.file);
+      if (p059) r.diagnostics.push(p059);
+      r.diagnostics.sort((a, b) => a.line - b.line || a.col - b.col || a.code.localeCompare(b.code));
+    }
+    results.push({
+      file: displayPath(r.file),
+      diagnostics: r.diagnostics.map((d) => ({ ...d, file: displayPath(r.file) })),
+    });
+  }
   const all = results.flatMap((r) => r.diagnostics);
   const failed = all.some((d) => d.severity === "error");
   if (values.json) {
