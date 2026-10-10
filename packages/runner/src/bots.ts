@@ -165,3 +165,60 @@ export function pickBot(bots: Bots | undefined, w: Record<string, unknown>, owne
   if (!bot) throw new Error(`${owner}: telegram bot '${name ?? "(default)"}' was not loaded at start`);
   return bot;
 }
+
+// ── Bot API ──────────────────────────────────────────────────────────────────
+
+export class TelegramError extends Error {
+  constructor(
+    message: string,
+    readonly code: number,
+    readonly retryAfter?: number,
+  ) {
+    super(message);
+  }
+}
+
+/** One Bot API call. The URL holds the token, so errors name the method, never the URL. */
+export async function telegramCall(
+  bot: Bot,
+  method: string,
+  params: Record<string, unknown> | FormData,
+  signal?: AbortSignal,
+): Promise<any> {
+  const form = params instanceof FormData;
+  let res: Response;
+  try {
+    res = await fetch(`${bot.api}/bot${bot.token}/${method}`, {
+      method: "POST",
+      headers: form ? undefined : { "content-type": "application/json" },
+      body: form ? params : JSON.stringify(params),
+      signal: signal ?? AbortSignal.timeout(30_000),
+    });
+  } catch (e) {
+    if ((e as Error).name === "AbortError") throw e;
+    throw new TelegramError(`telegram ${method} failed: ${(e as Error).message}; check the network`, 0);
+  }
+  const body = (await res.json().catch(() => null)) as {
+    ok?: boolean;
+    result?: unknown;
+    description?: string;
+    parameters?: { retry_after?: number };
+  } | null;
+  if (body?.ok) return body.result;
+  const why = body?.description ?? `HTTP ${res.status}`;
+  const hint =
+    res.status === 401 || res.status === 404
+      ? "the bot token is wrong or revoked; get a new one from @BotFather and update the bot in the dashboard (Bots)"
+      : res.status === 409
+        ? "another program reads this bot's updates (another pipeline, or a webhook); stop it, or call deleteWebhook"
+        : res.status === 403
+          ? "the user blocked the bot, or never pressed Start in its chat"
+          : res.status === 429
+            ? "Telegram is rate limiting this bot"
+            : "see the Telegram Bot API docs for this error";
+  throw new TelegramError(
+    `telegram ${method} answered ${res.status}: ${why}; ${hint}`,
+    res.status,
+    body?.parameters?.retry_after,
+  );
+}

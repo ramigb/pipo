@@ -12,9 +12,7 @@ import {
   lstatSync,
   mkdirSync,
   openSync,
-  readdirSync,
   readFileSync,
-  readlinkSync,
   rmSync,
   statSync,
 } from "node:fs";
@@ -40,9 +38,6 @@ import { RestartTracker } from "../restart";
 import { SupervisorBase } from "./base";
 import { type Adopted, type ExitInfo, type Hello, LIVE, type StartOptions, type Supervised } from "./types";
 import { call, handshake, registered } from "./util";
-
-/** Spawn attempts per launch when Bun hangs loading modules before any runner code ran (WSL, /mnt). */
-const LOAD_TRIES = 3;
 
 export abstract class SupervisorProcesses extends SupervisorBase {
   // ── runner processes ─────────────────────────────────────────────────────────
@@ -93,47 +88,35 @@ export abstract class SupervisorProcesses extends SupervisorBase {
     this.changed(s);
     const log = logPath(this.home, s.name);
     mkdirSync(dirname(log), { recursive: true });
-    for (let tries = 1; ; tries++) {
-      const offset = existsSync(log) ? statSync(log).size : 0;
-      this.note(
-        s,
-        `starting runner${s.restarts ? ` (restart ${s.restarts})` : ""}${tries > 1 ? `, try ${tries}` : ""}`,
-      );
-      const proc = this.spawn(s, log);
-      s.proc = proc;
-      let failure: string;
-      try {
-        s.registry = await this.waitUp(s, proc);
-        s.upAt = Date.now();
-        s.state = "running";
-        s.error = null;
-        void proc.exited.then(() => this.onExit(s, proc));
-        this.log("info", `'${s.name}' running (pid ${proc.pid}, v${s.registry.version})`);
-        this.feed(s.name).checked = false;
-        this.changed(s);
-        void this.pump(s);
-        return;
-      } catch (e) {
-        failure = (e as Error).message;
-      }
-      // Bun occasionally spins forever loading modules from a Windows drive (WSL) before any runner code ran.
-      // Such a process never opened its journal, so it is killed and started again.
-      const loadHang = proc.exitCode === null && !holds(proc.pid, journalPath(this.home, s.name));
-      proc.kill("SIGKILL");
-      await proc.exited;
-      if (s.proc === proc) s.proc = undefined;
-      s.lastExit = exitInfo(proc);
-      if (loadHang && tries < LOAD_TRIES && s.wanted === "run") {
-        this.log("warn", `'${s.name}' runner stuck before it loaded (try ${tries}); starting it again`);
-        continue;
-      }
-      const tail = logTail(log, offset);
-      throw new EngineError(
-        "start_failed",
-        `'${s.name}' did not start: ${failure}${tail ? `\n${tail}` : ""}`,
-        `see ${log}; fix the cause, then start it again`,
-      );
+    const offset = existsSync(log) ? statSync(log).size : 0;
+    this.note(s, `starting runner${s.restarts ? ` (restart ${s.restarts})` : ""}`);
+    const proc = this.spawn(s, log);
+    s.proc = proc;
+    let failure: string;
+    try {
+      s.registry = await this.waitUp(s, proc);
+      s.upAt = Date.now();
+      s.state = "running";
+      s.error = null;
+      void proc.exited.then(() => this.onExit(s, proc));
+      this.log("info", `'${s.name}' running (pid ${proc.pid}, v${s.registry.version})`);
+      this.feed(s.name).checked = false;
+      this.changed(s);
+      void this.pump(s);
+      return;
+    } catch (e) {
+      failure = (e as Error).message;
     }
+    proc.kill("SIGKILL");
+    await proc.exited;
+    if (s.proc === proc) s.proc = undefined;
+    s.lastExit = exitInfo(proc);
+    const tail = logTail(log, offset);
+    throw new EngineError(
+      "start_failed",
+      `'${s.name}' did not start: ${failure}${tail ? `\n${tail}` : ""}`,
+      `see ${log}; fix the cause, then start it again`,
+    );
   }
 
   protected spawn(s: Supervised, log: string): Bun.Subprocess {
@@ -504,21 +487,6 @@ function describeExit(proc: Bun.Subprocess): string {
   if (proc.signalCode) return `was killed by ${proc.signalCode}`;
   if (proc.exitCode !== null) return `exited with code ${proc.exitCode}`;
   return "did not exit";
-}
-
-/** True once `pid` has `file` open (the runner got as far as opening its journal). Linux only; false elsewhere. */
-function holds(pid: number, file: string): boolean {
-  try {
-    return readdirSync(`/proc/${pid}/fd`).some((fd) => {
-      try {
-        return readlinkSync(`/proc/${pid}/fd/${fd}`) === file;
-      } catch {
-        return false;
-      }
-    });
-  } catch {
-    return false;
-  }
 }
 
 /** The last lines a runner wrote to its log since `offset`. */

@@ -3,7 +3,7 @@
 // `pipo check` a file must pass before a runner is started from it.
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { ControlClient, gaps, type RegistryEntry, readRegistryEntry } from "@pipo/runner";
+import { ControlClient, type RegistryEntry, readRegistryEntry } from "@pipo/runner";
 import { check, formatDiagnostic, load, type Pipeline } from "@pipo/spec";
 import { EngineError } from "../errors";
 import type { AttachOutcome, AttachResult, Hello, StartOptions, Supervised } from "./types";
@@ -60,7 +60,7 @@ export async function handshake(
   return { ok: true, hello };
 }
 
-/** Check a pipeline file the way the runner will, so a broken file fails here instead of crash-looping. */
+/** Check a pipeline file as the runner will, so a broken file fails here instead of crash-looping. */
 export function inspect(file: string): Pipeline {
   const source = readFileSync(file, "utf8");
   const diagnostics = check(source, { file });
@@ -73,16 +73,7 @@ export function inspect(file: string): Pipeline {
       diagnostics,
     );
   }
-  const pipeline = load(source, file).value as Pipeline;
-  const refused = gaps(pipeline).filter((g) => g.level === "refuse");
-  if (refused.length) {
-    throw new EngineError(
-      "invalid_pipeline",
-      `${pipeline.name} uses features the runner does not implement yet: ${refused.map((g) => `${g.feature} at ${g.path}`).join("; ")}`,
-      "remove them from the pipeline for now",
-    );
-  }
-  return pipeline;
+  return load(source, file).value as Pipeline;
 }
 
 export async function call<T = any>(

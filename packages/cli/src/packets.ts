@@ -27,7 +27,7 @@ export async function readOp(
   const journal = join(ctx.home, "pipelines", name, "journal.db");
   let off: Awaited<ReturnType<typeof offlineRead>>;
   try {
-    off = await offlineRead(journal, op, args, name);
+    off = await offlineRead(ctx.home, op, args, name);
   } catch (e) {
     if (e instanceof ControlError) throw new CliError(e.message, e.hint);
     throw new CliError(`could not read ${journal}: ${(e as Error).message}`, "check the file, or start the pipeline");

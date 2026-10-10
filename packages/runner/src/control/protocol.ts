@@ -117,15 +117,3 @@ export function socketPathProblem(path: string): { message: string; hint: string
   }
   return null;
 }
-
-/** Deep copy with every string (values and keys) passed through `redact`, so secrets never leave the runner. */
-export function redactDeep(value: unknown, redact: (s: string) => string): unknown {
-  if (typeof value === "string") return redact(value);
-  if (Array.isArray(value)) return value.map((v) => redactDeep(v, redact));
-  if (value && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value)) out[redact(k)] = redactDeep(v, redact);
-    return out;
-  }
-  return value;
-}

@@ -79,7 +79,7 @@ export const DEFAULT_CONFIG: EngineConfig = {
   detached: false,
   listen: null,
   env_allow: [],
-  start_timeout: 15_000,
+  start_timeout: 30_000,
   stop_timeout: 15_000,
   restart: { backoff: 1000, max_backoff: 30_000, stable: 60_000, max_restarts: 5, window: 600_000 },
   timezone: null,

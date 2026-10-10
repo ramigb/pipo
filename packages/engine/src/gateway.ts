@@ -927,7 +927,7 @@ export class Gateway {
         if (e instanceof ControlError && e.code !== "invalid_state" && e.code !== "unavailable") throw e;
       }
     }
-    const off = await offlineRead(journalPath(this.engine.home, name), op, args, name);
+    const off = await offlineRead(this.engine.home, op, args, name);
     if (!off) {
       if (info)
         throw new HttpError(404, `'${name}' has no journal yet`, `start it once (pipo start ${name})`, "not_found");

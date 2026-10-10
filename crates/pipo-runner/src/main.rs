@@ -7,6 +7,10 @@
 //        pipo-runner read --home <dir> --pipeline <name> --op <op> [--args '<json object>']
 // prints `{"result": …, "withheld": null|"why"}` (or `null` when the pipeline has no journal) and exits 0, or prints
 // `{"error": {code, message, hint}}` and exits 1; 64 on bad usage.
+//
+// What the runner can't run yet (support.rs; scripts/phase1-coverage.ts asks):
+//        pipo-runner gaps < '[<pipeline JSON>, …]'
+// prints one list of gaps per pipeline; a pipeline the runner can't read is one `refuse` gap saying why.
 
 use pipo_runner::control::reads::{READ_OPS, offline_read};
 use pipo_runner::format::format_diagnostic;
@@ -220,11 +224,37 @@ fn main_test() -> i32 {
     code
 }
 
+/// `pipo-runner gaps`: the runner's gaps for each pipeline value in the JSON array on stdin.
+fn main_gaps() -> i32 {
+    use std::io::Read;
+    let mut input = String::new();
+    let list: Vec<serde_json::Value> =
+        match std::io::stdin().read_to_string(&mut input).map_err(|e| e.to_string()).and_then(|_| {
+            serde_json::from_str(&input).map_err(|e| format!("stdin is not a JSON array of pipelines: {e}"))
+        }) {
+            Ok(l) => l,
+            Err(e) => {
+                eprintln!("pipo-runner gaps: {e}");
+                return 64;
+            }
+        };
+    let out: Vec<serde_json::Value> = list
+        .into_iter()
+        .map(|v| match pipo_runner::pipeline::Pipeline::from_value(v) {
+            Ok(p) => serde_json::to_value(pipo_runner::support::gaps(&p)).unwrap_or_default(),
+            Err(e) => serde_json::json!([{ "path": "", "feature": e, "level": "refuse" }]),
+        })
+        .collect();
+    println!("{}", pipo_runner::expr::js_json(&serde_json::Value::Array(out)));
+    0
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("test") => std::process::exit(main_test()),
         Some("read") => std::process::exit(offline(&args[1..])),
+        Some("gaps") => std::process::exit(main_gaps()),
         _ => {}
     }
     let opts = match parse_args(&args) {

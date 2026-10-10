@@ -9,7 +9,13 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { Diagnostic } from "@pipo/spec";
 import { runnerBinary, runnerEnv } from "./binary";
-import type { Gap } from "./support";
+
+/** A feature the runner can't run yet (crates/pipo-runner/src/support.rs); "refuse" blocks the run. */
+export interface Gap {
+  path: string;
+  feature: string;
+  level: "refuse" | "warn";
+}
 
 /** The fixed clock of a test run unless `now` is given: 2026-01-01T00:00:00Z. */
 export const TEST_NOW = Date.UTC(2026, 0, 1);

@@ -1,7 +1,7 @@
 // Done check D2 (docs/spec.md §12): is Phase 1 complete? Prints `remaining: N` and one line per missing item.
 // Exit 0 only when nothing remains. Do not weaken: items may be added, never removed, without human approval.
 import { existsSync } from "node:fs";
-import { gaps } from "../packages/runner/src/support";
+import { runnerBinary } from "../packages/runner/src/binary";
 import { CHECKS, INPUTS, OUTPUTS, TAPS, TRANSFORMS } from "../packages/spec/src/manifests";
 import type { Pipeline } from "../packages/spec/src/types";
 
@@ -51,7 +51,20 @@ function item(label: string, top: Record<string, any> = {}, output: Record<strin
     p.nodes.n = n;
     p.output.from = "n";
   }
-  for (const g of gaps(p as Pipeline)) missing.push(`gap: ${label} — ${g.feature} [${g.level}] at ${g.path}`);
+  items.push({ label, pipeline: p as Pipeline });
+}
+
+// The runner's own gaps (crates/pipo-runner/src/support.rs), all items in one call.
+const items: { label: string; pipeline: Pipeline }[] = [];
+function runnerGaps() {
+  const r = Bun.spawnSync([runnerBinary(), "gaps"], {
+    stdin: Buffer.from(JSON.stringify(items.map((i) => i.pipeline))),
+  });
+  if (r.exitCode !== 0) throw new Error(`pipo-runner gaps failed: ${r.stderr.toString()}`);
+  const all = JSON.parse(r.stdout.toString()) as { path: string; feature: string; level: string }[][];
+  items.forEach(({ label }, i) => {
+    for (const g of all[i] ?? []) missing.push(`gap: ${label} — ${g.feature} [${g.level}] at ${g.path}`);
+  });
 }
 
 for (const via of INPUT_KINDS) item(`input ${via}`, { input: { via } });
@@ -79,6 +92,7 @@ item("agent node", {}, {}, { from: "input", agent: "claude_api", with: { prompt:
 item("agent block", { agent: { control: true } });
 item("agent_budget block", { agent_budget: { per_day: 5, per_packet: 20000 } });
 item("retention block", { retention: { data: "7d", trail: "30d" } });
+runnerGaps();
 
 // (b) CLI: no "Planned" line, and every spec §6 command answers --help.
 const COMMANDS = [

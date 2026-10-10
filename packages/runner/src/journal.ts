@@ -3,7 +3,6 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { InputState } from "./connectors/types";
 
 export const IN_FLIGHT = ["accepted", "processing", "writing", "verifying"] as const;
 export const TERMINAL = ["delivered", "filtered", "dead_lettered", "rejected"] as const;
@@ -613,36 +612,6 @@ export class Journal {
   /** The branch copies of a packet (any depth), by branch path. */
   copies(packetId: string): PacketRow[] {
     return this.db.query("SELECT * FROM packets WHERE root = ? ORDER BY branch").all(packetId).map(decode);
-  }
-
-  /** Durable state for the pipeline's input (spec §14.3); tables were added later, so old journals simply start empty. */
-  inputState(scope: string): InputState {
-    const db = this.db;
-    return {
-      load() {
-        if (!db.query("SELECT 1 FROM input_scopes WHERE scope = ?").get(scope)) return null;
-        const all = db.query("SELECT key, value FROM input_state WHERE scope = ?").all(scope) as {
-          key: string;
-          value: string;
-        }[];
-        return new Map(all.map((r) => [r.key, JSON.parse(r.value)]));
-      },
-      baseline(entries) {
-        db.transaction(() => {
-          db.query("DELETE FROM input_scopes").run();
-          db.query("INSERT INTO input_scopes (scope, created_at) VALUES (?, ?)").run(scope, Date.now());
-          const put = db.query("INSERT INTO input_state (scope, key, value) VALUES (?, ?, ?)");
-          for (const [k, v] of entries) put.run(scope, k, JSON.stringify(v));
-        })();
-      },
-      put(key, value) {
-        if (value === undefined) db.query("DELETE FROM input_state WHERE scope = ? AND key = ?").run(scope, key);
-        else
-          db.query(
-            "INSERT INTO input_state (scope, key, value) VALUES (?, ?, ?) ON CONFLICT (scope, key) DO UPDATE SET value = excluded.value",
-          ).run(scope, key, JSON.stringify(value));
-      },
-    };
   }
 
   /**

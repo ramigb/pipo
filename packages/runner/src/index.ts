@@ -1,3 +1,6 @@
+// @pipo/runner: the TypeScript side of the runner (docs/spec.md §7.1, D73). The runner itself is the Rust binary
+// `pipo-runner` (crates/pipo-runner); this package finds and starts it, talks to it over its control socket, reads its
+// registry and journal, and holds what the engine and CLI need besides: bots, agent settings, probes and spend.
 export {
   type AgentProbe,
   type AgentSettings,
@@ -18,20 +21,10 @@ export {
   isReference,
   readBots,
   TELEGRAM_API,
+  TelegramError,
+  telegramCall,
   writeBots,
 } from "./bots";
-export type { Clock } from "./connectors/schedule-input";
-export { telegramCall } from "./connectors/telegram";
-export type {
-  InputAdapter,
-  InputRuntime,
-  InputState,
-  Intake,
-  IntakeResult,
-  Origin,
-  OutputAdapter,
-  WriteItem,
-} from "./connectors/types";
 export {
   type ClientOptions,
   ControlClient,
@@ -50,61 +43,34 @@ export {
 } from "./control/protocol";
 export {
   offlineRead,
-  PACKET_STATES,
   type PacketPage,
   type PacketSummary,
   READ_OPS,
   type ReadOp,
-  stateArg,
   type TraceStep,
   type UnitTrace,
 } from "./control/reads";
-export {
-  unifiedDiff,
-  type VersionDiff,
-  type VersionList,
-  type VersionSummary,
-  versionArg,
-} from "./control/versions";
-export {
-  type DivergenceReason,
-  DRY_RUN_STEP_TIMEOUT,
-  type DryRunOutcome,
-  type DryRunPacket,
-  DryRunPrepareError,
-  type DryRunReport,
-  dryRun,
-} from "./dryrun";
+export type { VersionDiff, VersionList, VersionSummary } from "./control/versions";
 export { runForeground } from "./foreground";
 export { ulid } from "./ids";
 export { ESCALATED, IN_FLIGHT, Journal, type PacketRow, type PacketState, PENDING, TERMINAL } from "./journal";
 export { entryAlive, type Liveness, pidReused, pidRunning, processStartedAt, procStart } from "./liveness";
 export {
-  AGENT_FORBIDDEN,
   type AuthorKind,
-  agentPolicyProblems,
-  changedPaths,
-  covers,
-  dryRunSummary,
   PROPOSAL_STATES,
   type ProblemCode,
   type Proposal,
-  type ProposalInput,
   type ProposalProblem,
   type ProposalState,
   type ProposalSummary,
-  Proposals,
-  readProposals,
-  validateProposal,
 } from "./proposals";
-export { Runner, type RunnerOptions, type RunnerState, StartError } from "./runner";
 export { defaultResolver, type Resolver, Secrets } from "./secrets";
-export { type Gap, gaps } from "./support";
 export {
   type Fixture,
   FixtureError,
   type FixtureMeta,
   type FixtureResult,
+  type Gap,
   loadFixtures,
   parseFixture,
   type Stubs,
