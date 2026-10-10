@@ -1220,8 +1220,21 @@ exit {code}
     }
 
     fn alive(pid: i32) -> bool {
+        // A pid of 0 would ask about our own process group.
+        assert!(pid > 0, "the fake CLI never logged its pid");
         // SAFETY: signal 0 only checks that the process exists.
         unsafe { libc::kill(pid, 0) == 0 }
+    }
+
+    /// Wait until the first call's fake CLI is running (it logged its pid): starting a shell can take a while on a
+    /// loaded machine, and aborting before that tests nothing.
+    async fn started(log: PathBuf) {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let pid = log.join("0").join("pid");
+        while std::fs::read_to_string(&pid).ok().and_then(|p| p.trim().parse::<i32>().ok()).is_none() {
+            assert!(Instant::now() < deadline, "the fake CLI didn't start within 20 s");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
     }
 
     #[test]
@@ -1231,14 +1244,17 @@ exit {code}
             let bin = b.fake("codex", Fake { sleep: Some(30), ..Default::default() });
             let r = req(schema());
             let abort = r.abort.clone();
+            let aborted_at = Rc::new(std::cell::Cell::new(None));
+            let at = aborted_at.clone();
+            let log = b.log.clone();
             tokio::task::spawn_local(async move {
-                tokio::time::sleep(Duration::from_millis(300)).await;
+                started(log).await;
+                at.set(Some(Instant::now()));
                 abort.notify_one();
             });
-            let started = Instant::now();
             let e = complete("codex", &bin, r).await.unwrap_err();
             assert_eq!(e.message, "Codex was stopped (with.timeout)");
-            assert!(started.elapsed() < Duration::from_secs(5));
+            assert!(aborted_at.get().unwrap().elapsed() < Duration::from_secs(5));
             let c = &b.calls()[0];
             assert!(!alive(c.pid));
             assert!(!c.cwd.exists());
@@ -1253,8 +1269,12 @@ exit {code}
             let r = req(schema());
             let abort = r.abort.clone();
             let provider = CliProvider::new("pi", &bin).unwrap();
-            // What the runner does: race the call against `with.timeout`, drop it, then notify the abort.
-            assert!(tokio::time::timeout(Duration::from_millis(300), provider.complete(r)).await.is_err());
+            // What the runner does: race the call against `with.timeout` (here: until the CLI runs), drop it, then
+            // notify the abort.
+            tokio::select! {
+                _ = provider.complete(r) => panic!("the call ended before the CLI was dropped"),
+                _ = started(b.log.clone()) => {}
+            }
             abort.notify_one();
             let c = &b.calls()[0];
             let deadline = Instant::now() + Duration::from_secs(5);
