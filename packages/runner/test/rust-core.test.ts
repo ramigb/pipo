@@ -219,6 +219,17 @@ ${outputFrom("x")}`);
     await expect(r.request("apply", { source: "pipo: 1\nname: other\n" })).rejects.toThrow("pipo check");
   });
 
+  test("--ttl drains the runner on time and it exits 0", async () => {
+    const name = `p${++n}`;
+    const file = box.write(`${name}.pipo`, `pipo: 1\nname: ${name}\ninput: { via: push }\n${outputFrom("input")}`);
+    const r = await RustRunner.start(box, file, name, { listen: null, args: ["--ttl", "1s"] });
+    running.push(r);
+    const started = Date.now();
+    expect(await r.proc.exited).toBe(0);
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(r.lines().join("\n")).toContain("lifetime ttl 1s reached");
+  });
+
   test("SIGTERM drains and exits 0; SIGKILL loses nothing", async () => {
     const r = await start(`concurrency: 2
 nodes:

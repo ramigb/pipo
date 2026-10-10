@@ -668,11 +668,14 @@ impl Runner {
             let left = (deadline - now_ms()).max(0) as u64;
             tokio::time::sleep(Duration::from_millis(left)).await;
             me.log("info", &format!("lifetime ttl {ttl} reached"));
-            if on_end.as_deref() == Some("stop") {
-                me.stop(0).await;
-            } else {
-                me.drain().await;
-            }
+            // In a task of its own: stop() aborts the timers, this one included, which would cancel it halfway.
+            tokio::task::spawn_local(async move {
+                if on_end.as_deref() == Some("stop") {
+                    me.stop(0).await;
+                } else {
+                    me.drain().await;
+                }
+            });
         }));
     }
 
