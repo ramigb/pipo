@@ -1,11 +1,17 @@
-// The proposal control ops (docs/spec.md §9.3, D51), in-process over the control socket: `propose` validates, dry-runs
-// when the base requires it, and applies at the safe point unless `apply: false` holds it; `proposals` and `proposal`
-// read; `reject_proposal` decides a held one. Refusals say what to do. The same reads work from the journal alone.
-import { afterEach, describe, expect, test } from "bun:test";
-import { ControlClient, type ControlError, offlineRead, Runner } from "../src";
-import { sandbox, settled } from "./helpers";
+// The proposal control ops (docs/spec.md §9.3, D51), on the runner binary over its control socket: `propose` validates,
+// dry-runs when the base requires it, and applies at the safe point unless `apply: false` holds it; `proposals` and
+// `proposal` read; `reject_proposal` decides a held one. Refusals say what to do. The same reads work from the journal
+// alone (`pipo-runner read`).
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import type { ControlError } from "../src";
+import { sandbox } from "./helpers";
+import { offlineRead } from "./proposal-helpers";
+import { RustRunner } from "./rust";
 
-let cleanups: (() => Promise<void> | void)[] = [];
+// A runner start compiles through Bun, which can hang once in a while under WSL and is then retried (compile.rs).
+setDefaultTimeout(60_000);
+
+let cleanups: (() => Promise<unknown> | unknown)[] = [];
 afterEach(async () => {
   for (const c of cleanups.reverse()) await c();
   cleanups = [];
@@ -33,14 +39,12 @@ async function setup(base = SRC("one")) {
   cleanups.push(() => box.cleanup());
   box.write("fns.ts", FNS);
   const file = box.write("po.pipo", base);
-  const runner = await Runner.open({ file, home: box.home, log: () => {} });
-  await runner.start();
-  cleanups.push(() => (runner.state === "stopped" || runner.state === "failed" ? undefined : runner.stop()));
-  const c = await ControlClient.forPipeline(box.home, "po");
-  cleanups.push(() => c.close());
-  const propose = (source: string, o: Record<string, unknown> = {}) =>
-    c.request("propose", { source, base_version: runner.version, reason: "tune", author: "agent-ops", ...o });
-  return { box, runner, c, propose };
+  const r = await RustRunner.start(box, file, "po", { listen: null });
+  cleanups.push(() => (r.proc.exitCode === null ? r.kill() : undefined));
+  const version = async () => (await r.request("hello")).version as number;
+  const propose = async (source: string, o: Record<string, unknown> = {}) =>
+    r.request("propose", { source, base_version: await version(), reason: "tune", author: "agent-ops", ...o });
+  return { box, r, propose, version };
 }
 
 const err = (p: Promise<unknown>) =>
@@ -55,12 +59,12 @@ describe("propose", () => {
     const p = await t.propose(SRC("two"), { author_kind: "agent" });
     expect(p).toMatchObject({ state: "applied", applied_version: 2, base_version: 1, author: "agent-ops" });
     expect(p.diff).toContain("+  tag: { from: input, transform: fn.two }");
-    expect(t.runner.version).toBe(2);
-    const list = await t.c.request("proposals", {});
+    expect(await t.version()).toBe(2);
+    const list = await t.r.request("proposals", {});
     expect(list.proposals.map((x: any) => [x.id, x.state])).toEqual([[p.id, "applied"]]);
-    expect((await t.c.request("proposals", { state: "rejected" })).proposals).toEqual([]);
-    expect((await t.c.request("proposal", { id: p.id })).state).toBe("applied");
-    const history = await t.c.request("versions", {});
+    expect((await t.r.request("proposals", { state: "rejected" })).proposals).toEqual([]);
+    expect((await t.r.request("proposal", { id: p.id })).state).toBe("applied");
+    const history = await t.r.request("versions", {});
     expect(history.versions[0]).toMatchObject({ version: 2, author_kind: "agent", proposal: p.id });
   });
 
@@ -74,29 +78,29 @@ describe("propose", () => {
     const t = await setup();
     const p = await t.propose(SRC("two"), { apply: false });
     expect(p.state).toBe("validated");
-    expect(t.runner.version).toBe(1);
-    const applied = await t.c.request("apply_proposal", { id: p.id, by: "ada" });
+    expect(await t.version()).toBe(1);
+    const applied = await t.r.request("apply_proposal", { id: p.id, by: "ada" });
     expect(applied).toMatchObject({ version: 2, proposal: p.id });
-    expect((await t.c.request("proposal", { id: p.id })).state).toBe("applied");
+    expect((await t.r.request("proposal", { id: p.id })).state).toBe("applied");
   });
 
   test("a held proposal can be rejected with a reason; a decided one can't be rejected again or applied", async () => {
     const t = await setup();
     const held = await t.propose(SRC("two"), { apply: false });
-    const rej = await t.c.request("reject_proposal", { id: held.id, reason: "not now", by: "ada" });
+    const rej = await t.r.request("reject_proposal", { id: held.id, reason: "not now", by: "ada" });
     expect(rej).toMatchObject({ state: "rejected", decision: "not now", decided_by: "ada" });
-    const again = await err(t.c.request("reject_proposal", { id: held.id, reason: "again" }));
+    const again = await err(t.r.request("reject_proposal", { id: held.id, reason: "again" }));
     expect(again?.code).toBe("invalid_state");
     expect(again?.hint).toContain("propose the change again");
-    const apply = await err(t.c.request("apply_proposal", { id: held.id, by: "ada" }));
+    const apply = await err(t.r.request("apply_proposal", { id: held.id, by: "ada" }));
     expect(apply?.code).toBe("invalid_state");
 
     const done = await t.propose(SRC("two"), { base_version: 1 });
     expect(done.state).toBe("applied");
-    const late = await err(t.c.request("reject_proposal", { id: done.id, reason: "too late" }));
+    const late = await err(t.r.request("reject_proposal", { id: done.id, reason: "too late" }));
     expect(late?.code).toBe("invalid_state");
     expect(late?.hint).toBeTruthy();
-    expect((await t.c.request("proposal", { id: done.id })).state).toBe("applied");
+    expect((await t.r.request("proposal", { id: done.id })).state).toBe("applied");
   });
 
   test("an agent's proposal that touches output is stored rejected, not an error, and nothing is applied", async () => {
@@ -104,7 +108,7 @@ describe("propose", () => {
     const p = await t.propose(SRC("two", { to: "./other.jsonl" }), { author_kind: "agent" });
     expect(p.state).toBe("rejected");
     expect(p.problems.map((x: any) => x.code)).toContain("forbidden_path");
-    expect(t.runner.version).toBe(1);
+    expect(await t.version()).toBe(1);
   });
 
   test("a human may change output", async () => {
@@ -116,14 +120,13 @@ describe("propose", () => {
   test("agent.verify: the dry run passes and the proposal is applied; a diverging one is rejected, not applied", async () => {
     const t = await setup(SRC("one", { verify: "last 5" }));
     for (const n of [0, 1, 2]) {
-      const r = await t.runner.intake({ n }, { trigger: "push", source: "test" });
-      if (r.status !== "accepted") throw new Error(JSON.stringify(r));
-      await settled(t.runner, r.packet_id);
+      const p = await t.r.push({ n });
+      expect((await t.r.settled(p.packet_id)).state).toBe("delivered");
     }
     const bad = await t.propose(SRC("strict", { verify: "last 5" }), { author_kind: "agent" });
     expect(bad.state).toBe("rejected");
     expect(bad.decision).toContain("dry run diverged");
-    expect(t.runner.version).toBe(1);
+    expect(await t.version()).toBe(1);
     const ok = await t.propose(SRC("two", { verify: "last 5" }), { author_kind: "agent" });
     expect(ok).toMatchObject({ state: "applied", applied_version: 2 });
     expect(ok.verification).toMatchObject({ replayed: 3, diverged: 0 });
@@ -133,7 +136,7 @@ describe("propose", () => {
     const t = await setup(SRC("one", { verify: "last 5" }));
     const p = await t.propose(SRC("two", { verify: "last 5" }), { author_kind: "agent", apply: false });
     expect(p.state).toBe("verified");
-    expect(await t.c.request("apply_proposal", { id: p.id, by: "ada" })).toMatchObject({ version: 2 });
+    expect(await t.r.request("apply_proposal", { id: p.id, by: "ada" })).toMatchObject({ version: 2 });
   });
 
   test("bad input is bad_request with a hint and stores nothing", async () => {
@@ -145,14 +148,14 @@ describe("propose", () => {
       { source: SRC("two"), base_version: 1, reason: "x", author_kind: "robot" },
       { source: SRC("two"), base_version: 1, reason: "x", apply: "yes" },
     ]) {
-      const e = await err(t.c.request("propose", args));
+      const e = await err(t.r.request("propose", args));
       expect(e?.code).toBe("bad_request");
       expect(e?.hint).toBeTruthy();
     }
-    expect((await t.c.request("proposals", {})).proposals).toEqual([]);
-    expect((await err(t.c.request("proposals", { state: "bogus" })))?.code).toBe("bad_request");
-    expect((await err(t.c.request("proposal", { id: "pr_nope" })))?.code).toBe("not_found");
-    expect((await err(t.c.request("reject_proposal", { id: "pr_x" })))?.code).toBe("bad_request");
+    expect((await t.r.request("proposals", {})).proposals).toEqual([]);
+    expect((await err(t.r.request("proposals", { state: "bogus" })))?.code).toBe("bad_request");
+    expect((await err(t.r.request("proposal", { id: "pr_nope" })))?.code).toBe("not_found");
+    expect((await err(t.r.request("reject_proposal", { id: "pr_x" })))?.code).toBe("bad_request");
   });
 
   test("a stale base is stored rejected with its problem", async () => {
@@ -166,11 +169,15 @@ describe("propose", () => {
   test("proposals read from the journal with no runner", async () => {
     const t = await setup();
     const p = await t.propose(SRC("two"), { apply: false });
-    const path = `${t.box.home}/pipelines/po/journal.db`;
-    const list = await offlineRead(path, "proposals", {}, "po");
-    expect((list!.result as any).proposals.map((x: any) => x.id)).toEqual([p.id]);
-    const one = await offlineRead(path, "proposal", { id: p.id }, "po");
-    expect((one!.result as any).state).toBe("validated");
-    expect(await offlineRead(path, "proposal", { id: "pr_nope" }, "po").catch((e) => e.code)).toBe("not_found");
+    expect(await t.r.stop()).toBe(0);
+    const list = await offlineRead(t.box, "po", "proposals");
+    expect(list.code).toBe(0);
+    expect(list.value.withheld).toBeNull();
+    expect(list.value.result.proposals.map((x: any) => x.id)).toEqual([p.id]);
+    const one = await offlineRead(t.box, "po", "proposal", { id: p.id });
+    expect(one.value.result.state).toBe("validated");
+    const missing = await offlineRead(t.box, "po", "proposal", { id: "pr_nope" });
+    expect(missing.code).toBe(1);
+    expect(missing.value.error.code).toBe("not_found");
   });
 });
