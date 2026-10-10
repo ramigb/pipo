@@ -333,6 +333,16 @@ export const COMMANDS: CommandHelp[] = [
       JSON_FLAG,
     ],
   },
+  {
+    name: "compile",
+    summary:
+      "Advanced, used by the runner: check a pipeline and print its compiled form as JSON (diagnostics, definition, bundled fn module, schemas, file hashes)",
+    usage: "pipo compile <file.pipo> [--home <dir>] [--stdin]",
+    flags: [
+      ["--home <dir>", "Pipo home: trust.json and config.yaml (default ~/.pipo, or PIPO_HOME)"],
+      ["--stdin", "Read the source from stdin; <file.pipo> only names it and anchors relative paths"],
+    ],
+  },
 ];
 
 export function commandHelp(name: string): CommandHelp | undefined {

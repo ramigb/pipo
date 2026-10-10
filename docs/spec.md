@@ -259,7 +259,7 @@ output:
 
 ### 3.6 User functions
 
-`fn: ./people.fn.ts` points to a TypeScript or JavaScript module that the runner loads with Bun. Each export is available as `fn.<name>`:
+`fn: ./people.fn.ts` points to a TypeScript or JavaScript module. Each exported function is available as `fn.<name>`:
 
 ```ts
 // people.fn.ts
@@ -269,7 +269,7 @@ export function textTransformer(data: any, meta: Meta) {
 }
 ```
 
-Functions are trusted code and run without a sandbox, inside the pipeline's runner process. A crash affects only that pipeline. Function modules that arrive through a template you didn't write are **untrusted** until you run `pipo trust <template>`. `pipo check` and `pipo start` refuse untrusted modules (§11).
+Functions run in an embedded JavaScript engine (QuickJS) inside the pipeline's runner, as plain JavaScript without Bun or Node APIs: no `node:`/`bun:` imports and no `Bun`, `process`, `require`, `Buffer` or `fetch`. A module may be TypeScript and may import local files and installed packages: `pipo compile` bundles it (with `Bun.build`) into one self-contained ES module, and `pipo check` reports P059 when it can't (§5). A function gets `(data, meta)` and returns the new data, or a Promise of it; values cross as JSON. Each version pins the code it was compiled with, so a packet pinned to an older version runs that version's functions. `console.log`, `console.warn` and `console.error` write to the runner's log. A call that runs longer than 30 s is stopped and fails like any step error. Anything that needs the system (files, network, programs) belongs in a connector or an `exec` step. Functions are trusted code. A crash affects only that pipeline. Function modules that arrive through a template you didn't write are **untrusted** until you run `pipo trust <template>`. `pipo check` and `pipo start` refuse untrusted modules (§11).
 
 ### 3.7 Secrets
 
@@ -656,7 +656,7 @@ Every finding is reported as `file:line:col severity code message`. The validato
 | **Graph** | Every node can be reached from `input`. Every node leads to `output` (no dead ends). The only cycles are declared `loop.back_to` edges, and each has a `max`. `back_to` points upstream. |
 | **Compatibility** | A telegram send without `chat_id` needs `via: telegram` (P057, §3.13). `delivered.check` is supported by `output.to` (§3.10). `batch` is supported by `output.to` (§3.5.1). `then: continue` appears only on taps. `then: agent`, `delivered.stall.then: agent` and `agent.on_stall: handle` require `agent.control` (P034). `respond` is used only with `via: http`. When a fan-out sends more than one copy to the output, an explicit key (the sqlite `columns` key, an http `Idempotency-Key` header) or a `delivered.with` lookup by `meta.packet_id` that doesn't use `meta.branch` is a warning (P026, D22). |
 | **Expressions** | Expressions parse, use only allowed helpers, and use only the context variables available at that position. |
-| **Safety** | Warns about literal credential-like strings. Warns when an exec `command` holds spaces, since it is probably a whole command line that belongs in `args` (P058). `secrets` may not appear outside `with:`. Agent nodes must have a `schema`. Warns when there are agent nodes but no `agent_budget`. Untrusted `fn` modules, and exec nodes in an untrusted pipeline file, are refused (P052). Across a multi-file `pipo check` (a folder, or several files), warns when two http inputs declare the same `input.with.listen` port (P039; `listen` is a bare port on the runner's loopback, so equal ports always collide; a single-file check never warns), and when two telegram inputs poll the same bot (P056). |
+| **Safety** | Warns about literal credential-like strings. Warns when an exec `command` holds spaces, since it is probably a whole command line that belongs in `args` (P058). `secrets` may not appear outside `with:`. Agent nodes must have a `schema`. Warns when there are agent nodes but no `agent_budget`. Untrusted `fn` modules, and exec nodes in an untrusted pipeline file, are refused (P052). An `fn` module must bundle into one self-contained module that runs without Bun or Node APIs: an import of `node:*`/`bun:*` or a Node built-in, a use of a host global (`Bun`, `process`, `require`, `Buffer`, `fetch`, …, other than in `typeof`), or a failed bundle is an error (P059, §3.6; checked by the CLI's `pipo check` and `pipo compile` once the file has no other errors). Across a multi-file `pipo check` (a folder, or several files), warns when two http inputs declare the same `input.with.listen` port (P039; `listen` is a bare port on the runner's loopback, so equal ports always collide; a single-file check never warns), and when two telegram inputs poll the same bot (P056). |
 
 ---
 
@@ -669,7 +669,7 @@ Every command except `pipo run` supports `--json` for scripts and agents (`pipo 
 | Area | Commands |
 |---|---|
 | **Create** | `pipo new <name> [--template <t>]` · `pipo generate node <pipeline> <id> --kind <kind> [--from <node>]` · `pipo templates` |
-| **Validate and test** | `pipo check [file]` · `pipo fmt [file]` · `pipo test <file|dir> [--fixtures dir] [--update-snapshots] [--json]` (runs fixtures in-process with outputs mocked, compares with snapshots) |
+| **Validate and test** | `pipo check [file]` · `pipo compile <file> [--home <dir>] [--stdin]` (advanced, used by the runner: one JSON document with the diagnostics, the definition, the bundled `fn` module, schemas, file hashes and agent settings; exit 1 when there are errors) · `pipo fmt [file]` · `pipo test <file|dir> [--fixtures dir] [--update-snapshots] [--json]` (runs fixtures in-process with outputs mocked, compares with snapshots) |
 | **Run** | `pipo start <file\|name> [--ttl 30m] [--detached] [--listen <port>]` (`--ttl` replaces `lifetime.ttl` for this start, saved in the runner registry, D57) · `pipo runners` (every runner found, with pid, port, version and whether it's attached, detached, stale or unreachable) · `pipo attach [name]` (scan again and reattach) · `pipo stop <name> [--now]` (drains unless `--now`) · `pipo pause <name>` · `pipo resume <name>` · `pipo restart <name>` |
 | **Observe** | `pipo status [name] [--watch]` · `pipo logs <name> [-f] [--node id]` · `pipo packets <name> [--state s] [--limit n] [--after id]` · `pipo inspect <name> <packet_id>` (full trace: data at each node, timings, errors). `packets`, `inspect` and `dlq` also work on a stopped pipeline, from its journal (D34). |
 | **Recover** | `pipo dlq <name>` · `pipo dlq replay <name> [ids…\|--all]` (resumes each packet at the step it failed on, D33) · `pipo dlq purge <name> [ids…\|--all]` · `pipo push <name> --data '{…}'\|--file f` · `pipo ack <name> <packet_id>` |
@@ -905,7 +905,7 @@ The dashboard's test run uses the same machinery with a trace: each unit also li
 - The engine binds to localhost by default. HTTP inputs support token-header or HMAC signature auth.
 - Agent access uses scoped tokens, is limited by each pipeline's `agent:` policy and is fully audited.
 - `exec` nodes run programs as the user, with no shell and no sandbox (D71). A `.pipo` file with exec nodes that came from a template outside your project is untrusted, like an `fn` module, until you run `pipo trust`, and again after you edit it.
-- `fn` modules and connectors are trusted code. Each pipeline is isolated at the process level, not sandboxed. Templates from outside your project are untrusted until you run `pipo trust`, which records a hash of the content. If the content changes, it has to be trusted again. Sandboxing arrives with the Phase 2 template registry.
+- `fn` modules and connectors are trusted code. `fn` modules run in the runner's embedded QuickJS without Bun or Node APIs (§3.6), with a time limit per call and a memory limit; that keeps them off the system, but it is not a reviewed sandbox. Each pipeline is isolated at the process level. Templates from outside your project are untrusted until you run `pipo trust`, which records a hash of the content. If the content changes, it has to be trusted again. Sandboxing arrives with the Phase 2 template registry.
 
 ---
 

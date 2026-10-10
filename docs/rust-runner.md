@@ -12,15 +12,24 @@ a Bun-free deploy aren't goals yet.
 
 ## The boundary: TypeScript checks, Rust executes
 
-- **`pipo compile` (TS, `packages/cli`) is the only checker.** It takes a source (a file, or stdin with `--file` for
-  relative paths) and prints one JSON document:
+- **`pipo compile` (TS, `packages/cli`) is the only checker.** `pipo compile <file.pipo> [--home DIR] [--stdin]`
+  takes a source (the file, or stdin with `--stdin`, where `<file.pipo>` only anchors relative paths and names the
+  diagnostics) and prints one JSON document, exiting 1 when it has errors (64 on bad usage):
 
   ```json
-  { "diagnostics": [ ... ], "pipeline": { ... } | null, "fn": { "path": "...", "hash": "...", "code": "...", "exports": ["..."] } | null, "files": { "./x.schema.json": "<sha256>" } }
+  { "diagnostics": [ ... ], "pipeline": { ... } | null,
+    "fn": { "path": "./x.fn.ts", "hash": "<sha256>", "code": "...", "exports": ["..."] } | null,
+    "schemas": { "./x.schema.json": { ... } }, "files": { "./x.schema.json": "<sha256>" },
+    "agents": { "settings": { "agents": { ... }, "timezone": "UTC", "engine_budget": { "per_day": 1 } | null }, "problems": [] } | null,
+    "agent_manifests": { "claude_api": { ... } } }
   ```
 
-  `pipeline` is `load()`'s value and is set only when there are no errors. `fn.code` is the `fn` module bundled
-  by `Bun.build` into one self-contained ES module (TS stripped, imports inlined). `files` is D60's file hashes.
+  `diagnostics` are what `pipo check --json` gives for the file. `pipeline` is `load()`'s value; it, `fn`, `schemas`,
+  `files` and `agents` are filled only when there are no errors. `fn.code` is the `fn` module bundled by `Bun.build`
+  (target browser, ESM) into one self-contained ES module (TS stripped, imports inlined); `fn.exports` are its exported
+  functions. `schemas` are the parsed `input.schema` and agent `with.schema` files, keyed as written. `files` is D60's
+  file hashes. `agents` is set when the pipeline has agent nodes: the home's `config.yaml` agent settings (so the runner
+  never parses YAML) and their problems, which refuse the start. `agent_manifests` is `AGENTS` from `@pipo/spec`.
 - **The runner calls `pipo compile`** at start, on `apply`/`rollback`, and when a proposal is validated. It runs
   `$PIPO_COMPILE` (a JSON argv array; the engine and CLI set it), or `pipo compile` when that isn't set. Bun is
   needed only for the moment of a compile, never while packets flow.
@@ -29,8 +38,10 @@ a Bun-free deploy aren't goals yet.
   tightens §7.3: before, `fn` modules and schema files were re-read from disk.
 - **Expressions are evaluated in Rust** (`expr/`), a port of `@pipo/spec`'s jsep subset. `packages/spec/test/expr.test.ts`
   cases are exported to `crates/pipo-runner/tests/fixtures/expr.json`, and both implementations must pass them.
-- **`fn` modules run in an embedded QuickJS** (`rquickjs`), one runtime per runner on its own thread. A module can't
-  use Bun or Node APIs. If its bundle imports them, `pipo compile` reports P059.
+- **`fn` modules run in an embedded QuickJS** (`rquickjs`, `jsfn.rs`), one runtime per runner on its own thread; calls
+  are serialized over a channel. Each version's bundle is loaded as its own module, values cross as JSON, a call is
+  stopped after 30 s and the runtime is capped at 256 MB. A module can't use Bun or Node APIs: if its bundle imports
+  them or uses their globals, `pipo compile` (and `pipo check`) reports P059.
 
 ## What stays the same (the contracts)
 
