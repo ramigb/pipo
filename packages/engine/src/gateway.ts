@@ -99,7 +99,7 @@ const ROUTES = [
   "POST /api/attach {name?}",
   "GET  /api/builder/catalog",
   "GET  /api/builder/agents",
-  "GET  /api/builder/files",
+  "GET  /api/builder/files?refresh=",
   "GET  /api/builder/open?file=|pipeline=",
   "POST /api/builder/check {source|pipeline, base?, file?}",
   "POST /api/builder/save {file, source, overwrite?}",
@@ -643,7 +643,7 @@ export class Gateway {
           return json(200, await b.agents(url.searchParams.get("refresh") === "1"));
         case "files":
           only("GET");
-          return json(200, b.files());
+          return json(200, await b.files(url.searchParams.get("refresh") === "1"));
         case "open":
           only("GET");
           return json(200, b.open(url));

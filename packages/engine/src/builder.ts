@@ -7,15 +7,16 @@
 // can't lead out) or exactly the file of a pipeline the engine knows. Schema files (`/schema`: an agent node's
 // `with.schema`, the input's `schema`) are `.json` files in or below an allowed pipeline file's folder.
 import {
+  type Dirent,
   existsSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
   realpathSync,
   renameSync,
   statSync,
   writeFileSync,
 } from "node:fs";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   type AgentProbe,
@@ -52,7 +53,10 @@ const MAX_SOURCE = 1024 * 1024;
 const MAX_FILES = 500;
 const MAX_DEPTH = 4;
 const MAX_FIXTURES = 50;
-const SKIP = new Set(["node_modules", "fixtures", "__snapshots__"]);
+// `target` is Cargo's build folder: thousands of entries and never a pipeline.
+const SKIP = new Set(["node_modules", "fixtures", "__snapshots__", "target"]);
+/** A workspace listing younger than this is answered as is; an older one is answered, then walked again. */
+const FILES_FRESH = 10_000;
 const NAME = /^[a-z0-9][a-z0-9-]*$/;
 
 type Body = Record<string, unknown>;
@@ -106,8 +110,58 @@ const within = (root: string, path: string) => path === root || path.startsWith(
 /** How long a probe of the agent CLIs is reused: each one runs a few CLI commands. */
 const AGENT_PROBE_TTL = 5 * 60_000;
 
+export interface WorkspaceFiles {
+  workspace: string;
+  files: { file: string; rel: string; name: string | null }[];
+}
+
+/** Walk `root` for `.pipo` files (MAX_DEPTH folders deep, at most MAX_FILES), with each file's pipeline name. */
+async function walkWorkspace(root: string): Promise<WorkspaceFiles> {
+  const files: WorkspaceFiles["files"] = [];
+  const walk = async (dir: string, depth: number) => {
+    let entries: Dirent[];
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    for (const e of entries) {
+      if (files.length >= MAX_FILES) return;
+      if (e.name.startsWith(".") || SKIP.has(e.name)) continue;
+      const path = join(dir, e.name);
+      let isDir = e.isDirectory();
+      let isFile = e.isFile();
+      if (e.isSymbolicLink()) {
+        try {
+          const st = await stat(path);
+          isDir = st.isDirectory();
+          isFile = st.isFile();
+        } catch {
+          continue;
+        }
+      }
+      if (isDir) {
+        if (depth < MAX_DEPTH) await walk(path, depth + 1);
+      } else if (isFile && e.name.endsWith(".pipo")) {
+        let name: string | null = null;
+        try {
+          const v = load(await readFile(path, "utf8")).value as { name?: unknown } | undefined;
+          name = typeof v?.name === "string" ? v.name : null;
+        } catch {}
+        files.push({ file: path, rel: relative(root, path), name });
+      }
+    }
+  };
+  await walk(root, 1);
+  files.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
+  return { workspace: root, files };
+}
+
 export class Builder {
   private probe: { at: number; value: Promise<Record<string, AgentProbe>> } | null = null;
+  private listing: { root: string; at: number; value: WorkspaceFiles } | null = null;
+  private walking: { root: string; value: Promise<WorkspaceFiles> } | null = null;
 
   constructor(private readonly engine: Supervisor) {}
 
@@ -190,41 +244,33 @@ export class Builder {
     return { agents: await this.probe.value, checked_at: new Date(this.probe.at).toISOString() };
   }
 
-  files() {
+  /**
+   * The workspace's `.pipo` files. A walk can take seconds on a big or slow disk, so the last result is answered at
+   * once and walked again in the background once it is older than FILES_FRESH; `refresh` waits for a new walk.
+   */
+  async files(refresh = false): Promise<WorkspaceFiles> {
     const root = this.workspace;
-    const files: { file: string; rel: string; name: string | null }[] = [];
-    const walk = (dir: string, depth: number) => {
-      let names: string[];
-      try {
-        names = readdirSync(dir).sort();
-      } catch {
-        return;
-      }
-      for (const n of names) {
-        if (files.length >= MAX_FILES) return;
-        if (n.startsWith(".") || SKIP.has(n)) continue;
-        const path = join(dir, n);
-        let st: ReturnType<typeof statSync>;
-        try {
-          st = statSync(path);
-        } catch {
-          continue;
-        }
-        if (st.isDirectory()) {
-          if (depth < MAX_DEPTH) walk(path, depth + 1);
-        } else if (n.endsWith(".pipo") && st.isFile()) {
-          let name: string | null = null;
-          try {
-            const v = load(readFileSync(path, "utf8")).value as { name?: unknown } | undefined;
-            name = typeof v?.name === "string" ? v.name : null;
-          } catch {}
-          files.push({ file: path, rel: relative(root, path), name });
-        }
-      }
+    const c = this.listing;
+    if (!refresh && c && c.root === root) {
+      if (Date.now() - c.at > FILES_FRESH) void this.walkFiles(root).catch(() => {});
+      return c.value;
+    }
+    return this.walkFiles(root);
+  }
+
+  private walkFiles(root: string): Promise<WorkspaceFiles> {
+    if (this.walking?.root === root) return this.walking.value;
+    const value = walkWorkspace(root).then((v) => {
+      if (this.workspace === root) this.listing = { root, at: Date.now(), value: v };
+      return v;
+    });
+    const walking = { root, value };
+    this.walking = walking;
+    const done = () => {
+      if (this.walking === walking) this.walking = null;
     };
-    walk(root, 1);
-    files.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
-    return { workspace: root, files };
+    value.then(done, done);
+    return value;
   }
 
   open(url: URL) {
@@ -412,6 +458,8 @@ export class Builder {
     const tmp = join(dir, `.${basename(file)}.${process.pid}.${Date.now()}.tmp`);
     writeFileSync(tmp, source);
     renameSync(tmp, file);
+    // A new file belongs in the next listing.
+    if (!exists) this.listing = null;
     return { file, created: !exists, diagnostics: this.diagnostics(source, file) };
   }
 

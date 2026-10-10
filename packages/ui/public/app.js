@@ -457,16 +457,37 @@ const mini = (emoji, label, value, cls = "") =>
   );
 const shownState = (p) => (p.state === "running" && p.status && p.status !== "active" ? p.status : p.state);
 
+// The workspace's .pipo files (/builder/files) can take a while to walk on a big or slow disk: the list renders at
+// once with the files it last saw, and again when a newer listing arrives.
+let wsFiles = null;
+let wsLoading = null;
+const onList = () => {
+  const [, kind, name] = location.hash.split("/");
+  return !["build", "bots", "settings", "top"].includes(kind) && !(kind === "p" && name);
+};
+function loadWorkspaceFiles() {
+  if (wsLoading) return;
+  wsLoading = api("/builder/files")
+    .then((ws) => {
+      const changed = JSON.stringify(ws.files) !== JSON.stringify(wsFiles);
+      wsFiles = ws.files;
+      if (changed && onList()) refresh?.();
+    })
+    .catch(() => {
+      wsFiles ??= [];
+    })
+    .finally(() => {
+      wsLoading = null;
+    });
+}
+
 async function listView() {
-  const [{ pipelines }, info, ws] = await Promise.all([
-    api("/pipelines"),
-    api("/engine"),
-    // ponytail: walks the workspace on every refresh; cache it if big workspaces make the page slow
-    api("/builder/files").catch(() => ({ files: [] })),
-  ]);
+  loadWorkspaceFiles();
+  const [{ pipelines }, info] = await Promise.all([api("/pipelines"), api("/engine")]);
   setEngine(info);
   const known = new Set(pipelines.map((p) => p.name));
-  const idle = ws.files.filter((f) => f.name && !known.has(f.name));
+  const looking = wsFiles === null;
+  const idle = (wsFiles ?? []).filter((f) => f.name && !known.has(f.name));
   const stats = await Promise.all(pipelines.map(statsFor));
   const running = pipelines.filter((p) => p.state === "running").length;
   const dlq = stats.reduce((n, st) => n + (st?.dead_lettered ?? 0), 0);
@@ -510,7 +531,9 @@ async function listView() {
             ? `${plural(pipelines.length, "pipeline")} · ${running} running · ${dlq ? `${plural(dlq, "dead letter")} 💀` : "no dead letters 🎉"}`
             : idle.length
               ? "Nothing running yet. Pick one below, or make a new one!"
-              : "No pipelines yet. Let's make your first one!",
+              : looking
+                ? "Looking for pipelines in your workspace…"
+                : "No pipelines yet. Let's make your first one!",
         ),
       ),
       h("a", { class: "btn primary", href: "#/build" }, "✨ New pipeline"),
@@ -522,7 +545,7 @@ async function listView() {
           cards,
           h("a", { class: "pcard ghost", href: "#/build" }, h("span", null, "➕"), " Build another one"),
         )
-      : idle.length
+      : idle.length || looking
         ? null
         : empty(
             "Nothing flowing yet.",
