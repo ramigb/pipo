@@ -42,10 +42,17 @@ a Bun-free deploy aren't goals yet.
   errors and syntax-error wording differs (both start "Invalid regular expression"); parsing stops at about 128
   levels of redundant parentheses (TS stops at depth 32 for anything else); and indexing a string inside a
   surrogate pair gives U+FFFD. `now()`/`iso()` read the clock passed in `EvalOptions`.
-- **`fn` modules run in an embedded QuickJS** (`rquickjs`, `jsfn.rs`), one runtime per runner on its own thread; calls
-  are serialized over a channel. Each version's bundle is loaded as its own module, values cross as JSON, a call is
-  stopped after 30 s and the runtime is capped at 256 MB. A module can't use Bun or Node APIs: if its bundle imports
-  them or uses their globals, `pipo compile` (and `pipo check`) reports P059.
+- **`fn` modules run in an embedded QuickJS** (`rquickjs`, `jsfn.rs`), one runtime per runner on a thread that runs an
+  event loop. Requests arrive over a channel at any time; each call (or module load) is a task that runs until its
+  promise settles, so a call awaiting a timer doesn't hold back the others (concurrency 4 by default, as in Bun).
+  `setTimeout`/`setInterval` and their `clear*` use the thread's own timer queue; the loop blocks on the channel only
+  until the next timer or task deadline. All JS runs as one task: its start, its timers' callbacks, and the promise
+  jobs drained right after each (the queue is empty before each, so every job descends from that task). A task's 30 s
+  limit is wall time from its start to its settlement; the runtime-wide interrupt handler stops CPU-bound code only
+  when the task it is running for is over its limit. A task that ends (settled, failed, timed out, or stuck: no job and
+  no timer anywhere could settle it) has its timers cancelled. Each version's bundle is its own module, values cross
+  as JSON, and the runtime is capped at 256 MB. A module can't use Bun or Node APIs: if its bundle imports them or
+  uses their globals, `pipo compile` (and `pipo check`) reports P059.
 - **Budget days use the system's time zone database** (`jiff` over `/usr/share/zoneinfo`; no zone data in the
   binary). `pipo compile` checks `engine.timezone` against Bun's own list, so a runner with agent nodes refuses to start
   when that zone isn't in the system's database (install `tzdata`, or use `UTC`, which always works).
