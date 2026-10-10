@@ -27,7 +27,9 @@ pub struct RetentionResult {
 }
 
 pub fn retention_policy(spec: Option<&Retention>) -> RetentionPolicy {
-    let ms = |v: Option<&String>, fallback: &str| parse_duration(v.map(String::as_str).unwrap_or(fallback)).unwrap_or(0) as i64;
+    let ms = |v: Option<&String>, fallback: &str| {
+        parse_duration(v.map(String::as_str).unwrap_or(fallback)).unwrap_or(0) as i64
+    };
     RetentionPolicy {
         data: ms(spec.and_then(|s| s.data.as_ref()), "7d"),
         trail: ms(spec.and_then(|s| s.trail.as_ref()), "30d"),

@@ -3,8 +3,8 @@
 // header-token and HMAC auth; `respond: delivered` waits for the packet to settle, up to `timeout`.
 
 use super::{
-    AwaitTerminal, ConnectorContext, ConnectorError, InputAdapter, InputRuntime, Intake, IntakeResult, LocalBoxFuture, Origin, Stopper,
-    string_of,
+    AwaitTerminal, ConnectorContext, ConnectorError, InputAdapter, InputRuntime, Intake, IntakeResult, LocalBoxFuture,
+    Origin, Stopper, string_of,
 };
 use crate::duration::parse_duration;
 use base64::Engine;
@@ -118,7 +118,10 @@ fn parse_csv(text: &str) -> Result<Vec<Vec<String>>, BadBody> {
 fn csv_records(text: &str) -> Result<Vec<Value>, BadBody> {
     let rows = parse_csv(text.strip_prefix('\u{feff}').unwrap_or(text))?;
     if rows.len() < 2 {
-        return Err(bad("csv needs a header row and at least one record", "send the header line first, then one line per record"));
+        return Err(bad(
+            "csv needs a header row and at least one record",
+            "send the header line first, then one line per record",
+        ));
     }
     let header = &rows[0];
     let unique: std::collections::HashSet<&String> = header.iter().collect();
@@ -193,7 +196,12 @@ pub fn parse_multipart(body: &[u8], content_type: &str) -> Result<Vec<Part>, Str
                 ctype = Some(v.trim().to_string());
             }
         }
-        parts.push(Part { name: name.ok_or("part without a name")?, filename, content_type: ctype, data: body[head_end + 4..data_end].to_vec() });
+        parts.push(Part {
+            name: name.ok_or("part without a name")?,
+            filename,
+            content_type: ctype,
+            data: body[head_end + 4..data_end].to_vec(),
+        });
         at = data_end + end_delim.len();
     }
 }
@@ -281,7 +289,8 @@ impl HttpInput {
             hostname: ctx.hostname.clone().unwrap_or_else(|| "127.0.0.1".into()),
             format: ctx.pipeline.input.format.clone().unwrap_or_else(|| "json".into()),
             auth: auth.and_then(|a| a.get("header")).filter(|h| super::truthy(h)).map(|h| {
-                let equals = auth.and_then(|a| a.get("equals")).filter(|e| !e.is_null()).map(string_of).unwrap_or_default();
+                let equals =
+                    auth.and_then(|a| a.get("equals")).filter(|e| !e.is_null()).map(string_of).unwrap_or_default();
                 (string_of(h), equals)
             }),
             hmac: auth.and_then(|a| a.get("hmac")).and_then(|h| h.as_object()).map(|h| Hmac {
@@ -302,7 +311,8 @@ impl Inner {
         let text = String::from_utf8_lossy(header);
         let text = text.trim();
         let lower = text.to_lowercase();
-        let given = ["sha256=", "sha1="].iter().find(|p| lower.starts_with(**p)).map(|p| &lower[p.len()..]).unwrap_or(&lower);
+        let given =
+            ["sha256=", "sha1="].iter().find(|p| lower.starts_with(**p)).map(|p| &lower[p.len()..]).unwrap_or(&lower);
         same_secret(given.as_bytes(), hmac_hex(&h.algorithm, &h.secret, body).as_bytes())
     }
 
@@ -360,29 +370,42 @@ impl Inner {
         if let Some((header, equals)) = &o.auth {
             let given = req.headers().get(header.as_str()).map(|v| v.as_bytes()).unwrap_or(b"");
             if !same_secret(given, equals.as_bytes()) {
-                return reply(401, &json!({ "error": "unauthorized", "hint": format!("send the token in the {header} header") }), &[]);
+                return reply(
+                    401,
+                    &json!({ "error": "unauthorized", "hint": format!("send the token in the {header} header") }),
+                    &[],
+                );
             }
         }
-        let content_type = req.headers().get("content-type").map(|v| String::from_utf8_lossy(v.as_bytes()).into_owned());
-        let signature = o.hmac.as_ref().and_then(|h| req.headers().get(h.header.as_str())).map(|v| v.as_bytes().to_vec());
+        let content_type =
+            req.headers().get("content-type").map(|v| String::from_utf8_lossy(v.as_bytes()).into_owned());
+        let signature =
+            o.hmac.as_ref().and_then(|h| req.headers().get(h.header.as_str())).map(|v| v.as_bytes().to_vec());
         let raw = match Limited::new(req.into_body(), MAX_BODY).collect().await {
             Ok(b) => b.to_bytes(),
             Err(e) if e.is::<http_body_util::LengthLimitError>() => {
                 return reply(413, &json!({ "error": "body is over 128 MB", "hint": "send a smaller body" }), &[]);
             }
-            Err(_) => return reply(400, &json!({ "error": "could not read the body", "hint": "send the whole body" }), &[]),
+            Err(_) => {
+                return reply(400, &json!({ "error": "could not read the body", "hint": "send the whole body" }), &[]);
+            }
         };
         if let Some(h) = &o.hmac
-            && !self.signed(signature.as_deref(), &raw) {
-                let hint = format!("send the hex {} HMAC of the raw body in the {} header", h.algorithm, h.header);
-                return reply(401, &json!({ "error": "invalid or missing signature", "hint": hint }), &[]);
-            }
+            && !self.signed(signature.as_deref(), &raw)
+        {
+            let hint = format!("send the hex {} HMAC of the raw body in the {} header", h.algorithm, h.header);
+            return reply(401, &json!({ "error": "invalid or missing signature", "hint": hint }), &[]);
+        }
         let payloads = match self.parse(content_type.as_deref(), &raw) {
             Ok(p) => p,
             Err(Some(b)) => return reply(400, &json!({ "error": b.message, "hint": b.hint }), &[]),
             Err(None) => {
                 let f = &o.format;
-                return reply(400, &json!({ "error": format!("body is not valid {f}"), "hint": format!("send a {f} body") }), &[]);
+                return reply(
+                    400,
+                    &json!({ "error": format!("body is not valid {f}"), "hint": format!("send a {f} body") }),
+                    &[],
+                );
             }
         };
         let Some(intake) = self.intake.borrow().clone() else {
@@ -414,12 +437,15 @@ impl Inner {
             IntakeResult::Rejected { respond, .. } => Some(respond.unwrap_or(422)),
             _ => None,
         });
-        let wait = if self.opts.respond.as_deref() == Some("delivered") { self.await_terminal.borrow().clone() } else { None };
+        let wait =
+            if self.opts.respond.as_deref() == Some("delivered") { self.await_terminal.borrow().clone() } else { None };
         let ms = self.opts.timeout_ms;
         let mut waits = vec![];
         for r in &results {
             waits.push(match (r, &wait) {
-                (IntakeResult::Accepted { packet_id }, Some(w)) => Some(tokio::task::spawn_local(w(packet_id.clone(), ms))),
+                (IntakeResult::Accepted { packet_id }, Some(w)) => {
+                    Some(tokio::task::spawn_local(w(packet_id.clone(), ms)))
+                }
                 _ => None,
             });
         }
@@ -590,7 +616,10 @@ mod tests {
         }
     }
 
-    fn runtime_with(dir: &TempDir, settle: impl Fn(String, u64) -> LocalBoxFuture<'static, Option<Settled>> + 'static) -> InputRuntime {
+    fn runtime_with(
+        dir: &TempDir,
+        settle: impl Fn(String, u64) -> LocalBoxFuture<'static, Option<Settled>> + 'static,
+    ) -> InputRuntime {
         InputRuntime { await_terminal: Rc::new(settle), ..runtime(dir) }
     }
 
@@ -601,7 +630,11 @@ mod tests {
         (input, url)
     }
 
-    async fn post(url: &str, body: impl Into<reqwest::Body>, headers: &[(&str, &str)]) -> (u16, Value, reqwest::header::HeaderMap) {
+    async fn post(
+        url: &str,
+        body: impl Into<reqwest::Body>,
+        headers: &[(&str, &str)],
+    ) -> (u16, Value, reqwest::header::HeaderMap) {
         let mut req = reqwest::Client::new().post(url).body(body);
         for (k, v) in headers {
             req = req.header(*k, *v);
@@ -615,7 +648,14 @@ mod tests {
     #[test]
     fn csv_parsing() {
         let r = csv_records("\u{feff}name,note\nAda,hi\nBob,\"a, \"\"b\"\"\"\r\n\nCy,\n").ok().unwrap();
-        assert_eq!(r, vec![json!({"name": "Ada", "note": "hi"}), json!({"name": "Bob", "note": "a, \"b\""}), json!({"name": "Cy", "note": ""})]);
+        assert_eq!(
+            r,
+            vec![
+                json!({"name": "Ada", "note": "hi"}),
+                json!({"name": "Bob", "note": "a, \"b\""}),
+                json!({"name": "Cy", "note": ""})
+            ]
+        );
         assert_eq!(csv_records("a\n\"x\ny\"").ok().unwrap(), vec![json!({"a": "x\ny"})]);
         let err = |t: &str| csv_records(t).err().map(|b| b.message).unwrap();
         assert_eq!(err("a,b\n1,2,3\n"), "csv record 1 has 3 field(s), the header has 2");
@@ -650,7 +690,10 @@ mod tests {
             assert_eq!(got.borrow()[0].1, Origin { trigger: "http".into(), source: "127.0.0.1".into() });
             let res = reqwest::Client::new().post(&url).body("{").send().await.unwrap();
             assert_eq!(res.headers()["content-type"], "application/json;charset=utf-8");
-            assert_eq!((res.status().as_u16(), res.json::<Value>().await.unwrap()), (400, json!({"error": "body is not valid json", "hint": "send a json body"})));
+            assert_eq!(
+                (res.status().as_u16(), res.json::<Value>().await.unwrap()),
+                (400, json!({"error": "body is not valid json", "hint": "send a json body"}))
+            );
             let (status, body, _) = post(&format!("{url}/other"), "{}", &[]).await;
             assert_eq!((status, body), (404, json!({"error": "no input at /in/hin/other"})));
             let res = reqwest::Client::new().get(&url).send().await.unwrap();
@@ -660,7 +703,10 @@ mod tests {
             assert!(input.describe().starts_with("POST http://127.0.0.1:") && input.describe().ends_with("/in/hin"));
             input.stop().await;
             input.stop().await;
-            assert!(reqwest::Client::new().post(&url).body("{}").send().await.is_err(), "the port is closed after stop");
+            assert!(
+                reqwest::Client::new().post(&url).body("{}").send().await.is_err(),
+                "the port is closed after stop"
+            );
         });
     }
 
@@ -669,13 +715,26 @@ mod tests {
         local(async {
             let dir = TempDir::new();
             let (intake, _) = recording_intake(|n| match n {
-                1 => IntakeResult::Rejected { packet_id: "r1".into(), rule: Some("data.a > 1".into()), message: "too small".into(), respond: None },
-                2 => IntakeResult::Rejected { packet_id: "r2".into(), rule: None, message: "nope".into(), respond: Some(409) },
+                1 => IntakeResult::Rejected {
+                    packet_id: "r1".into(),
+                    rule: Some("data.a > 1".into()),
+                    message: "too small".into(),
+                    respond: None,
+                },
+                2 => IntakeResult::Rejected {
+                    packet_id: "r2".into(),
+                    rule: None,
+                    message: "nope".into(),
+                    respond: Some(409),
+                },
                 _ => IntakeResult::Unavailable { reason: "buffer full (2 packets pending)".into() },
             });
             let (input, url) = started(opts("json"), intake, runtime(&dir)).await;
             let (status, body, _) = post(&url, "{}", &[]).await;
-            assert_eq!((status, body), (422, json!({"packet_id": "r1", "state": "rejected", "error": "too small", "rule": "data.a > 1"})));
+            assert_eq!(
+                (status, body),
+                (422, json!({"packet_id": "r1", "state": "rejected", "error": "too small", "rule": "data.a > 1"}))
+            );
             let (status, body, _) = post(&url, "{}", &[]).await;
             assert_eq!((status, body), (409, json!({"packet_id": "r2", "state": "rejected", "error": "nope"})));
             let (status, body, headers) = post(&url, "{}", &[]).await;
@@ -689,18 +748,26 @@ mod tests {
     fn csv_records_become_packets_and_a_partial_intake_is_503() {
         local(async {
             let dir = TempDir::new();
-            let (intake, got) = recording_intake(|n| if n < 3 { accepted(n) } else { IntakeResult::Unavailable { reason: "draining".into() } });
+            let (intake, got) = recording_intake(|n| {
+                if n < 3 { accepted(n) } else { IntakeResult::Unavailable { reason: "draining".into() } }
+            });
             let (input, url) = started(opts("csv"), intake, runtime(&dir)).await;
             let (status, body, _) = post(&url, "name\nAda\n", &[]).await;
             assert_eq!((status, body), (202, json!({"packets": [{"packet_id": "p1", "state": "accepted"}]})));
             let (status, body, _) = post(&url, "name\nBo\nCy\nDi\n", &[]).await;
             assert_eq!(status, 503);
-            assert_eq!(body, json!({"packets": [{"packet_id": "p2", "state": "accepted"}, {"state": "unavailable", "error": "draining"}], "error": "draining"}));
+            assert_eq!(
+                body,
+                json!({"packets": [{"packet_id": "p2", "state": "accepted"}, {"state": "unavailable", "error": "draining"}], "error": "draining"})
+            );
             assert_eq!(got.borrow().len(), 3, "intake stops at the first unavailable");
             for body in ["a,b\n1,2,3\n", "a,b\n", "a,b\n\"1,2\n", ""] {
                 let (status, j, _) = post(&url, body, &[]).await;
                 assert_eq!(status, 400);
-                assert!(j["error"].as_str().is_some_and(|e| !e.is_empty()) && j["hint"].as_str().is_some_and(|h| !h.is_empty()));
+                assert!(
+                    j["error"].as_str().is_some_and(|e| !e.is_empty())
+                        && j["hint"].as_str().is_some_and(|h| !h.is_empty())
+                );
             }
             assert_eq!(got.borrow().len(), 3);
             input.stop().await;
@@ -748,7 +815,10 @@ mod tests {
             o.auth = Some(("X-Token".into(), "tok".into()));
             let (input, url) = started(o, intake.clone(), runtime(&dir)).await;
             let (status, body, _) = post(&url, "{}", &[("X-Token", "nope")]).await;
-            assert_eq!((status, body), (401, json!({"error": "unauthorized", "hint": "send the token in the X-Token header"})));
+            assert_eq!(
+                (status, body),
+                (401, json!({"error": "unauthorized", "hint": "send the token in the X-Token header"}))
+            );
             assert_eq!(post(&url, "{}", &[]).await.0, 401);
             assert_eq!(post(&url, "{}", &[("x-token", "tok")]).await.0, 202);
             input.stop().await;
@@ -759,11 +829,17 @@ mod tests {
             let body = r#"{"a":1}"#;
             let sign = |b: &str| hmac_hex("sha256", "shh-test", b.as_bytes());
             assert_eq!(post(&url, body, &[("X-Signature", &format!("sha256={}", sign(body)))]).await.0, 202);
-            assert_eq!(post(&url, body, &[("X-Signature", &format!(" SHA256={} ", sign(body).to_uppercase()))]).await.0, 202);
+            assert_eq!(
+                post(&url, body, &[("X-Signature", &format!(" SHA256={} ", sign(body).to_uppercase()))]).await.0,
+                202
+            );
             assert_eq!(post(&url, body, &[("X-Signature", &sign(body))]).await.0, 202);
             let (status, j, _) = post(&url, body, &[("X-Signature", &sign("other"))]).await;
             assert_eq!(status, 401);
-            assert_eq!(j, json!({"error": "invalid or missing signature", "hint": "send the hex sha256 HMAC of the raw body in the X-Signature header"}));
+            assert_eq!(
+                j,
+                json!({"error": "invalid or missing signature", "hint": "send the hex sha256 HMAC of the raw body in the X-Signature header"})
+            );
             assert_eq!(post(&url, body, &[]).await.0, 401);
             assert_eq!(post(&url, body, &[("X-Signature", "zz")]).await.0, 401);
             input.stop().await;
@@ -785,7 +861,10 @@ mod tests {
     fn hmac_matches_known_vectors() {
         // RFC 4231 test case 2 and its SHA-1 counterpart (RFC 2202 test case 2).
         let data = b"what do ya want for nothing?";
-        assert_eq!(hmac_hex("sha256", "Jefe", data), "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843");
+        assert_eq!(
+            hmac_hex("sha256", "Jefe", data),
+            "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
+        );
         assert_eq!(hmac_hex("sha1", "Jefe", data), "effcdf6ae5eb2fa2d27416d5f184df9c259a7c79");
     }
 
@@ -797,8 +876,13 @@ mod tests {
                 Box::pin(async move {
                     match id.as_str() {
                         "p1" => Some(Settled { state: "delivered".into(), error: None }),
-                        "p2" => Some(Settled { state: "dead_lettered".into(), error: Some(json!({"code": "node.error", "message": "boom"})) }),
-                        "p3" => Some(Settled { state: "escalated".into(), error: Some(json!({"message": "needs a look"})) }),
+                        "p2" => Some(Settled {
+                            state: "dead_lettered".into(),
+                            error: Some(json!({"code": "node.error", "message": "boom"})),
+                        }),
+                        "p3" => {
+                            Some(Settled { state: "escalated".into(), error: Some(json!({"message": "needs a look"})) })
+                        }
                         _ => {
                             tokio::time::sleep(Duration::from_millis(ms)).await;
                             None
@@ -815,7 +899,10 @@ mod tests {
             let (status, body, _) = post(&url, "{}", &[]).await;
             assert_eq!((status, body), (502, json!({"packet_id": "p2", "state": "dead_lettered", "error": "boom"})));
             let (status, body, _) = post(&url, "{}", &[]).await;
-            assert_eq!((status, body), (202, json!({"packet_id": "p3", "state": "escalated", "error": "needs a look"})));
+            assert_eq!(
+                (status, body),
+                (202, json!({"packet_id": "p3", "state": "escalated", "error": "needs a look"}))
+            );
             let t0 = std::time::Instant::now();
             let (status, body, _) = post(&url, "{}", &[]).await;
             assert!(t0.elapsed().as_millis() < 700);
@@ -843,7 +930,11 @@ mod tests {
             o.idle = Duration::from_millis(500);
             let input = HttpInput::new(o);
             input.start(intake, runtime_with(&dir, settle)).await.unwrap();
-            let res = reqwest::Client::new().get(format!("http://127.0.0.1:{}/in/idle", input.port().unwrap())).send().await.unwrap();
+            let res = reqwest::Client::new()
+                .get(format!("http://127.0.0.1:{}/in/idle", input.port().unwrap()))
+                .send()
+                .await
+                .unwrap();
             assert_eq!(res.status().as_u16(), 200);
             assert_eq!(res.json::<Value>().await.unwrap(), json!({"packet_id": "p_1", "state": "delivered"}));
             input.stop().await;
@@ -864,7 +955,8 @@ mod tests {
             let mut buf = vec![0u8; 4096];
             let n = s.read(&mut buf).await.unwrap();
             assert!(String::from_utf8_lossy(&buf[..n]).starts_with("HTTP/1.1 202"));
-            let closed = tokio::time::timeout(Duration::from_secs(3), s.read(&mut buf)).await.expect("closed within 3 s");
+            let closed =
+                tokio::time::timeout(Duration::from_secs(3), s.read(&mut buf)).await.expect("closed within 3 s");
             assert_eq!(closed.unwrap_or(0), 0);
             input.stop().await;
         });
@@ -903,7 +995,10 @@ mod tests {
             o.port = held.local_addr().unwrap().port();
             let (intake, _) = recording_intake(accepted);
             let e = HttpInput::new(o).start(intake, runtime(&dir)).await.unwrap_err();
-            assert!(e.starts_with("http input can't listen on 127.0.0.1:") && e.contains("pass another --listen"), "{e}");
+            assert!(
+                e.starts_with("http input can't listen on 127.0.0.1:") && e.contains("pass another --listen"),
+                "{e}"
+            );
         });
     }
 }

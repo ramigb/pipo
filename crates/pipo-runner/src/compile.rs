@@ -58,10 +58,7 @@ struct Reply {
 
 impl Compiled {
     pub fn errors(&self) -> Vec<&Value> {
-        self.diagnostics
-            .iter()
-            .filter(|d| d.get("severity").and_then(Value::as_str) == Some("error"))
-            .collect()
+        self.diagnostics.iter().filter(|d| d.get("severity").and_then(Value::as_str) == Some("error")).collect()
     }
 
     pub fn from_json(text: &str) -> Result<Compiled, String> {
@@ -106,12 +103,7 @@ const ATTEMPT_MS: u64 = 8000;
 const ATTEMPTS: u32 = 3;
 
 /// `compile` with an explicit compiler argv. A compiler that hangs is killed and run again, up to three times.
-pub async fn compile_with(
-    argv: &[String],
-    file: &Path,
-    home: &Path,
-    source: Option<&str>,
-) -> Result<Compiled, String> {
+pub async fn compile_with(argv: &[String], file: &Path, home: &Path, source: Option<&str>) -> Result<Compiled, String> {
     let ms = std::env::var("PIPO_COMPILE_TIMEOUT").ok().and_then(|v| v.parse().ok()).unwrap_or(ATTEMPT_MS);
     for attempt in 1..=ATTEMPTS {
         match tokio::time::timeout(std::time::Duration::from_millis(ms), compile_once(argv, file, home, source)).await {
@@ -126,29 +118,18 @@ pub async fn compile_with(
     ))
 }
 
-async fn compile_once(
-    argv: &[String],
-    file: &Path,
-    home: &Path,
-    source: Option<&str>,
-) -> Result<Compiled, String> {
-    let (program, prefix) = argv
-        .split_first()
-        .ok_or("the compiler command is empty; set PIPO_COMPILE")?;
+async fn compile_once(argv: &[String], file: &Path, home: &Path, source: Option<&str>) -> Result<Compiled, String> {
+    let (program, prefix) = argv.split_first().ok_or("the compiler command is empty; set PIPO_COMPILE")?;
     let shown = argv.join(" ");
     let mut cmd = Command::new(program);
     cmd.args(prefix).arg(file).arg("--home").arg(home);
     if source.is_some() {
         cmd.arg("--stdin");
     }
-    cmd.stdin(if source.is_some() {
-        Stdio::piped()
-    } else {
-        Stdio::null()
-    })
-    .stdout(Stdio::piped())
-    .stderr(Stdio::piped())
-    .kill_on_drop(true);
+    cmd.stdin(if source.is_some() { Stdio::piped() } else { Stdio::null() })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
     let mut child = cmd.spawn().map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             format!(
@@ -170,10 +151,7 @@ async fn compile_once(
         }
         _ => None,
     };
-    let out = child
-        .wait_with_output()
-        .await
-        .map_err(|e| format!("pipo compile (`{shown}`) failed: {e}"))?;
+    let out = child.wait_with_output().await.map_err(|e| format!("pipo compile (`{shown}`) failed: {e}"))?;
     if let Some(w) = writer {
         // A compiler that exits without reading stdin breaks the pipe; its own exit status says more.
         let _ = w.await;
@@ -187,34 +165,18 @@ async fn compile_once(
         } else {
             format!(
                 ": {}",
-                t.lines()
-                    .rev()
-                    .take(5)
-                    .collect::<Vec<_>>()
-                    .into_iter()
-                    .rev()
-                    .collect::<Vec<_>>()
-                    .join(" | ")
+                t.lines().rev().take(5).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" | ")
             )
         }
     };
     match out.status.code() {
-        Some(0) | Some(1) => {
-            Compiled::from_json(stdout.trim()).map_err(|e| format!("{e} (`{shown}`{})", tail()))
-        }
+        Some(0) | Some(1) => Compiled::from_json(stdout.trim()).map_err(|e| format!("{e} (`{shown}`{})", tail())),
         Some(64) => Err(format!(
             "pipo compile (`{shown}`) refused its arguments{}; is it a Pipo version with `pipo compile`?",
             tail()
         )),
-        Some(code) => Err(format!(
-            "pipo compile (`{shown}`) failed with exit code {code}{}",
-            tail()
-        )),
-        None => Err(format!(
-            "pipo compile (`{shown}`) crashed ({}){}",
-            out.status,
-            tail()
-        )),
+        Some(code) => Err(format!("pipo compile (`{shown}`) failed with exit code {code}{}", tail())),
+        None => Err(format!("pipo compile (`{shown}`) crashed ({}){}", out.status, tail())),
     }
 }
 
@@ -242,72 +204,30 @@ mod tests {
         assert_eq!(c.schemas["./s.json"], json!({"type": "object"}));
         assert_eq!(c.agent_manifests["claude_api"]["runs"], "api");
         assert_eq!(c.raw, text);
-        assert!(
-            Compiled::from_json("not json")
-                .unwrap_err()
-                .contains("not the JSON")
-        );
+        assert!(Compiled::from_json("not json").unwrap_err().contains("not the JSON"));
     }
 
     #[tokio::test]
     async fn a_missing_compiler_says_what_to_do() {
         let argv = vec!["pipo-compiler-that-does-not-exist".to_string()];
-        let e = compile_with(&argv, Path::new("x.pipo"), Path::new("/tmp"), None)
-            .await
-            .unwrap_err();
-        assert!(
-            e.contains("was not found") && e.contains("PIPO_COMPILE") && e.contains("PATH"),
-            "{e}"
-        );
+        let e = compile_with(&argv, Path::new("x.pipo"), Path::new("/tmp"), None).await.unwrap_err();
+        assert!(e.contains("was not found") && e.contains("PIPO_COMPILE") && e.contains("PATH"), "{e}");
     }
 
     #[tokio::test]
     async fn non_json_and_crashes_are_errors() {
-        let sh = |script: &str| {
-            vec![
-                "sh".to_string(),
-                "-c".to_string(),
-                script.to_string(),
-                "sh".to_string(),
-            ]
-        };
-        let e = compile_with(
-            &sh("echo hello"),
-            Path::new("x.pipo"),
-            Path::new("/tmp"),
-            None,
-        )
-        .await
-        .unwrap_err();
+        let sh = |script: &str| vec!["sh".to_string(), "-c".to_string(), script.to_string(), "sh".to_string()];
+        let e = compile_with(&sh("echo hello"), Path::new("x.pipo"), Path::new("/tmp"), None).await.unwrap_err();
         assert!(e.contains("not the JSON"), "{e}");
-        let e = compile_with(
-            &sh("echo boom >&2; exit 3"),
-            Path::new("x.pipo"),
-            Path::new("/tmp"),
-            None,
-        )
-        .await
-        .unwrap_err();
+        let e =
+            compile_with(&sh("echo boom >&2; exit 3"), Path::new("x.pipo"), Path::new("/tmp"), None).await.unwrap_err();
         assert!(e.contains("exit code 3") && e.contains("boom"), "{e}");
-        let e = compile_with(
-            &sh("kill -9 $$"),
-            Path::new("x.pipo"),
-            Path::new("/tmp"),
-            None,
-        )
-        .await
-        .unwrap_err();
+        let e = compile_with(&sh("kill -9 $$"), Path::new("x.pipo"), Path::new("/tmp"), None).await.unwrap_err();
         assert!(e.contains("crashed"), "{e}");
         // Arguments and stdin reach the compiler.
-        let echo = sh(
-            r#"src=$(cat); printf '{"diagnostics":[],"pipeline":{"args":"%s","src":"%s"},"fn":null}' "$*" "$src""#,
-        );
-        let c = compile_with(&echo, Path::new("x.pipo"), Path::new("/h"), Some("SRC"))
-            .await
-            .unwrap();
-        assert_eq!(
-            c.pipeline.unwrap(),
-            json!({"args": "x.pipo --home /h --stdin", "src": "SRC"})
-        );
+        let echo =
+            sh(r#"src=$(cat); printf '{"diagnostics":[],"pipeline":{"args":"%s","src":"%s"},"fn":null}' "$*" "$src""#);
+        let c = compile_with(&echo, Path::new("x.pipo"), Path::new("/h"), Some("SRC")).await.unwrap();
+        assert_eq!(c.pipeline.unwrap(), json!({"args": "x.pipo --home /h --stdin", "src": "SRC"}));
     }
 }

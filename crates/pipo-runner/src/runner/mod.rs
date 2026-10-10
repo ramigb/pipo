@@ -17,8 +17,8 @@ use crate::control::ControlError;
 use crate::control::protocol::{socket_path, socket_path_problem};
 use crate::control::server::ControlServer;
 use crate::duration::{format_duration, parse_duration};
-use crate::jsfn::JsFns;
 use crate::journal::{ESCALATED, Journal, PacketError, PacketRow, TERMINAL};
+use crate::jsfn::JsFns;
 use crate::lifecycle::{journaled_pause, lifetime_anchor, ttl_override_problem};
 use crate::liveness::{entry_alive_json, own_proc_start};
 use crate::pipeline::Pipeline;
@@ -89,9 +89,9 @@ pub struct RunnerOptions {
     /// `lifetime.ttl` for this start (`pipo start --ttl`, D57).
     pub ttl: Option<String>,
     /// Where log lines go; stdout when None.
-    pub log: Option<Rc<dyn Fn(&str)>>,
+    pub log: Option<connectors::Print>,
     /// Where a stdout output prints; stdout when None.
-    pub print: Option<Rc<dyn Fn(&str)>>,
+    pub print: Option<connectors::Print>,
 }
 
 /// Why a start was refused: the message, and the diagnostics or gaps behind it.
@@ -261,7 +261,8 @@ impl Runner {
             from_file
         };
         let compiled = Rc::new(compiled);
-        let pipeline = Pipeline::from_value(compiled.pipeline.clone().unwrap_or(Value::Null)).map_err(StartError::new)?;
+        let pipeline =
+            Pipeline::from_value(compiled.pipeline.clone().unwrap_or(Value::Null)).map_err(StartError::new)?;
 
         // Agent settings come from the home's config.yaml through `pipo compile` (§3.11, D36).
         let has_agents = pipeline.nodes.iter().any(|(_, n)| n.agent.is_some());
@@ -307,7 +308,9 @@ impl Runner {
             if n.tap.as_deref() != Some("exec") && n.transform.as_deref() != Some("exec") {
                 continue;
             }
-            let Some(command) = n.with.as_ref().and_then(|w| w.get("command")).and_then(|c| c.as_str()) else { continue };
+            let Some(command) = n.with.as_ref().and_then(|w| w.get("command")).and_then(|c| c.as_str()) else {
+                continue;
+            };
             if command.contains("${") || connectors::find_command(command, &dir).is_some() {
                 continue;
             }
@@ -345,7 +348,8 @@ impl Runner {
             hidden.extend(b.tokens());
         }
 
-        let journal = Journal::open(&home.join("pipelines").join(&pipeline.name).join("journal.db")).map_err(StartError::new)?;
+        let journal =
+            Journal::open(home.join("pipelines").join(&pipeline.name).join("journal.db")).map_err(StartError::new)?;
         let journal = Rc::new(RefCell::new(journal));
         let secrets = Secrets::resolve(pipeline.secrets.as_ref(), hidden).await.map_err(StartError::new)?;
         let mut env = Map::new();
@@ -473,9 +477,9 @@ impl Runner {
         }
         *runner.input.borrow_mut() = Some(input);
         // Binding the socket is also the lock: a live runner still answering on it makes this one refuse.
-        let server = ControlServer::listen(&socket, runner.clone()).await.map_err(|e| {
-            StartError::new(format!("{}; {}", e.message, e.hint.unwrap_or_default()))
-        })?;
+        let server = ControlServer::listen(&socket, runner.clone())
+            .await
+            .map_err(|e| StartError::new(format!("{}; {}", e.message, e.hint.unwrap_or_default())))?;
         *runner.control.borrow_mut() = Some(server);
         // Recorded only now that this runner holds the socket (the start lock), in one transaction (D38).
         let files = crate::versions::file_hashes(&compiled.files);
@@ -493,7 +497,10 @@ impl Runner {
             Ok(v) => v,
             Err(e) => {
                 runner.close_control().await;
-                return Err(StartError::new(format!("{e}; is another runner of {} starting? Try again", pipeline.name)));
+                return Err(StartError::new(format!(
+                    "{e}; is another runner of {} starting? Try again",
+                    pipeline.name
+                )));
             }
         };
         {
@@ -550,7 +557,8 @@ impl Runner {
 
         let input = self.input.borrow().clone().ok_or_else(|| StartError::new("runner has no input"))?;
         self.s.borrow_mut().started_at = now_ms();
-        let runtime = connectors::InputRuntime { journal: self.journal.clone(), await_terminal: self.await_terminal_fn() };
+        let runtime =
+            connectors::InputRuntime { journal: self.journal.clone(), await_terminal: self.await_terminal_fn() };
         if let Err(e) = input.start(self.intake_fn(), runtime).await {
             // No registry entry was written yet; don't leave a socket behind that nothing will answer on.
             self.close_control().await;
@@ -779,8 +787,11 @@ impl Runner {
             {
                 let mut s = self.s.borrow_mut();
                 s.budget_resume_at = at.or_else(|| self.budget.as_ref().map(|b| b.window().end));
-                s.budget_cap =
-                    if detail.get("cap").and_then(|c| c.as_str()) == Some("engine") { BudgetCap::Engine } else { BudgetCap::Pipeline };
+                s.budget_cap = if detail.get("cap").and_then(|c| c.as_str()) == Some("engine") {
+                    BudgetCap::Engine
+                } else {
+                    BudgetCap::Pipeline
+                };
             }
             let message =
                 detail.get("message").and_then(|m| m.as_str()).unwrap_or("agent_budget.per_day reached").to_string();
@@ -848,8 +859,16 @@ impl Runner {
                     ),
                 );
             } else {
-                self.event("pipeline.resumed", Some(json!({ "budget_override": iso(w.start), "until": until })), None, None);
-                self.log("warn", &format!("resumed over agent_budget.per_day: agent calls continue past the cap until {until}"));
+                self.event(
+                    "pipeline.resumed",
+                    Some(json!({ "budget_override": iso(w.start), "until": until })),
+                    None,
+                    None,
+                );
+                self.log(
+                    "warn",
+                    &format!("resumed over agent_budget.per_day: agent calls continue past the cap until {until}"),
+                );
             }
         }
         self.write_registry();
@@ -870,7 +889,10 @@ impl Runner {
                 tokio::time::sleep(Duration::from_millis(wait)).await;
                 let ok = {
                     let s = me.s.borrow();
-                    !s.stopping && !s.closed && s.state == RunnerState::Paused && s.pause_reason.as_deref() == Some("budget")
+                    !s.stopping
+                        && !s.closed
+                        && s.state == RunnerState::Paused
+                        && s.pause_reason.as_deref() == Some("budget")
                 };
                 if !ok {
                     return;
@@ -934,10 +956,9 @@ impl Runner {
         if let Some(i) = input {
             i.stop().await;
         }
-        let timeout = parse_duration(
-            self.pipeline().lifetime.as_ref().and_then(|l| l.drain_timeout.as_deref()).unwrap_or("2m"),
-        )
-        .unwrap_or(120_000);
+        let timeout =
+            parse_duration(self.pipeline().lifetime.as_ref().and_then(|l| l.drain_timeout.as_deref()).unwrap_or("2m"))
+                .unwrap_or(120_000);
         let deadline = now_ms() + timeout as i64;
         // Packets parked for an `external` ack are in flight too: drain waits for their ack or deadline.
         self.spawn_flush_batches();
@@ -1009,7 +1030,7 @@ impl Runner {
             a.close();
         }
         self.close_control().await;
-                let _ = std::fs::remove_file(&self.registry_path);
+        let _ = std::fs::remove_file(&self.registry_path);
         let _ = self.finished.send(Some(if failed { 2 } else { code }));
     }
 
@@ -1043,7 +1064,8 @@ impl Runner {
 
     /// The plan of `version`: a packet accepted by an older version finishes on that version's definition and code.
     pub async fn plan(&self, version: i64) -> Result<Rc<Plan>, String> {
-        let cell = self.plans.borrow_mut().entry(version).or_insert_with(|| Rc::new(tokio::sync::OnceCell::new())).clone();
+        let cell =
+            self.plans.borrow_mut().entry(version).or_insert_with(|| Rc::new(tokio::sync::OnceCell::new())).clone();
         cell.get_or_try_init(|| async {
             let compiled = self.compiled_version(version).await?;
             plan::build(version, compiled, &self.fns).await.map(Rc::new)

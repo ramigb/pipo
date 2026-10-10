@@ -10,8 +10,8 @@
 // `output.with` can't be rendered.
 
 use crate::expr::{EvalOptions, evaluate_with, render_with, truthy};
-use crate::jsfn::JsFns;
 use crate::journal::OUTPUT_STEP;
+use crate::jsfn::JsFns;
 use crate::output_key::resolve_key;
 use crate::pipeline::{Node, NodeKind, fn_ref};
 use crate::plan::Plan;
@@ -34,7 +34,12 @@ const MAX_MESSAGE: usize = 500;
 pub fn parse_verify(text: &str) -> Option<u32> {
     let rest = text.trim().strip_prefix("last")?;
     let n = rest.trim_start();
-    if n.len() == rest.len() || n.is_empty() || n.len() > 4 || n.starts_with('0') || !n.chars().all(|c| c.is_ascii_digit()) {
+    if n.len() == rest.len()
+        || n.is_empty()
+        || n.len() > 4
+        || n.starts_with('0')
+        || !n.chars().all(|c| c.is_ascii_digit())
+    {
         return None;
     }
     n.parse::<u32>().ok().filter(|n| (1..=MAX_VERIFY).contains(n))
@@ -91,7 +96,7 @@ pub enum ReplayEnd {
     Written,
     Filtered,
     Branched(Vec<String>),
-    Failed(ReplayFailure),
+    Failed(Box<ReplayFailure>),
     Aborted(AbortReason),
 }
 
@@ -230,13 +235,21 @@ where
     }
 }
 
-fn fan_out(parent: &ReplayUnit, to: &[String], data: &Value, hops: u32, h: &mut dyn ReplayHooks, queue: &mut VecDeque<ReplayUnit>) {
+fn fan_out(
+    parent: &ReplayUnit,
+    to: &[String],
+    data: &Value,
+    hops: u32,
+    h: &mut dyn ReplayHooks,
+    queue: &mut VecDeque<ReplayUnit>,
+) {
     let base = parent.root.clone().unwrap_or_else(|| parent.id.clone());
     let copies: Vec<ReplayUnit> = to
         .iter()
         .map(|cursor| {
             let segment = if cursor == OUTPUT_STEP { "output" } else { cursor.as_str() };
-            let branch = if parent.branch.is_empty() { segment.to_string() } else { format!("{}/{segment}", parent.branch) };
+            let branch =
+                if parent.branch.is_empty() { segment.to_string() } else { format!("{}/{segment}", parent.branch) };
             ReplayUnit {
                 id: format!("{base}:{branch}"),
                 root: Some(base.clone()),
@@ -273,11 +286,16 @@ pub async fn replay_packet(e: &ReplayEnv<'_>, p: &PacketInput, h: &mut dyn Repla
     };
     // Input: the schema and `validate` rules see the original payload.
     let in_meta = e.meta(p, &root, "input", 1);
-    if let Some(schema) = &plan.input_schema {
-        if let Some(err) = schema.check(&p.input) {
-            h.rejected(Rejected { code: "input.schema".into(), rule: "schema".into(), message: format!("schema: {err}"), meta: in_meta });
-            return Ok(());
-        }
+    if let Some(schema) = &plan.input_schema
+        && let Some(err) = schema.check(&p.input)
+    {
+        h.rejected(Rejected {
+            code: "input.schema".into(),
+            rule: "schema".into(),
+            message: format!("schema: {err}"),
+            meta: in_meta,
+        });
+        return Ok(());
     }
     for rule in plan.pipeline.input.validate.clone().unwrap_or_default() {
         let ctx = json!({ "data": p.input, "meta": in_meta, "env": e.env });
@@ -333,11 +351,16 @@ pub async fn replay_packet(e: &ReplayEnv<'_>, p: &PacketInput, h: &mut dyn Repla
 }
 
 fn fail(u: &ReplayUnit, f: ReplayFailure, h: &mut dyn ReplayHooks) -> Next {
-    h.ended(u, ReplayEnd::Failed(f));
+    h.ended(u, ReplayEnd::Failed(Box::new(f)));
     Next::Ended
 }
 
-async fn output(e: &ReplayEnv<'_>, p: &PacketInput, u: &mut ReplayUnit, h: &mut dyn ReplayHooks) -> Result<(), AbortReason> {
+async fn output(
+    e: &ReplayEnv<'_>,
+    p: &PacketInput,
+    u: &mut ReplayUnit,
+    h: &mut dyn ReplayHooks,
+) -> Result<(), AbortReason> {
     u.path.push("output".into());
     let out = &e.plan.pipeline.output;
     let m = e.meta(p, u, "output", 1);
@@ -407,7 +430,12 @@ enum Out {
 }
 
 /// Run the node at `u.cursor`: move `u` on, or say it ended or fanned out. The inner Err is an internal error.
-async fn step(e: &ReplayEnv<'_>, p: &PacketInput, u: &mut ReplayUnit, h: &mut dyn ReplayHooks) -> Result<Result<Next, String>, AbortReason> {
+async fn step(
+    e: &ReplayEnv<'_>,
+    p: &PacketInput,
+    u: &mut ReplayUnit,
+    h: &mut dyn ReplayHooks,
+) -> Result<Result<Next, String>, AbortReason> {
     let id = u.cursor.clone();
     let pipeline = &e.plan.pipeline;
     let Some(node) = pipeline.nodes.get(&id).cloned() else {
@@ -446,11 +474,14 @@ async fn step(e: &ReplayEnv<'_>, p: &PacketInput, u: &mut ReplayUnit, h: &mut dy
                 Some(NodeKind::Transform) => {
                     let t = node.transform.clone().unwrap_or_default();
                     let data = match fn_ref(&t) {
-                        Some(name) if e.plan.fns.contains(&t) => e.fns.call(e.plan.version as u32, name, &unit.data, &s.meta).await?,
+                        Some(name) if e.plan.fns.contains(&t) => {
+                            e.fns.call(e.plan.version as u32, name, &unit.data, &s.meta).await?
+                        }
                         _ if t == "map" => e.render(node.with.as_ref(), &s.ctx(&unit.data))?.get("data").cloned(),
                         _ => Some(hooks.borrow_mut().call(unit, id, node, "transform", &s)?),
                     };
-                    data.map(Out::Data).ok_or_else(|| HookError::Fail(format!("{t} returned nothing; return the new data")))
+                    data.map(Out::Data)
+                        .ok_or_else(|| HookError::Fail(format!("{t} returned nothing; return the new data")))
                 }
                 Some(NodeKind::Agent) => Ok(Out::Data(hooks.borrow_mut().call(unit, id, node, "agent", &s)?)),
                 None => Err(HookError::Fail("node kind 'undefined' is not implemented".into())),
@@ -606,7 +637,11 @@ struct Delivered {
 }
 
 fn clip(s: &str) -> String {
-    if s.chars().count() > MAX_MESSAGE { format!("{}…", s.chars().take(MAX_MESSAGE).collect::<String>()) } else { s.to_string() }
+    if s.chars().count() > MAX_MESSAGE {
+        format!("{}…", s.chars().take(MAX_MESSAGE).collect::<String>())
+    } else {
+        s.to_string()
+    }
 }
 
 /// The newest delivered packets, newest first, up to `n` that still have their input in the trail.
@@ -626,7 +661,9 @@ fn delivered_packets(db: &Connection, n: u32) -> rusqlite::Result<(Vec<Delivered
     while (picked.len() as i64) < n && offset < n * 4 {
         type Row = (String, i64, String, String, i64, bool);
         let rows: Vec<Row> = page
-            .query_map([n, offset], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get::<_, i64>(5)? != 0)))?
+            .query_map([n, offset], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get::<_, i64>(5)? != 0))
+            })?
             .collect::<Result<_, _>>()?;
         let len = rows.len() as i64;
         for (id, version, trigger, source, received_at, cleared) in rows {
@@ -634,7 +671,8 @@ fn delivered_packets(db: &Connection, n: u32) -> rusqlite::Result<(Vec<Delivered
                 break;
             }
             // A payload retention cleared (D39) is gone for good: its copy in the trail is not used either.
-            let patch: Option<String> = if cleared { None } else { accepted.query_row([&id], |r| r.get(0)).optional()? };
+            let patch: Option<String> =
+                if cleared { None } else { accepted.query_row([&id], |r| r.get(0)).optional()? };
             let data = patch.and_then(|t| serde_json::from_str::<Value>(&t).ok()).and_then(|p| p.get("data").cloned());
             match data {
                 Some(input) => picked.push(Delivered { id, version, trigger, source, received_at, input }),
@@ -664,7 +702,9 @@ fn recorded_results(db: &Connection, root: &str) -> rusqlite::Result<Recorded> {
     let mut out: Recorded = HashMap::new();
     for (unit, node, patch) in rows {
         let Some(node) = node else { continue };
-        let Some(data) = serde_json::from_str::<Value>(&patch).ok().and_then(|p| p.get("data").cloned()) else { continue };
+        let Some(data) = serde_json::from_str::<Value>(&patch).ok().and_then(|p| p.get("data").cloned()) else {
+            continue;
+        };
         out.entry((unit, node)).or_default().push(data);
     }
     Ok(out)
@@ -675,10 +715,19 @@ fn recorded_results(db: &Connection, root: &str) -> rusqlite::Result<Recorded> {
 pub struct DryRunPrepareError(pub String);
 
 /// Replay up to N delivered packets through `plan` (the proposed version, numbered base + 1).
-pub async fn dry_run(db: &Connection, plan: &Plan, fns: &JsFns, base_version: i64, verify: &str, env: Value) -> Result<DryRunReport, DryRunPrepareError> {
+pub async fn dry_run(
+    db: &Connection,
+    plan: &Plan,
+    fns: &JsFns,
+    base_version: i64,
+    verify: &str,
+    env: Value,
+) -> Result<DryRunReport, DryRunPrepareError> {
     let started = crate::time::now_ms();
     let requested = parse_verify(verify).ok_or_else(|| {
-        DryRunPrepareError(format!("agent.verify '{verify}' of v{base_version} is not 'last N' with N from 1 to {MAX_VERIFY}"))
+        DryRunPrepareError(format!(
+            "agent.verify '{verify}' of v{base_version} is not 'last N' with N from 1 to {MAX_VERIFY}"
+        ))
     })?;
     // Secret values are never needed: nothing is sent. A placeholder renders like the redacted value would.
     let secrets: Map<String, Value> =
@@ -768,20 +817,24 @@ impl ReplayHooks for DryHooks<'_> {
             return self.stub(u, id, &format!("transform: {}", node.transform.clone().unwrap_or_default()));
         }
         let data = self.stub(u, id, "agent node")?;
-        if let Some(schema) = self.e.plan.agent_schemas.get(id) {
-            if let Some(mismatch) = schema.check(&data) {
-                return Err(HookError::Abort(AbortReason::new(
-                    id,
-                    "agent.schema",
-                    format!("the recorded agent output does not match {}: {mismatch}", schema.path),
-                )));
-            }
+        if let Some(schema) = self.e.plan.agent_schemas.get(id)
+            && let Some(mismatch) = schema.check(&data)
+        {
+            return Err(HookError::Abort(AbortReason::new(
+                id,
+                "agent.schema",
+                format!("the recorded agent output does not match {}: {mismatch}", schema.path),
+            )));
         }
         Ok(data)
     }
     fn write(&mut self, u: &ReplayUnit, s: &Scope) -> Result<(), HookError> {
         self.e.render(self.e.plan.pipeline.output.with.as_ref(), &s.ctx(&u.data)).map(|_| ()).map_err(|err| {
-            HookError::Abort(AbortReason::new("output", "output.render", format!("output.with can't be rendered: {err}")))
+            HookError::Abort(AbortReason::new(
+                "output",
+                "output.render",
+                format!("output.with can't be rendered: {err}"),
+            ))
         })
     }
     fn continued(&mut self, u: &ReplayUnit, f: &ReplayFailure) {
@@ -825,7 +878,13 @@ async fn replay_delivered(db: &Connection, e: &ReplayEnv<'_>, p: Delivered) -> D
         recorded: None,
         used: HashMap::new(),
     };
-    let input = PacketInput { id: p.id.clone(), trigger: p.trigger, source: p.source, received_at: p.received_at, input: p.input };
+    let input = PacketInput {
+        id: p.id.clone(),
+        trigger: p.trigger,
+        source: p.source,
+        received_at: p.received_at,
+        input: p.input,
+    };
     if let Err(err) = replay_packet(e, &input, &mut h).await {
         h.reasons.push(reason(&p.id, "replay", "node.failed", &err));
     }

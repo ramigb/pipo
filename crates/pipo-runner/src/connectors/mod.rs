@@ -15,9 +15,9 @@ pub mod stdout;
 pub mod steps;
 pub mod system;
 pub mod telegram;
-pub mod watch;
 #[cfg(test)]
 pub(crate) mod test_util;
+pub mod watch;
 
 use crate::bots::Bots;
 use crate::journal::Journal;
@@ -210,7 +210,9 @@ pub fn make_input(ctx: &ConnectorContext) -> Result<Box<dyn InputAdapter>, Conne
                     log: Some(ctx.log.clone()),
                 })
             };
-            make().map(|i| Box::new(i) as Box<dyn InputAdapter>).map_err(|e| ConnectorError(format!("telegram input: {e}")))
+            make()
+                .map(|i| Box::new(i) as Box<dyn InputAdapter>)
+                .map_err(|e| ConnectorError(format!("telegram input: {e}")))
         }
         other => Err(ConnectorError(format!("no implementation for input '{other}'"))),
     }
@@ -251,8 +253,12 @@ pub fn find_command(command: &str, dir: &Path) -> Option<PathBuf> {
         return p.exists().then_some(p);
     }
     let runnable = |p: &Path| p.metadata().map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0).unwrap_or(false);
-    std::env::var_os("PATH")
-        .and_then(|paths| std::env::split_paths(&paths).filter(|d| !d.as_os_str().is_empty()).map(|d| d.join(command)).find(|p| runnable(p)))
+    std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths)
+            .filter(|d| !d.as_os_str().is_empty())
+            .map(|d| d.join(command))
+            .find(|p| runnable(p))
+    })
 }
 
 // ── helpers shared by the connectors ───────────────────────────────────────────

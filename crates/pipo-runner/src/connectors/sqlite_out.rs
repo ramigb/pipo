@@ -13,7 +13,8 @@ use std::time::Duration;
 
 fn valid_name(name: &str) -> bool {
     let mut chars = name.chars();
-    chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+    chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 fn q(name: &str) -> String {
@@ -163,7 +164,11 @@ impl SqliteOutput {
             });
         }
         if check == "row_count" || check == "query" {
-            let sql = if check == "row_count" { check_with.get("query") } else { check_with.get("sql").filter(|s| !s.is_null()).or(check_with.get("query")) };
+            let sql = if check == "row_count" {
+                check_with.get("query")
+            } else {
+                check_with.get("sql").filter(|s| !s.is_null()).or(check_with.get("query"))
+            };
             let sql = match sql {
                 Some(Value::String(s)) if !s.trim().is_empty() => s.clone(),
                 _ => {
@@ -171,7 +176,11 @@ impl SqliteOutput {
                     return Err(format!("delivered.with.{key} is empty; give a SELECT statement"));
                 }
             };
-            let params: Vec<Sql> = check_with.get("params").and_then(|p| p.as_array()).map(|a| a.iter().map(sql_value).collect()).unwrap_or_default();
+            let params: Vec<Sql> = check_with
+                .get("params")
+                .and_then(|p| p.as_array())
+                .map(|a| a.iter().map(sql_value).collect())
+                .unwrap_or_default();
             let min = check_with.get("min").and_then(|m| m.as_f64()).unwrap_or(1.0);
             return self.with_reader(&path, |db| {
                 let mut stmt = db.prepare(&sql).map_err(err)?;
@@ -198,12 +207,16 @@ fn write_row(db: &Connection, item: &WriteItem) -> Result<Value, String> {
     let (table, key, values) = row(item)?;
     let cols: Vec<&String> = values.keys().collect();
     if w.get("create").is_some_and(crate::connectors::truthy) {
-        let defs: Vec<String> = cols.iter().map(|c| if **c == key { format!("{} PRIMARY KEY", q(c)) } else { q(c) }).collect();
+        let defs: Vec<String> =
+            cols.iter().map(|c| if **c == key { format!("{} PRIMARY KEY", q(c)) } else { q(c) }).collect();
         db.execute_batch(&format!("CREATE TABLE IF NOT EXISTS {} ({})", q(&table), defs.join(", "))).map_err(err)?;
     }
     let others: Vec<&&String> = cols.iter().filter(|c| ***c != key).collect();
     let on_conflict = if w.get("mode").and_then(|m| m.as_str()) == Some("upsert") && !others.is_empty() {
-        format!("DO UPDATE SET {}", others.iter().map(|c| format!("{} = excluded.{}", q(c), q(c))).collect::<Vec<_>>().join(", "))
+        format!(
+            "DO UPDATE SET {}",
+            others.iter().map(|c| format!("{} = excluded.{}", q(c), q(c))).collect::<Vec<_>>().join(", ")
+        )
     } else {
         "DO NOTHING".into()
     };
@@ -224,7 +237,9 @@ fn write_row(db: &Connection, item: &WriteItem) -> Result<Value, String> {
                 return Err(format!("{msg} (set output.with.create: true to create it)"));
             }
             if msg.contains("ON CONFLICT clause does not match") {
-                return Err(format!("table '{table}' needs a PRIMARY KEY or UNIQUE constraint on '{key}' for idempotent writes"));
+                return Err(format!(
+                    "table '{table}' needs a PRIMARY KEY or UNIQUE constraint on '{key}' for idempotent writes"
+                ));
             }
             Err(msg)
         }
@@ -263,7 +278,11 @@ mod tests {
 
     fn setup(b: &TempDir) -> (SqliteOutput, WriteItem) {
         let out = SqliteOutput::new(b.path());
-        let it = item("p1", json!({"name": "Ada"}), json!({"path": "o.db", "table": "people", "create": true, "key": "id", "columns": {"id": "p1", "name": "Ada"}}));
+        let it = item(
+            "p1",
+            json!({"name": "Ada"}),
+            json!({"path": "o.db", "table": "people", "create": true, "key": "id", "columns": {"id": "p1", "name": "Ada"}}),
+        );
         out.write_now(std::slice::from_ref(&it)).unwrap();
         (out, it)
     }
@@ -272,13 +291,20 @@ mod tests {
         let db = Connection::open(path).unwrap();
         let mut stmt = db.prepare(sql).unwrap();
         let n = stmt.column_count();
-        stmt.query_map([], |r| Ok((0..n).map(|i| match r.get::<_, Sql>(i).unwrap() {
-            Sql::Null => "null".to_string(),
-            Sql::Integer(i) => i.to_string(),
-            Sql::Real(f) => f.to_string(),
-            Sql::Text(s) => s,
-            Sql::Blob(_) => "blob".into(),
-        }).collect())).unwrap().map(|r| r.unwrap()).collect()
+        stmt.query_map([], |r| {
+            Ok((0..n)
+                .map(|i| match r.get::<_, Sql>(i).unwrap() {
+                    Sql::Null => "null".to_string(),
+                    Sql::Integer(i) => i.to_string(),
+                    Sql::Real(f) => f.to_string(),
+                    Sql::Text(s) => s,
+                    Sql::Blob(_) => "blob".into(),
+                })
+                .collect())
+        })
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect()
     }
 
     #[test]
@@ -286,10 +312,18 @@ mod tests {
         let b = TempDir::new();
         let out = SqliteOutput::new(b.path());
         let w = json!({"path": "sub/o.db", "table": "t", "create": true});
-        let r = out.write_now(&[item("p1", json!({"a": 1}), w.clone()), item("p2", json!({"a": 2.5, "b": {"x": 1}}), w.clone())]);
+        let r = out.write_now(&[
+            item("p1", json!({"a": 1}), w.clone()),
+            item("p2", json!({"a": 2.5, "b": {"x": 1}}), w.clone()),
+        ]);
         assert_eq!(r.unwrap_err(), "table t has no column named b");
         let w = json!({"path": "sub/o.db", "table": "u", "create": true});
-        let r = out.write_now(&[item("p1", json!({"a": 1, "b": true}), w.clone()), item("p1", json!({"a": 9, "b": false}), w.clone())]).unwrap();
+        let r = out
+            .write_now(&[
+                item("p1", json!({"a": 1, "b": true}), w.clone()),
+                item("p1", json!({"a": 9, "b": false}), w.clone()),
+            ])
+            .unwrap();
         assert_eq!(r, vec![json!({"rowid": 1, "changes": 1}), json!({"rowid": 1, "changes": 0})]);
         assert_eq!(rows(b.join("sub/o.db"), "SELECT a, b, packet_id FROM u"), vec![vec!["1", "1", "p1"]]);
         // A fresh adapter (after a crash) still writes nothing twice; upsert updates the other columns.
@@ -311,7 +345,8 @@ mod tests {
         assert_eq!(e, "table 'plain' needs a PRIMARY KEY or UNIQUE constraint on 'packet_id' for idempotent writes");
         let e = out.write_now(&[item("p", json!([1]), json!({"path": "o.db", "table": "plain"}))]).unwrap_err();
         assert!(e.contains("data must be an object"));
-        let e = out.write_now(&[item("p", json!({"bad name": 1}), json!({"path": "o.db", "table": "plain"}))]).unwrap_err();
+        let e =
+            out.write_now(&[item("p", json!({"bad name": 1}), json!({"path": "o.db", "table": "plain"}))]).unwrap_err();
         assert_eq!(e, "'bad name' is not a valid column name");
     }
 
@@ -321,7 +356,11 @@ mod tests {
         let (out, it) = setup(&b);
         assert!(out.verify_now("record_exists", json!({"where": {"id": "p1"}}).as_object().unwrap(), &it).unwrap());
         assert!(!out.verify_now("record_exists", json!({"where": {"id": "nope"}}).as_object().unwrap(), &it).unwrap());
-        assert!(out.verify_now("record_exists", json!({"where": {}}).as_object().unwrap(), &it).unwrap_err().contains("where"));
+        assert!(
+            out.verify_now("record_exists", json!({"where": {}}).as_object().unwrap(), &it)
+                .unwrap_err()
+                .contains("where")
+        );
     }
 
     #[test]
@@ -342,8 +381,14 @@ mod tests {
         let b = TempDir::new();
         let (out, it) = setup(&b);
         let q = |sql: Value| out.verify_now("query", json!({"sql": sql, "params": ["zz"]}).as_object().unwrap(), &it);
-        assert!(out.verify_now("query", json!({"sql": "SELECT count(*) = 1 FROM people"}).as_object().unwrap(), &it).unwrap());
-        assert!(!out.verify_now("query", json!({"sql": "SELECT count(*) > 5 FROM people"}).as_object().unwrap(), &it).unwrap());
+        assert!(
+            out.verify_now("query", json!({"sql": "SELECT count(*) = 1 FROM people"}).as_object().unwrap(), &it)
+                .unwrap()
+        );
+        assert!(
+            !out.verify_now("query", json!({"sql": "SELECT count(*) > 5 FROM people"}).as_object().unwrap(), &it)
+                .unwrap()
+        );
         assert!(!q(json!("SELECT 1 FROM people WHERE id = ?")).unwrap());
         // Read-only, and bad SQL errs.
         assert!(out.verify_now("query", json!({"sql": "DELETE FROM people"}).as_object().unwrap(), &it).is_err());

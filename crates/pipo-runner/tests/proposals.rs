@@ -90,14 +90,16 @@ fn compiler() -> bool {
         return false;
     }
     ONCE.call_once(|| {
-        let main = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../packages/cli/src/main.ts").canonicalize().unwrap();
+        let main =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../packages/cli/src/main.ts").canonicalize().unwrap();
         // SAFETY: inside call_once, which every test that compiles calls before anything reads the environment.
         unsafe { std::env::set_var("PIPO_COMPILE", json!(["bun", main, "compile"]).to_string()) };
     });
     true
 }
 
-const AGENT: &str = "agent:\n  control: true\n  edit:\n    - nodes.*.with.message\n    - nodes.normalize\n    - errors\n";
+const AGENT: &str =
+    "agent:\n  control: true\n  edit:\n    - nodes.*.with.message\n    - nodes.normalize\n    - errors\n";
 
 #[derive(Default, Clone)]
 struct Opts {
@@ -181,7 +183,10 @@ impl Store {
     }
     fn add_version(&self, source: &str) -> i64 {
         let hash = sha256(source.as_bytes());
-        self.journal.borrow_mut().add_version(&hash, source, "human", Some("edit"), None, &VersionAudit::default(), None).unwrap()
+        self.journal
+            .borrow_mut()
+            .add_version(&hash, source, "human", Some("edit"), None, &VersionAudit::default(), None)
+            .unwrap()
     }
     fn events(&self) -> Vec<(String, Value)> {
         let j = self.journal.borrow();
@@ -245,9 +250,27 @@ async fn an_agent_change_inside_agent_edit_is_validated_stored_and_evented() {
     assert_eq!(
         keys,
         [
-            "id", "pipeline", "base_version", "author", "author_kind", "reason", "state", "changed_paths", "added",
-            "removed", "verify", "applied_version", "decided_by", "created_at", "decided_at", "source", "diff",
-            "problems", "diagnostics", "decision", "verification"
+            "id",
+            "pipeline",
+            "base_version",
+            "author",
+            "author_kind",
+            "reason",
+            "state",
+            "changed_paths",
+            "added",
+            "removed",
+            "verify",
+            "applied_version",
+            "decided_by",
+            "created_at",
+            "decided_at",
+            "source",
+            "diff",
+            "problems",
+            "diagnostics",
+            "decision",
+            "verification"
         ]
     );
     assert_eq!(
@@ -255,7 +278,10 @@ async fn an_agent_change_inside_agent_edit_is_validated_stored_and_evented() {
         ("demo", 1, "agent-ops", "agent", "friendlier log line")
     );
     assert_eq!(p.changed_paths, json!(["nodes.note.with.message"]));
-    assert_eq!((p.problems.clone(), p.verify.clone(), p.applied_version, p.decided_by.clone(), p.decided_at), (json!([]), None, None, None, None));
+    assert_eq!(
+        (p.problems.clone(), p.verify.clone(), p.applied_version, p.decided_by.clone(), p.decided_at),
+        (json!([]), None, None, None, None)
+    );
     assert_eq!((p.added, p.removed), (1, 1));
     assert!(p.created_at >= before);
     assert_eq!(p.source, src(msg("hello")));
@@ -321,10 +347,17 @@ async fn edit_patterns_cover_subtrees_and_star_is_one_segment() {
     assert_eq!(p.changed_paths, json!(["nodes.normalize.with.data.tag"]));
     let p = t.store.propose(&agent(&src(Opts { level: Some("warn"), ..Default::default() }))).await.unwrap();
     assert_eq!(p.state, "rejected");
-    assert_eq!((p.problems[0]["code"].as_str(), p.problems[0]["path"].as_str()), (Some("not_editable"), Some("nodes.note.with.level")));
+    assert_eq!(
+        (p.problems[0]["code"].as_str(), p.problems[0]["path"].as_str()),
+        (Some("not_editable"), Some("nodes.note.with.level"))
+    );
     assert!(p.problems[0]["hint"].as_str().unwrap().contains("agent.edit"));
     // Every problem at once.
-    let o = Opts { message: Some("hello"), extra: Some("description: changed by an agent\nbuffer: { max: 10 }\n"), ..Default::default() };
+    let o = Opts {
+        message: Some("hello"),
+        extra: Some("description: changed by an agent\nbuffer: { max: 10 }\n"),
+        ..Default::default()
+    };
     let p = t.store.propose(&agent(&src(o))).await.unwrap();
     assert_eq!(p.changed_paths, json!(["buffer", "description", "nodes.note.with.message"]));
     let found: Vec<(String, String)> = p
@@ -334,9 +367,15 @@ async fn edit_patterns_cover_subtrees_and_star_is_one_segment() {
         .iter()
         .map(|x| (x["code"].as_str().unwrap().into(), x["path"].as_str().unwrap().into()))
         .collect();
-    assert_eq!(found, [("not_editable".to_string(), "buffer".to_string()), ("not_editable".into(), "description".into())]);
+    assert_eq!(
+        found,
+        [("not_editable".to_string(), "buffer".to_string()), ("not_editable".into(), "description".into())]
+    );
     let last = t.events().pop().unwrap().1;
-    assert_eq!(last["problems"], json!([{ "code": "not_editable", "path": "buffer" }, { "code": "not_editable", "path": "description" }]));
+    assert_eq!(
+        last["problems"],
+        json!([{ "code": "not_editable", "path": "buffer" }, { "code": "not_editable", "path": "description" }])
+    );
 }
 
 #[tokio::test]
@@ -344,7 +383,8 @@ async fn agents_may_never_change_the_forbidden_keys() {
     if !compiler() {
         return;
     }
-    let policy = "agent:\n  control: true\n  edit: [\"*\", output, delivered, secrets, agent, agent_budget]\n".to_string();
+    let policy =
+        "agent:\n  control: true\n  edit: [\"*\", output, delivered, secrets, agent, agent_budget]\n".to_string();
     let changes: Vec<(&str, Opts)> = vec![
         ("output", Opts { format: Some("json"), ..with_agent(&policy) }),
         ("delivered", Opts { extra: Some("delivered: { check: none }\n"), ..with_agent(&policy) }),
@@ -358,7 +398,10 @@ async fn agents_may_never_change_the_forbidden_keys() {
         let p = t.store.propose(&agent(&src(change))).await.unwrap();
         assert_eq!(p.state, "rejected", "{key}");
         let paths = strings(&p.changed_paths);
-        assert!(!paths.is_empty() && paths.iter().all(|c| c == key || c.starts_with(&format!("{key}."))), "{key}: {paths:?}");
+        assert!(
+            !paths.is_empty() && paths.iter().all(|c| c == key || c.starts_with(&format!("{key}."))),
+            "{key}: {paths:?}"
+        );
         assert!(codes(&p).contains(&"forbidden_path".into()), "{key}: {:?}", p.problems);
         assert!(!codes(&p).contains(&"not_editable".into()));
         let forbidden = p.problems.as_array().unwrap().iter().find(|x| x["code"] == "forbidden_path").unwrap();
@@ -388,10 +431,18 @@ async fn a_human_is_held_only_to_check_and_what_apply_allows() {
     }
     let none = || Opts { agent: Some(None), ..Default::default() };
     let t = setup(&src(none())).await;
-    let ok = t.store.propose(&input(&src(Opts { format: Some("json"), level: Some("warn"), ..none() }), json!("v1"), "human")).await.unwrap();
+    let ok = t
+        .store
+        .propose(&input(&src(Opts { format: Some("json"), level: Some("warn"), ..none() }), json!("v1"), "human"))
+        .await
+        .unwrap();
     assert_eq!(ok.state, "validated");
     assert_eq!(ok.changed_paths, json!(["nodes.note.with.level", "output.with.format"]));
-    let bound = t.store.propose(&input(&src(Opts { extra: Some("concurrency: 2\n"), ..none() }), json!(1), "human")).await.unwrap();
+    let bound = t
+        .store
+        .propose(&input(&src(Opts { extra: Some("concurrency: 2\n"), ..none() }), json!(1), "human"))
+        .await
+        .unwrap();
     assert_eq!(bound.state, "rejected");
     assert_eq!(codes(&bound), ["bound_change"]);
     assert!(bound.problems[0]["message"].as_str().unwrap().contains("concurrency"));
@@ -423,7 +474,15 @@ async fn stale_bases_check_failures_no_change_and_comments() {
     assert!(p.problems[0]["hint"].as_str().unwrap().contains("v2"));
     assert_eq!(p.diff.split('\n').next(), Some("--- demo v1"));
     // Against v2, stored without a compiled form, the base is compiled from its source.
-    let p = t.store.propose(&input(&src(Opts { tag: Some("two"), message: Some("hello"), ..Default::default() }), json!(2), "agent")).await.unwrap();
+    let p = t
+        .store
+        .propose(&input(
+            &src(Opts { tag: Some("two"), message: Some("hello"), ..Default::default() }),
+            json!(2),
+            "agent",
+        ))
+        .await
+        .unwrap();
     assert_eq!((p.state.as_str(), p.changed_paths.clone()), ("validated", json!(["nodes.note.with.message"])));
 }
 
@@ -435,7 +494,10 @@ async fn bad_input_stores_nothing() {
     let t = setup(&src(Opts::default())).await;
     let e = |r: Result<Proposal, ControlError>| r.unwrap_err();
     let unknown = e(t.store.propose(&input(&src(msg("x")), json!(9), "agent")).await);
-    assert_eq!((unknown.code, unknown.message.as_str()), ("not_found", "demo has no version 9 (versions are v1 to v1)"));
+    assert_eq!(
+        (unknown.code, unknown.message.as_str()),
+        ("not_found", "demo has no version 9 (versions are v1 to v1)")
+    );
     let mut blank = agent(&src(msg("x")));
     blank.reason = json!(" ");
     assert_eq!(e(t.store.propose(&blank).await).code, "bad_request");
@@ -491,16 +553,25 @@ async fn applied_commits_with_the_version_or_not_at_all() {
     assert_eq!(t.latest(), 1);
     assert_eq!(t.store.get(&p.id).unwrap().state, "validated");
     let applied = apply(&p.id, &p.source, None).unwrap();
-    assert_eq!((applied.state.as_str(), applied.applied_version, applied.decided_by.as_deref()), ("applied", Some(2), Some("agent-ops")));
+    assert_eq!(
+        (applied.state.as_str(), applied.applied_version, applied.decided_by.as_deref()),
+        ("applied", Some(2), Some("agent-ops"))
+    );
     assert!(applied.decided_at.is_some());
     let t = t.reopen();
     assert_eq!(t.store.get(&p.id).unwrap().state, "applied");
     let (kind, detail) = t.events().pop().unwrap();
     assert_eq!(kind, "proposal.applied");
-    assert_eq!(detail.to_string(), json!({ "id": p.id, "base_version": 1, "by": "agent-ops", "version": 2 }).to_string());
+    assert_eq!(
+        detail.to_string(),
+        json!({ "id": p.id, "base_version": 1, "by": "agent-ops", "version": 2 }).to_string()
+    );
     // Decided proposals stay decided.
     let again = t.store.mark_rejected(&p.id, "cli", "no", None).unwrap_err();
-    assert_eq!((again.code, again.message.clone()), ("invalid_state", format!("proposal {} is applied, so it can't become rejected", p.id)));
+    assert_eq!(
+        (again.code, again.message.clone()),
+        ("invalid_state", format!("proposal {} is applied, so it can't become rejected", p.id))
+    );
     assert_eq!(again.hint.as_deref(), Some("it is decided; propose the change again if you still want it"));
     // A rival validated on the same base can't land on top of v2.
     let hash = sha256(rival.source.as_bytes());
@@ -512,7 +583,15 @@ async fn applied_commits_with_the_version_or_not_at_all() {
     assert!(late.message.ends_with("can only become v2, not v3"), "{}", late.message);
     assert_eq!(t.latest(), 2);
     assert_eq!(t.store.mark_rejected(&rival.id, "runner", "stale: v2 was applied", None).unwrap().state, "rejected");
-    let next = t.store.propose(&input(&src(Opts { message: Some("hello"), tag: Some("three"), ..Default::default() }), json!(2), "agent")).await.unwrap();
+    let next = t
+        .store
+        .propose(&input(
+            &src(Opts { message: Some("hello"), tag: Some("three"), ..Default::default() }),
+            json!(2),
+            "agent",
+        ))
+        .await
+        .unwrap();
     assert_eq!(next.state, "validated");
 }
 
@@ -542,12 +621,16 @@ async fn agent_verify_requires_a_verified_dry_run_before_apply() {
     let twice = t.store.mark_verified(&p.id, "runner", None, None).unwrap_err();
     assert!(twice.message.contains("is verified"));
     let r = t.store.mark_rejected(&p.id, "cli", "not now", None).unwrap();
-    assert_eq!((r.state.as_str(), r.decision.as_deref(), r.decided_by.as_deref()), ("rejected", Some("not now"), Some("cli")));
+    assert_eq!(
+        (r.state.as_str(), r.decision.as_deref(), r.decided_by.as_deref()),
+        ("rejected", Some("not now"), Some("cli"))
+    );
     assert_eq!(r.verification["verify"], json!("last 5"));
     let kinds: Vec<String> = t.events().into_iter().map(|e| e.0).collect();
     assert_eq!(kinds, ["proposal.validated", "proposal.verified", "proposal.rejected"]);
     // A human's proposal has no dry-run requirement.
-    let human = t.store.propose(&input(&src(Opts { tag: Some("x"), ..with_agent(&policy) }), json!(1), "human")).await.unwrap();
+    let human =
+        t.store.propose(&input(&src(Opts { tag: Some("x"), ..with_agent(&policy) }), json!(1), "human")).await.unwrap();
     assert_eq!(human.verify, None);
     assert_eq!(t.store.dry_run_if_required(&human.id).await.unwrap().id, human.id);
 }
@@ -618,60 +701,111 @@ fn propose_apply_and_reject_over_the_ops() {
         let r = runner(&tmp, &po("one", "jsonl", false)).await;
 
         // A valid agent proposal is applied right away as v2, then listed and read back.
-        let p = op(&r, "propose", propose_args(&po("two", "jsonl", false), json!({ "author_kind": "agent" }))).await.unwrap();
-        assert_eq!((p["state"].as_str(), p["applied_version"].as_i64(), p["base_version"].as_i64()), (Some("applied"), Some(2), Some(1)));
-        assert!(p["diff"].as_str().unwrap().contains("+  tag: { from: input, transform: map, with: { data: { v: two } } }"));
+        let p = op(&r, "propose", propose_args(&po("two", "jsonl", false), json!({ "author_kind": "agent" })))
+            .await
+            .unwrap();
+        assert_eq!(
+            (p["state"].as_str(), p["applied_version"].as_i64(), p["base_version"].as_i64()),
+            (Some("applied"), Some(2), Some(1))
+        );
+        assert!(
+            p["diff"].as_str().unwrap().contains("+  tag: { from: input, transform: map, with: { data: { v: two } } }")
+        );
         assert_eq!(r.version(), 2);
         let list = op(&r, "proposals", json!({})).await.unwrap();
         assert_eq!(list["proposals"][0]["id"], p["id"]);
         assert_eq!(op(&r, "proposals", json!({ "state": "rejected" })).await.unwrap()["proposals"], json!([]));
         assert_eq!(op(&r, "proposal", json!({ "id": p["id"] })).await.unwrap()["state"], "applied");
         let history = op(&r, "versions", json!({})).await.unwrap();
-        assert_eq!((history["versions"][0]["author_kind"].as_str(), history["current"].as_i64()), (Some("agent"), Some(2)));
+        assert_eq!(
+            (history["versions"][0]["author_kind"].as_str(), history["current"].as_i64()),
+            (Some("agent"), Some(2))
+        );
         assert_eq!(history["versions"][0]["proposal"], p["id"]);
         let audit = op(&r, "version", json!({ "version": 2 })).await.unwrap();
         assert!(audit["diff"].as_str().unwrap().starts_with("--- po v1\n+++ po v2"));
 
         // author_kind defaults to human, and a human may change the output.
-        let h = op(&r, "propose", propose_args(&po("two", "json", false), json!({ "base_version": 2, "author": "ada" }))).await.unwrap();
-        assert_eq!((h["state"].as_str(), h["author_kind"].as_str(), h["applied_version"].as_i64()), (Some("applied"), Some("human"), Some(3)));
+        let h =
+            op(&r, "propose", propose_args(&po("two", "json", false), json!({ "base_version": 2, "author": "ada" })))
+                .await
+                .unwrap();
+        assert_eq!(
+            (h["state"].as_str(), h["author_kind"].as_str(), h["applied_version"].as_i64()),
+            (Some("applied"), Some("human"), Some(3))
+        );
 
         // An agent touching output is stored rejected, not an error, and nothing is applied.
-        let o = op(&r, "propose", propose_args(&po("x", "jsonl", false), json!({ "base_version": 3, "author_kind": "agent" }))).await.unwrap();
+        let o = op(
+            &r,
+            "propose",
+            propose_args(&po("x", "jsonl", false), json!({ "base_version": 3, "author_kind": "agent" })),
+        )
+        .await
+        .unwrap();
         assert_eq!(o["state"], "rejected");
         assert!(o["problems"].as_array().unwrap().iter().any(|x| x["code"] == "forbidden_path"));
         assert_eq!(r.version(), 3);
 
         // apply: false holds it; apply_proposal applies it later.
-        let held = op(&r, "propose", propose_args(&po("three", "json", false), json!({ "base_version": 3, "apply": false }))).await.unwrap();
+        let held =
+            op(&r, "propose", propose_args(&po("three", "json", false), json!({ "base_version": 3, "apply": false })))
+                .await
+                .unwrap();
         assert_eq!(held["state"], "validated");
         assert_eq!(r.version(), 3);
         let applied = op(&r, "apply_proposal", json!({ "id": held["id"], "by": "ada" })).await.unwrap();
-        assert_eq!(applied, json!({ "version": 4, "previous": 3, "changed": true, "pending_older": 0, "proposal": held["id"] }));
+        assert_eq!(
+            applied,
+            json!({ "version": 4, "previous": 3, "changed": true, "pending_older": 0, "proposal": held["id"] })
+        );
         let again = op(&r, "apply_proposal", json!({ "id": held["id"] })).await.unwrap_err();
         assert_eq!(again.message, format!("proposal {} is already applied, as v4", held["id"].as_str().unwrap()));
 
         // A held proposal can be rejected; a decided one can't be rejected again, or applied.
-        let held = op(&r, "propose", propose_args(&po("four", "json", false), json!({ "base_version": 4, "apply": false }))).await.unwrap();
-        let rej = op(&r, "reject_proposal", json!({ "id": held["id"], "reason": "not now", "by": "ada" })).await.unwrap();
-        assert_eq!((rej["state"].as_str(), rej["decision"].as_str(), rej["decided_by"].as_str()), (Some("rejected"), Some("not now"), Some("ada")));
+        let held =
+            op(&r, "propose", propose_args(&po("four", "json", false), json!({ "base_version": 4, "apply": false })))
+                .await
+                .unwrap();
+        let rej =
+            op(&r, "reject_proposal", json!({ "id": held["id"], "reason": "not now", "by": "ada" })).await.unwrap();
+        assert_eq!(
+            (rej["state"].as_str(), rej["decision"].as_str(), rej["decided_by"].as_str()),
+            (Some("rejected"), Some("not now"), Some("ada"))
+        );
         let twice = op(&r, "reject_proposal", json!({ "id": held["id"], "reason": "again" })).await.unwrap_err();
         assert_eq!(twice.code, "invalid_state");
         assert!(twice.hint.unwrap().contains("propose the change again"));
         let refused = op(&r, "apply_proposal", json!({ "id": held["id"], "by": "ada" })).await.unwrap_err();
-        assert_eq!(refused.message, format!("proposal {} was rejected (not now), so it can't be applied", held["id"].as_str().unwrap()));
+        assert_eq!(
+            refused.message,
+            format!("proposal {} was rejected (not now), so it can't be applied", held["id"].as_str().unwrap())
+        );
 
         // A stale base is stored rejected; a held one whose base went stale is rejected when applied.
-        let stale_held = op(&r, "propose", propose_args(&po("five", "json", false), json!({ "base_version": 4, "apply": false }))).await.unwrap();
-        let six = op(&r, "propose", propose_args(&po("six", "json", false), json!({ "base_version": 4 }))).await.unwrap();
+        let stale_held =
+            op(&r, "propose", propose_args(&po("five", "json", false), json!({ "base_version": 4, "apply": false })))
+                .await
+                .unwrap();
+        let six =
+            op(&r, "propose", propose_args(&po("six", "json", false), json!({ "base_version": 4 }))).await.unwrap();
         assert_eq!(six["state"], "applied");
-        let stale = op(&r, "propose", propose_args(&po("one", "json", false), json!({ "base_version": 4 }))).await.unwrap();
-        assert_eq!((stale["state"].as_str(), stale["problems"][0]["code"].as_str()), (Some("rejected"), Some("stale_base")));
+        let stale =
+            op(&r, "propose", propose_args(&po("one", "json", false), json!({ "base_version": 4 }))).await.unwrap();
+        assert_eq!(
+            (stale["state"].as_str(), stale["problems"][0]["code"].as_str()),
+            (Some("rejected"), Some("stale_base"))
+        );
         let late = op(&r, "apply_proposal", json!({ "id": stale_held["id"], "by": "ada" })).await.unwrap_err();
         assert!(late.message.starts_with("stale base:"), "{}", late.message);
         let marked = op(&r, "proposal", json!({ "id": stale_held["id"] })).await.unwrap();
         assert_eq!((marked["state"].as_str(), marked["decided_by"].as_str()), (Some("rejected"), Some("ada")));
-        assert!(marked["decision"].as_str().unwrap().starts_with("stale base: the proposal is against v4, but po was at v5"));
+        assert!(
+            marked["decision"]
+                .as_str()
+                .unwrap()
+                .starts_with("stale base: the proposal is against v4, but po was at v5")
+        );
 
         // Bad input is bad_request with a hint and stores nothing.
         let before = op(&r, "proposals", json!({})).await.unwrap()["proposals"].as_array().unwrap().len();
@@ -710,7 +844,9 @@ fn an_agent_proposal_is_dry_run_then_applied() {
     tokio::task::LocalSet::new().block_on(&rt, async {
         let tmp = Tmp::new();
         let r = runner(&tmp, &po("one", "jsonl", true)).await;
-        let p = op(&r, "propose", propose_args(&po("two", "jsonl", true), json!({ "author_kind": "agent" }))).await.unwrap();
+        let p = op(&r, "propose", propose_args(&po("two", "jsonl", true), json!({ "author_kind": "agent" })))
+            .await
+            .unwrap();
         // The dry run runs first (nothing delivered yet, so it passes), then the proposal applies.
         assert_eq!((p["state"].as_str(), p["verify"].as_str()), (Some("applied"), Some("last 5")));
         assert!(p["decision"].as_str().unwrap_or_default().starts_with("dry run passed (last 5)"));
@@ -718,7 +854,10 @@ fn an_agent_proposal_is_dry_run_then_applied() {
         let e = op(&r, "apply_proposal", json!({ "id": p["id"], "by": "ada" })).await.unwrap_err();
         assert_eq!(e.code, "invalid_state");
         // A human's proposal needs no dry run.
-        let h = op(&r, "propose", propose_args(&po("three", "jsonl", true), json!({ "author": "ada", "base_version": 2 }))).await.unwrap();
+        let h =
+            op(&r, "propose", propose_args(&po("three", "jsonl", true), json!({ "author": "ada", "base_version": 2 })))
+                .await
+                .unwrap();
         assert_eq!(h["state"], "applied");
         r.stop(0).await;
     });

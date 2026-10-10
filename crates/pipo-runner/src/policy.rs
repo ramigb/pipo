@@ -140,10 +140,22 @@ mod tests {
         p.retry = 2;
         p.delay = 1;
         let mut retries = vec![];
-        let out = attempt(&p, |n| async move { if n < 3 { Err::<u32, _>(StepError::new("no")) } else { Ok(n) } }, |_, n, _| retries.push(n), || false).await;
+        let out = attempt(
+            &p,
+            |n| async move { if n < 3 { Err::<u32, _>(StepError::new("no")) } else { Ok(n) } },
+            |_, n, _| retries.push(n),
+            || false,
+        )
+        .await;
         assert!(matches!(out, Attempted::Ok { value: 3, attempts: 3 }));
         assert_eq!(retries, vec![1, 2]);
-        let out = attempt(&p, |_| async { Err::<u32, _>(StepError { fatal: true, ..StepError::new("budget") }) }, |_, _, _| {}, || false).await;
+        let out = attempt(
+            &p,
+            |_| async { Err::<u32, _>(StepError { fatal: true, ..StepError::new("budget") }) },
+            |_, _, _| {},
+            || false,
+        )
+        .await;
         assert!(matches!(out, Attempted::Failed { attempts: 1, .. }));
     }
 }

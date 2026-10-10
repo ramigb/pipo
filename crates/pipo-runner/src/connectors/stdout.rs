@@ -36,7 +36,13 @@ impl OutputAdapter for StdoutOutput {
         })
     }
 
-    fn verify<'a>(&'a self, check: &'a str, _: &'a Map<String, Value>, _: &'a WriteItem, _: &'a Value) -> LocalBoxFuture<'a, Result<bool, String>> {
+    fn verify<'a>(
+        &'a self,
+        check: &'a str,
+        _: &'a Map<String, Value>,
+        _: &'a WriteItem,
+        _: &'a Value,
+    ) -> LocalBoxFuture<'a, Result<bool, String>> {
         Box::pin(async move { Err(format!("stdout does not support delivery check '{check}'")) })
     }
 }

@@ -13,12 +13,12 @@ pub fn output_key(to: &str, w: &Map<String, Value>, unit_id: &str) -> String {
         if let Some(v) = w.get("columns").and_then(|c| c.get(key)).filter(|v| !v.is_null()) {
             return to_text(v);
         }
-    } else if to == "http" {
-        if let Some(headers) = w.get("headers").and_then(|h| h.as_object()) {
-            for (h, v) in headers {
-                if h.eq_ignore_ascii_case("idempotency-key") {
-                    return to_text(v);
-                }
+    } else if to == "http"
+        && let Some(headers) = w.get("headers").and_then(|h| h.as_object())
+    {
+        for (h, v) in headers {
+            if h.eq_ignore_ascii_case("idempotency-key") {
+                return to_text(v);
             }
         }
     }

@@ -39,7 +39,8 @@ impl ExecStep {
         if command.is_empty() {
             return Err(format!("{at}.command is empty after rendering; check the template"));
         }
-        let args: Vec<String> = w.get("args").and_then(|a| a.as_array()).map(|a| a.iter().map(string_of).collect()).unwrap_or_default();
+        let args: Vec<String> =
+            w.get("args").and_then(|a| a.as_array()).map(|a| a.iter().map(string_of).collect()).unwrap_or_default();
         let cwd = match w.get("cwd").filter(|c| super::truthy(c)) {
             Some(c) => resolve_path(&self.dir, &string_of(c)),
             None => self.dir.clone(),
@@ -48,23 +49,35 @@ impl ExecStep {
             let given = w.get("cwd").map(string_of).unwrap_or_default();
             return Err(format!("{at}.cwd '{given}' does not exist; create it or fix the path"));
         }
-        let outputs: Vec<PathBuf> =
-            w.get("outputs").and_then(|o| o.as_array()).map(|a| a.iter().map(|o| resolve_path(&cwd, &string_of(o))).collect()).unwrap_or_default();
+        let outputs: Vec<PathBuf> = w
+            .get("outputs")
+            .and_then(|o| o.as_array())
+            .map(|a| a.iter().map(|o| resolve_path(&cwd, &string_of(o))).collect())
+            .unwrap_or_default();
         for o in &outputs {
             if let Some(parent) = o.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| format!("{at}.outputs: can't create {}: {e}", parent.display()))?;
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("{at}.outputs: can't create {}: {e}", parent.display()))?;
             }
         }
-        let env: HashMap<String, String> =
-            w.get("env").and_then(|e| e.as_object()).map(|e| e.iter().map(|(k, v)| (k.clone(), string_of(v))).collect()).unwrap_or_default();
+        let env: HashMap<String, String> = w
+            .get("env")
+            .and_then(|e| e.as_object())
+            .map(|e| e.iter().map(|(k, v)| (k.clone(), string_of(v))).collect())
+            .unwrap_or_default();
         let success: Vec<i64> = match w.get("success").and_then(|s| s.as_array()) {
             Some(a) => a.iter().filter_map(as_i64).collect(),
             None => vec![0],
         };
-        let timeout = w.get("timeout").filter(|t| !t.is_null()).map(string_of).unwrap_or_else(|| DEFAULT_TIMEOUT.into());
+        let timeout =
+            w.get("timeout").filter(|t| !t.is_null()).map(string_of).unwrap_or_else(|| DEFAULT_TIMEOUT.into());
         let timeout_ms = parse_duration(&timeout)?;
         // A path is the pipeline folder's (D71), whatever `cwd` is.
-        let program = if command.contains('/') { resolve_path(&self.dir, &command).display().to_string() } else { command.clone() };
+        let program = if command.contains('/') {
+            resolve_path(&self.dir, &command).display().to_string()
+        } else {
+            command.clone()
+        };
 
         let started = std::time::Instant::now();
         let options = RunOptions {
@@ -83,10 +96,16 @@ impl ExecStep {
         if !ok {
             let how = match &run.signal {
                 Some(sig) => {
-                    let timed_out = if duration_ms >= timeout_ms { format!(", after the {timeout} timeout") } else { String::new() };
+                    let timed_out = if duration_ms >= timeout_ms {
+                        format!(", after the {timeout} timeout")
+                    } else {
+                        String::new()
+                    };
                     format!("was killed ({sig}{timed_out})")
                 }
-                None => format!("exited with code {}", run.code.map(|c| c.to_string()).unwrap_or_else(|| "null".into())),
+                None => {
+                    format!("exited with code {}", run.code.map(|c| c.to_string()).unwrap_or_else(|| "null".into()))
+                }
             };
             let source = if run.stderr.trim().is_empty() { run.stdout.trim() } else { run.stderr.trim() };
             let why = tail(source, 500).split_whitespace().collect::<Vec<_>>().join(" ");
@@ -96,7 +115,10 @@ impl ExecStep {
         let code = run.code.unwrap_or(0);
         let missing: Vec<String> = outputs.iter().filter(|o| !o.exists()).map(|o| o.display().to_string()).collect();
         if !missing.is_empty() {
-            return Err(format!("{command} exited with code {code} but did not write {} ({at}.outputs)", missing.join(", ")));
+            return Err(format!(
+                "{command} exited with code {code} but did not write {} ({at}.outputs)",
+                missing.join(", ")
+            ));
         }
         if !self.transform {
             return Ok(StepResult::default());
@@ -125,7 +147,10 @@ impl ExecStep {
         }
         match serde_json::from_str::<Value>(&stdout) {
             Ok(v) => Ok(StepResult { data: Some(v), events: vec![] }),
-            Err(_) => Err(format!("{command} printed something that is not JSON ({at}.result is json): {}", tail(&stdout, 200))),
+            Err(_) => Err(format!(
+                "{command} printed something that is not JSON ({at}.result is json): {}",
+                tail(&stdout, 200)
+            )),
         }
     }
 }
@@ -147,7 +172,14 @@ mod tests {
     }
 
     async fn call(s: &ExecStep, w: Value) -> Result<StepResult, String> {
-        s.run(StepInput { packet_id: "p1".into(), node: "n".into(), data: json!({"a": 1}), with: w.as_object().cloned().unwrap(), origin: None }).await
+        s.run(StepInput {
+            packet_id: "p1".into(),
+            node: "n".into(),
+            data: json!({"a": 1}),
+            with: w.as_object().cloned().unwrap(),
+            origin: None,
+        })
+        .await
     }
 
     #[test]
@@ -156,7 +188,10 @@ mod tests {
             let b = TempDir::new();
             let r = call(&step(&b, true), json!({"command": "sh", "args": ["-c", "echo hi; echo oops >&2; echo x > out/p1.txt"], "outputs": ["out/p1.txt"]})).await.unwrap();
             let d = r.data.unwrap();
-            assert_eq!((d["exit_code"].clone(), d["stdout"].clone(), d["stderr"].clone()), (json!(0), json!("hi\n"), json!("oops\n")));
+            assert_eq!(
+                (d["exit_code"].clone(), d["stdout"].clone(), d["stderr"].clone()),
+                (json!(0), json!("hi\n"), json!("oops\n"))
+            );
             assert_eq!(d["files"], json!([b.join("out/p1.txt").display().to_string()]));
             assert!(d["duration_ms"].is_u64());
         });
@@ -166,7 +201,12 @@ mod tests {
     fn args_are_passed_as_they_are_with_no_shell() {
         local(async {
             let b = TempDir::new();
-            let r = call(&step(&b, true), json!({"command": "printf", "args": ["%s|", "a b", "$(echo no)", "'q'"], "result": "text"})).await.unwrap();
+            let r = call(
+                &step(&b, true),
+                json!({"command": "printf", "args": ["%s|", "a b", "$(echo no)", "'q'"], "result": "text"}),
+            )
+            .await
+            .unwrap();
             assert_eq!(r.data, Some(json!("a b|$(echo no)|'q'|")));
         });
     }
@@ -183,7 +223,9 @@ mod tests {
             });
             let r = call(&step(&b, true), w).await.unwrap();
             assert_eq!(r.data, Some(json!({"in": "hello", "env": "hey", "cwd": b.join("sub").display().to_string()})));
-            let e = call(&step(&b, true), json!({"command": "echo", "args": ["nope"], "result": "json"})).await.unwrap_err();
+            let e = call(&step(&b, true), json!({"command": "echo", "args": ["nope"], "result": "json"}))
+                .await
+                .unwrap_err();
             assert_eq!(e, "echo printed something that is not JSON (nodes.n.with.result is json): nope\n");
             let e = call(&step(&b, true), json!({"command": "true", "cwd": "missing"})).await.unwrap_err();
             assert_eq!(e, "nodes.n.with.cwd 'missing' does not exist; create it or fix the path");
@@ -197,7 +239,9 @@ mod tests {
             let s = step(&b, true);
             let e = call(&s, json!({"command": "sh", "args": ["-c", "echo broken >&2; exit 3"]})).await.unwrap_err();
             assert_eq!(e, "sh exited with code 3: broken");
-            let r = call(&s, json!({"command": "sh", "args": ["-c", "echo broken >&2; exit 3"], "success": [0, 3]})).await.unwrap();
+            let r = call(&s, json!({"command": "sh", "args": ["-c", "echo broken >&2; exit 3"], "success": [0, 3]}))
+                .await
+                .unwrap();
             assert_eq!(r.data.unwrap()["exit_code"], json!(3));
         });
     }
@@ -207,7 +251,9 @@ mod tests {
         local(async {
             let b = TempDir::new();
             let t0 = std::time::Instant::now();
-            let e = call(&step(&b, false), json!({"command": "sh", "args": ["-c", "sleep 10"], "timeout": "200ms"})).await.unwrap_err();
+            let e = call(&step(&b, false), json!({"command": "sh", "args": ["-c", "sleep 10"], "timeout": "200ms"}))
+                .await
+                .unwrap_err();
             assert_eq!(e, "sh was killed (SIGTERM, after the 200ms timeout)");
             assert!(t0.elapsed().as_millis() < 5000);
         });
@@ -230,7 +276,11 @@ mod tests {
             let e = call(&step(&b, true), json!({"command": "pipo-no-such-program"})).await.unwrap_err();
             assert!(e.contains("could not be started") && e.ends_with("is it installed and on PATH?"), "{e}");
             assert_eq!(call(&step(&b, false), json!({"command": "true"})).await.unwrap(), StepResult::default());
-            let s = ExecStep { dir: b.path().to_path_buf(), transform: true, redact: Rc::new(|s: &str| s.replace("s3cret", "***")) };
+            let s = ExecStep {
+                dir: b.path().to_path_buf(),
+                transform: true,
+                redact: Rc::new(|s: &str| s.replace("s3cret", "***")),
+            };
             let r = call(&s, json!({"command": "echo", "args": ["s3cret"], "result": "text"})).await.unwrap();
             assert_eq!(r.data, Some(json!("***\n")));
             let e = call(&s, json!({"command": "sh", "args": ["-c", "echo s3cret >&2; exit 1"]})).await.unwrap_err();
@@ -247,7 +297,8 @@ mod tests {
             std::fs::create_dir(b.join("sub")).unwrap();
             std::fs::write(b.join("tool.sh"), "#!/bin/sh\necho tool in $(basename $(pwd -P))\n").unwrap();
             std::fs::set_permissions(b.join("tool.sh"), std::fs::Permissions::from_mode(0o755)).unwrap();
-            let r = call(&step(&b, true), json!({"command": "./tool.sh", "cwd": "sub", "result": "text"})).await.unwrap();
+            let r =
+                call(&step(&b, true), json!({"command": "./tool.sh", "cwd": "sub", "result": "text"})).await.unwrap();
             assert_eq!(r.data, Some(json!("tool in sub\n")));
             assert_eq!(find_command("./tool.sh", b.path()), Some(b.join("tool.sh")));
             std::fs::write(b.join("plain.txt"), "").unwrap();

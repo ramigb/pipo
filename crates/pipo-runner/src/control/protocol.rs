@@ -8,9 +8,31 @@ use std::path::{Path, PathBuf};
 pub const PROTOCOL: u32 = 1;
 
 pub const OPS: &[&str] = &[
-    "hello", "status", "pause", "resume", "drain", "stop", "push", "ack", "events", "packets", "packet", "dlq", "replay",
-    "purge", "versions", "version", "diff", "apply", "rollback", "propose", "proposals", "proposal", "apply_proposal",
-    "reject_proposal", "resolve",
+    "hello",
+    "status",
+    "pause",
+    "resume",
+    "drain",
+    "stop",
+    "push",
+    "ack",
+    "events",
+    "packets",
+    "packet",
+    "dlq",
+    "replay",
+    "purge",
+    "versions",
+    "version",
+    "diff",
+    "apply",
+    "rollback",
+    "propose",
+    "proposals",
+    "proposal",
+    "apply_proposal",
+    "reject_proposal",
+    "resolve",
 ];
 
 /// A request line larger than this closes the connection (a push carries one packet, not a file).
@@ -86,15 +108,23 @@ pub fn socket_path_problem(path: &Path) -> Option<(String, String)> {
     let bytes = text.len();
     if bytes > MAX_SOCKET_PATH {
         return Some((
-            format!("control socket path is {bytes} bytes, over the {MAX_SOCKET_PATH}-byte limit for unix sockets: {text}"),
+            format!(
+                "control socket path is {bytes} bytes, over the {MAX_SOCKET_PATH}-byte limit for unix sockets: {text}"
+            ),
             "use a shorter Pipo home (--home or PIPO_HOME, e.g. ~/.pipo) or a shorter pipeline name".into(),
         ));
     }
     let b = text.as_bytes();
-    if cfg!(target_os = "linux") && b.len() >= 7 && text.starts_with("/mnt/") && b[5].is_ascii_alphabetic() && b[6] == b'/' {
+    if cfg!(target_os = "linux")
+        && b.len() >= 7
+        && text.starts_with("/mnt/")
+        && b[5].is_ascii_alphabetic()
+        && b[6] == b'/'
+    {
         return Some((
             format!("control socket {text} is on a Windows drive; unix sockets do not work there under WSL"),
-            "use a Pipo home on the Linux filesystem (the default ~/.pipo, or --home / PIPO_HOME under /home or /tmp)".into(),
+            "use a Pipo home on the Linux filesystem (the default ~/.pipo, or --home / PIPO_HOME under /home or /tmp)"
+                .into(),
         ));
     }
     None

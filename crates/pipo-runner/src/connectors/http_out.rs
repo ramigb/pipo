@@ -28,7 +28,9 @@ pub fn status_matcher(spec: Option<&Value>) -> Result<impl Fn(u16) -> bool + use
         } else if text.len() == 3 && (b'1'..=b'5').contains(&bytes[0]) && &text[1..] == "xx" {
             let c = (bytes[0] - b'0') as u16;
             ranges.push((c * 100, c * 100 + 99));
-        } else if let Some((a, b)) = text.split_once('-').map(|(a, b)| (a.trim(), b.trim())).filter(|(a, b)| digits(a) && digits(b)) {
+        } else if let Some((a, b)) =
+            text.split_once('-').map(|(a, b)| (a.trim(), b.trim())).filter(|(a, b)| digits(a) && digits(b))
+        {
             ranges.push((a.parse().unwrap_or(0), b.parse().unwrap_or(0)));
         } else {
             return Err(format!("invalid success status '{}'; use 204, \"2xx\" or \"200-299\"", string_of(s)));
@@ -48,7 +50,9 @@ fn same(want: &Value, got: &Value) -> bool {
 fn subset(want: &Value, got: &Value) -> bool {
     match want {
         Value::Array(w) => got.as_array().is_some_and(|g| w.iter().all(|x| g.iter().any(|y| subset(x, y)))),
-        Value::Object(w) => got.as_object().is_some_and(|g| w.iter().all(|(k, v)| g.get(k).is_some_and(|x| subset(v, x)))),
+        Value::Object(w) => {
+            got.as_object().is_some_and(|g| w.iter().all(|(k, v)| g.get(k).is_some_and(|x| subset(v, x))))
+        }
         _ => same(want, got),
     }
 }
@@ -56,7 +60,9 @@ fn subset(want: &Value, got: &Value) -> bool {
 /// JS `String(v)`: arrays join their items with commas, objects are "[object Object]".
 fn js_string(v: &Value) -> String {
     match v {
-        Value::Array(a) => a.iter().map(|x| if x.is_null() { String::new() } else { js_string(x) }).collect::<Vec<_>>().join(","),
+        Value::Array(a) => {
+            a.iter().map(|x| if x.is_null() { String::new() } else { js_string(x) }).collect::<Vec<_>>().join(",")
+        }
         Value::Object(_) => "[object Object]".into(),
         other => string_of(other),
     }
@@ -80,14 +86,20 @@ pub struct HttpResult {
 }
 
 /// One request from an http `with:` block (output, tap or transform). Errs unless the status is in `success`.
-pub async fn http_call(w: &Map<String, Value>, data: &Value, idempotency_key: &str, owner: &str) -> Result<HttpResult, String> {
+pub async fn http_call(
+    w: &Map<String, Value>,
+    data: &Value,
+    idempotency_key: &str,
+    owner: &str,
+) -> Result<HttpResult, String> {
     let method = w.get("method").map(string_of).unwrap_or_else(|| "POST".into());
     let url = w.get("url").map(to_text).unwrap_or_default();
     if url.is_empty() {
         return Err(format!("{owner}.with.url is empty after rendering; check the template"));
     }
     let fail = |e: String| format!("{method} {url} failed: {e}");
-    let m = reqwest::Method::from_bytes(method.as_bytes()).map_err(|_| fail(format!("'{method}' is not an HTTP method")))?;
+    let m = reqwest::Method::from_bytes(method.as_bytes())
+        .map_err(|_| fail(format!("'{method}' is not an HTTP method")))?;
     let mut headers: Vec<(String, String)> = vec![("Idempotency-Key".into(), idempotency_key.into())];
     if let Some(h) = w.get("headers").and_then(|h| h.as_object()) {
         for (k, v) in h {
@@ -120,7 +132,8 @@ pub async fn http_call(w: &Map<String, Value>, data: &Value, idempotency_key: &s
     let content_type = res.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
     let text = res.text().await.unwrap_or_default();
     if !ok(status) {
-        let snippet = if text.is_empty() { String::new() } else { format!(": {}", text.chars().take(200).collect::<String>()) };
+        let snippet =
+            if text.is_empty() { String::new() } else { format!(": {}", text.chars().take(200).collect::<String>()) };
         return Err(format!(
             "{method} {url} answered {status}, not in the success list{snippet} (set {owner}.with.success to accept it)"
         ));
@@ -220,7 +233,10 @@ mod tests {
         local(async {
             let s = fixed(200, "ok").await;
             let url = format!("{}/hook", s.base);
-            HttpOutput.write(vec![item("pk1", json!({"a": 1}), json!({"url": url, "headers": {"X-Auth": "t"}}))]).await.unwrap();
+            HttpOutput
+                .write(vec![item("pk1", json!({"a": 1}), json!({"url": url, "headers": {"X-Auth": "t"}}))])
+                .await
+                .unwrap();
             let c = s.calls.borrow()[0].clone();
             assert_eq!(c.method, "POST");
             assert_eq!(c.header("idempotency-key").as_deref(), Some("pk1"));
@@ -246,12 +262,15 @@ mod tests {
             let s = fixed(202, "nope").await;
             let url = format!("{}/hook", s.base);
             assert!(HttpOutput.write(vec![item("p", json!(1), json!({"url": url}))]).await.is_ok());
-            let e = HttpOutput.write(vec![item("p", json!(1), json!({"url": url, "success": [200]}))]).await.unwrap_err();
+            let e =
+                HttpOutput.write(vec![item("p", json!(1), json!({"url": url, "success": [200]}))]).await.unwrap_err();
             assert!(e.contains("answered 202, not in the success list: nope (set output.with.success"), "{e}");
             assert!(HttpOutput.write(vec![item("p", json!(1), json!({"url": url, "success": ["2xx"]}))]).await.is_ok());
             let bad = fixed(500, "bad").await;
             let url = format!("{}/hook", bad.base);
-            assert!(HttpOutput.write(vec![item("p", json!(1), json!({"url": url}))]).await.unwrap_err().contains("500"));
+            assert!(
+                HttpOutput.write(vec![item("p", json!(1), json!({"url": url}))]).await.unwrap_err().contains("500")
+            );
             assert!(HttpOutput.write(vec![item("p", json!(1), json!({"url": url, "success": [500]}))]).await.is_ok());
             let e = HttpOutput.write(vec![item("p", json!(1), json!({"url": ""}))]).await.unwrap_err();
             assert_eq!(e, "output.with.url is empty after rendering; check the template");

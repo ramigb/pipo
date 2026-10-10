@@ -3,8 +3,8 @@
 // per pipeline version, so in-flight packets finish on the version that accepted them, with its own code.
 
 use crate::compile::Compiled;
-use crate::jsfn::JsFns;
 use crate::journal::OUTPUT_STEP;
+use crate::jsfn::JsFns;
 use crate::pipeline::{Pipeline, fn_ref};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -104,9 +104,12 @@ pub async fn build(version: i64, compiled: Rc<Compiled>, fns: &JsFns) -> Result<
         fns.load(version as u32, module).await?;
     }
 
-    let schema = |path: &str| compiled.schemas.get(path).cloned().ok_or_else(|| format!("schema {path} was not compiled"));
+    let schema =
+        |path: &str| compiled.schemas.get(path).cloned().ok_or_else(|| format!("schema {path} was not compiled"));
     let input_schema = match &pipeline.input.schema {
-        Some(path) => Some(SchemaCheck::new(path, &schema(path)?, 1).map_err(|e| format!("input.schema {path} can't be used: {e}"))?),
+        Some(path) => Some(
+            SchemaCheck::new(path, &schema(path)?, 1).map_err(|e| format!("input.schema {path} can't be used: {e}"))?,
+        ),
         None => None,
     };
     let mut agent_schemas = HashMap::new();
@@ -114,7 +117,7 @@ pub async fn build(version: i64, compiled: Rc<Compiled>, fns: &JsFns) -> Result<
         if node.agent.is_none() {
             continue;
         }
-        let path = node.with.as_ref().and_then(|w| w.get("schema")).map(|s| crate::expr::to_text(s)).unwrap_or_default();
+        let path = node.with.as_ref().and_then(|w| w.get("schema")).map(crate::expr::to_text).unwrap_or_default();
         let check = schema(&path)
             .and_then(|s| SchemaCheck::new(&path, &s, 3))
             .map_err(|e| format!("agent node '{id}': schema {path} can't be used: {e}"))?;

@@ -29,13 +29,39 @@ type Emitted = Vec<ExtraEvent>;
 
 /// What a step decided for its packet.
 pub(super) enum Transition {
-    Move { to: String, data: Value, iteration: Option<u32>, result: Option<Value>, event: String, extra: Emitted },
+    Move {
+        to: String,
+        data: Value,
+        iteration: Option<u32>,
+        result: Option<Value>,
+        event: String,
+        extra: Emitted,
+    },
     /// Fan-out (spec §3.4, D22): the step's result goes to several consumers, one copy each.
-    Split { to: Vec<String>, data: Value, event: String, extra: Emitted },
-    End { state: &'static str, error: Option<PacketError>, event: String, extra: Emitted },
-    Hold { pause: bool, error: PacketError, reason: Option<String>, detail: Map<String, Value> },
+    Split {
+        to: Vec<String>,
+        data: Value,
+        event: String,
+        extra: Emitted,
+    },
+    End {
+        state: &'static str,
+        error: Option<PacketError>,
+        event: String,
+        extra: Emitted,
+    },
+    Hold {
+        pause: bool,
+        error: PacketError,
+        reason: Option<String>,
+        detail: Map<String, Value>,
+    },
     /// Handed to the agent (§3.9, §9, D50): after the policy's retries (`error`), or a stall (`stall`).
-    Escalate { stall_reason: bool, error: PacketError, stall: Option<String> },
+    Escalate {
+        stall_reason: bool,
+        error: PacketError,
+        stall: Option<String>,
+    },
 }
 
 fn with_extra(t: Transition, extra: Emitted) -> Transition {
@@ -43,7 +69,9 @@ fn with_extra(t: Transition, extra: Emitted) -> Transition {
         return t;
     }
     match t {
-        Transition::Move { to, data, iteration, result, event, .. } => Transition::Move { to, data, iteration, result, event, extra },
+        Transition::Move { to, data, iteration, result, event, .. } => {
+            Transition::Move { to, data, iteration, result, event, extra }
+        }
         Transition::Split { to, data, event, .. } => Transition::Split { to, data, event, extra },
         Transition::End { state, error, event, .. } => Transition::End { state, error, event, extra },
         other => other,
@@ -216,9 +244,15 @@ impl Runner {
         if let Some(failed) = self.first_failed_rule(&plan, &payload, &c) {
             let inv = plan.pipeline.input.on_invalid.clone();
             let mut ectx = c.clone();
-            ectx["error"] = json!({ "code": failed.code, "message": failed.message, "rule": failed.rule, "node": "input" });
+            ectx["error"] =
+                json!({ "code": failed.code, "message": failed.message, "rule": failed.rule, "node": "input" });
             let message = self.message(inv.as_ref().and_then(|i| i.message.as_deref()), &ectx, &failed.message);
-            let error = PacketError { code: failed.code.clone(), message: message.clone(), node: Some("input".into()), attempts: None };
+            let error = PacketError {
+                code: failed.code.clone(),
+                message: message.clone(),
+                node: Some("input".into()),
+                attempts: None,
+            };
             let to_agent = inv.as_ref().and_then(|i| i.then.as_deref()) == Some("agent");
             let error_json = serde_json::to_value(&error).unwrap_or(Value::Null);
             let rule_detail = json!({ "rule": failed.rule });
@@ -229,7 +263,13 @@ impl Runner {
                 }
                 // Never accepted, so it can't wait: the agent is told, in the same transaction (D50).
                 if to_agent {
-                    jev(j, "packet.escalated", Some(json!({ "reason": "rejected", "waiting": false, "error": error_json })), Some(&id), Some("input"))?;
+                    jev(
+                        j,
+                        "packet.escalated",
+                        Some(json!({ "reason": "rejected", "waiting": false, "error": error_json })),
+                        Some(&id),
+                        Some("input"),
+                    )?;
                 }
                 Ok(())
             };
@@ -263,7 +303,12 @@ impl Runner {
                     None => Ok(()),
                 }
             };
-            let r = self.journal.borrow_mut().insert(&new_packet(&base, "accepted", Some(first[0].clone()), None), "packet.accepted", None, Some(&mut f));
+            let r = self.journal.borrow_mut().insert(
+                &new_packet(&base, "accepted", Some(first[0].clone()), None),
+                "packet.accepted",
+                None,
+                Some(&mut f),
+            );
             if let Err(e) = r {
                 return IntakeResult::Unavailable { reason: format!("journal write failed: {e}") };
             }
@@ -284,7 +329,12 @@ impl Runner {
                 jev(j, "packet.fanned_out", Some(json!({ "branches": branches })), Some(&id), Some("input"))?;
                 j.insert_copies(&root, &copies, Some("input"))
             };
-            let r = self.journal.borrow_mut().insert(&new_packet(&base, BRANCHED, None, None), "packet.accepted", None, Some(&mut f));
+            let r = self.journal.borrow_mut().insert(
+                &new_packet(&base, BRANCHED, None, None),
+                "packet.accepted",
+                None,
+                Some(&mut f),
+            );
             if let Err(e) = r {
                 return IntakeResult::Unavailable { reason: format!("journal write failed: {e}") };
             }
@@ -301,7 +351,7 @@ impl Runner {
     }
 
     fn lifetime_reason(&self, why: &str) -> String {
-        let lt = self.pipeline().lifetime.clone().unwrap_or_else(|| crate::pipeline::Lifetime {
+        let lt = self.pipeline().lifetime.clone().unwrap_or(crate::pipeline::Lifetime {
             ttl: None,
             max_packets: None,
             until: None,
@@ -314,7 +364,10 @@ impl Runner {
                 lt.max_packets.map(|m| m.to_string()).unwrap_or_default()
             )
         } else {
-            format!("pipeline reached lifetime.until ({}); it is no longer accepting packets", lt.until.unwrap_or_default())
+            format!(
+                "pipeline reached lifetime.until ({}); it is no longer accepting packets",
+                lt.until.unwrap_or_default()
+            )
         }
     }
 
@@ -334,30 +387,35 @@ impl Runner {
         }
         let Ok(stats) = compute_stats(&self.journal.borrow(), self.started_at(), now_ms()) else { return };
         let mut why: Option<&'static str> = None;
-        if let Some(max) = lt.max_packets {
-            if stats.accepted as u64 >= max {
-                why = Some("max_packets");
-            }
+        if let Some(max) = lt.max_packets
+            && stats.accepted as u64 >= max
+        {
+            why = Some("max_packets");
         }
-        if why.is_none() {
-            if let Some(until) = &lt.until {
-                match evaluate(until, &json!({ "stats": stats.to_value(), "env": self.env })) {
-                    Ok(v) if truthy(&v) => why = Some("until"),
-                    Ok(_) => {}
-                    Err(e) => {
-                        // Logged once, never fatal; the pipeline keeps running.
-                        let message = e.to_string();
-                        let first = self.s.borrow().until_failed.as_deref() != Some(message.as_str());
-                        if first {
-                            self.s.borrow_mut().until_failed = Some(message.clone());
-                            self.event("pipeline.lifetime_error", Some(json!({ "until": until, "error": message })), None, None);
-                            self.log(
+        if why.is_none()
+            && let Some(until) = &lt.until
+        {
+            match evaluate(until, &json!({ "stats": stats.to_value(), "env": self.env })) {
+                Ok(v) if truthy(&v) => why = Some("until"),
+                Ok(_) => {}
+                Err(e) => {
+                    // Logged once, never fatal; the pipeline keeps running.
+                    let message = e.to_string();
+                    let first = self.s.borrow().until_failed.as_deref() != Some(message.as_str());
+                    if first {
+                        self.s.borrow_mut().until_failed = Some(message.clone());
+                        self.event(
+                            "pipeline.lifetime_error",
+                            Some(json!({ "until": until, "error": message })),
+                            None,
+                            None,
+                        );
+                        self.log(
                                 "warn",
                                 &format!(
                                     "lifetime.until could not be evaluated: {message}. Fix the expression; the pipeline keeps running without it"
                                 ),
                             );
-                        }
                     }
                 }
             }
@@ -453,7 +511,9 @@ impl Runner {
             self.log(
                 "warn",
                 &match units {
-                    Some((e, m)) => format!("stall handed to the agent: {e} waiting unit(s) now, {m} at their next step"),
+                    Some((e, m)) => {
+                        format!("stall handed to the agent: {e} waiting unit(s) now, {m} at their next step")
+                    }
                     None => "stall escalated to the agent".into(),
                 },
             );
@@ -485,10 +545,10 @@ impl Runner {
     pub async fn await_terminal(&self, id: &str, ms: u64) -> Option<Settled> {
         let row = self.journal.borrow().get(id).ok().flatten();
         // Waiting for an agent (D50) has no end in sight, so a caller waiting for the result gets that state now.
-        if let Some(r) = row {
-            if is_terminal(&r.state) || r.state == ESCALATED {
-                return Some(Settled { state: r.state.clone(), error: error_value(&r.error) });
-            }
+        if let Some(r) = row
+            && (is_terminal(&r.state) || r.state == ESCALATED)
+        {
+            return Some(Settled { state: r.state.clone(), error: error_value(&r.error) });
         }
         let (tx, rx) = oneshot::channel();
         self.s.borrow_mut().settle_waiters.entry(id.to_string()).or_default().push(tx);
@@ -512,16 +572,26 @@ impl Runner {
     }
 
     fn first_failed_rule(&self, plan: &Plan, data: &Value, c: &Value) -> Option<Failure> {
-        if let Some(schema) = &plan.input_schema {
-            if let Some(e) = schema.check(data) {
-                return Some(Failure { code: "input.schema".into(), rule: Some("schema".into()), message: format!("schema: {e}"), ..Default::default() });
-            }
+        if let Some(schema) = &plan.input_schema
+            && let Some(e) = schema.check(data)
+        {
+            return Some(Failure {
+                code: "input.schema".into(),
+                rule: Some("schema".into()),
+                message: format!("schema: {e}"),
+                ..Default::default()
+            });
         }
         for rule in plan.pipeline.input.validate.clone().unwrap_or_default() {
             match evaluate(&rule, c) {
                 Ok(v) if truthy(&v) => {}
                 Ok(_) => {
-                    return Some(Failure { code: "input.invalid".into(), message: format!("rule '{rule}' failed"), rule: Some(rule), ..Default::default() });
+                    return Some(Failure {
+                        code: "input.invalid".into(),
+                        message: format!("rule '{rule}' failed"),
+                        rule: Some(rule),
+                        ..Default::default()
+                    });
                 }
                 Err(e) => {
                     return Some(Failure {
@@ -656,7 +726,8 @@ impl Runner {
         let mut extra = extra;
         extra.push(ExtraEvent { kind: event, detail: None });
         let r = self.journal.borrow_mut().atomically(|j| {
-            upd(j, 
+            upd(
+                j,
                 &row.id,
                 &PacketPatch {
                     state: Some(BRANCHED.into()),
@@ -692,9 +763,15 @@ impl Runner {
         self.s.borrow_mut().hand_over.remove(id);
         // A copy's end and the settling of the packet it belongs to commit together (D22).
         let settled = self.journal.borrow_mut().atomically(|j| {
-            upd(j, 
+            upd(
+                j,
                 id,
-                &PacketPatch { state: Some(state.into()), cursor: Some(None), error: Some(error.clone()), ..Default::default() },
+                &PacketPatch {
+                    state: Some(state.into()),
+                    cursor: Some(None),
+                    error: Some(error.clone()),
+                    ..Default::default()
+                },
                 &event,
                 Some(step),
                 error_value(&error),
@@ -721,7 +798,10 @@ impl Runner {
         if state == "dead_lettered" {
             self.log(
                 "warn",
-                &format!("packet {id} dead-lettered at {step}: {}", error.as_ref().map(|e| e.message.as_str()).unwrap_or("")),
+                &format!(
+                    "packet {id} dead-lettered at {step}: {}",
+                    error.as_ref().map(|e| e.message.as_str()).unwrap_or("")
+                ),
             );
         }
     }
@@ -739,7 +819,8 @@ impl Runner {
         if let Some(s) = &stall {
             detail["stall"] = json!(s);
         }
-        let r = upd(&mut self.journal.borrow_mut(), 
+        let r = upd(
+            &mut self.journal.borrow_mut(),
             id,
             &PacketPatch {
                 state: Some(ESCALATED.into()),
@@ -804,7 +885,8 @@ impl Runner {
                         Some(c) if c == BATCH_STEP || c == VERIFY_STEP => Some(OUTPUT_STEP.to_string()),
                         other => other.map(str::to_owned),
                     };
-                    upd(j, 
+                    upd(
+                        j,
                         &row.id,
                         &PacketPatch {
                             state: Some(ESCALATED.into()),
@@ -835,7 +917,14 @@ impl Runner {
     }
 
     /// Resolve units waiting for the agent (D50), all or nothing, in one transaction.
-    pub fn resolve(&self, ids: &[String], action: &str, by: &str, by_kind: Option<&str>, reason: Option<&str>) -> Result<Value, ControlError> {
+    pub fn resolve(
+        &self,
+        ids: &[String],
+        action: &str,
+        by: &str,
+        by_kind: Option<&str>,
+        reason: Option<&str>,
+    ) -> Result<Value, ControlError> {
         let p = self.pipeline();
         let name = p.name.clone();
         let st = self.state();
@@ -859,7 +948,9 @@ impl Runner {
                 return Err(ControlError::new(
                     "not_found",
                     format!("no packet '{id}' in {name}"),
-                    format!("list the packets waiting for an agent: the packets op with state escalated (pipo packets {name})"),
+                    format!(
+                        "list the packets waiting for an agent: the packets op with state escalated (pipo packets {name})"
+                    ),
                 ));
             };
             if row.state != ESCALATED {
@@ -893,16 +984,20 @@ impl Runner {
         let reason_r = reason.map(|r| self.secrets.redact(r));
         let result = self.journal.borrow_mut().atomically(|j| {
             for id in ids {
-                let row = j.get(id)?.ok_or_else(|| crate::journal::Error::from(format!("packet {id} was resolved meanwhile")))?;
+                let row = j
+                    .get(id)?
+                    .ok_or_else(|| crate::journal::Error::from(format!("packet {id} was resolved meanwhile")))?;
                 if row.state != ESCALATED {
                     return Err(format!("\u{0}stale:packet {id} was resolved meanwhile").into());
                 }
                 // Free text from the caller: a secret pasted into it must never reach the journal.
-                let detail = json!({ "action": action, "by": by_r, "by_kind": by_kind, "reason": reason_r, "error": row.error });
+                let detail =
+                    json!({ "action": action, "by": by_r, "by_kind": by_kind, "reason": reason_r, "error": row.error });
                 if action == "retry" {
                     let state = if row.cursor.as_deref() == Some(OUTPUT_STEP) { "writing" } else { "processing" };
                     let loop_max = row.error.as_ref().map(|e| e.code == "loop.max").unwrap_or(false);
-                    upd(j, 
+                    upd(
+                        j,
                         id,
                         &PacketPatch {
                             state: Some(state.into()),
@@ -921,7 +1016,8 @@ impl Runner {
                     continue;
                 }
                 let state = if action == "drop" { "filtered" } else { "dead_lettered" };
-                upd(j, 
+                upd(
+                    j,
                     id,
                     &PacketPatch { state: Some(state.into()), cursor: Some(None), ..Default::default() },
                     if action == "drop" { "packet.dropped" } else { "packet.dead_lettered" },
@@ -934,7 +1030,9 @@ impl Runner {
                 for a in j.settle_ancestors(id)? {
                     settled.push((a.id, a.state, a.error));
                 }
-                resolved.push(json!({ "packet_id": id, "state": state, "node": row.error.as_ref().and_then(|e| e.node.clone()) }));
+                resolved.push(
+                    json!({ "packet_id": id, "state": state, "node": row.error.as_ref().and_then(|e| e.node.clone()) }),
+                );
             }
             Ok(())
         });
@@ -990,7 +1088,18 @@ impl Runner {
 
     async fn run_node(&self, plan: &Plan, row: &PacketRow, id: &str, emitted: Rc<RefCell<Emitted>>) -> Transition {
         let Some(node) = plan.pipeline.nodes.get(id).cloned() else {
-            return self.fail(plan, row, id, &resolve_policy(None, None), Failure { code: "node.failed".into(), message: format!("node '{id}' is not in v{}", plan.version), ..Default::default() }, None);
+            return self.fail(
+                plan,
+                row,
+                id,
+                &resolve_policy(None, None),
+                Failure {
+                    code: "node.failed".into(),
+                    message: format!("node '{id}' is not in v{}", plan.version),
+                    ..Default::default()
+                },
+                None,
+            );
         };
         let kind = node.kind();
         let policy = resolve_policy(plan.pipeline.errors.as_ref(), node.on_error.as_ref());
@@ -1015,7 +1124,8 @@ impl Runner {
                     let c = ctx(&row.data, &meta, &self.env);
                     match kind {
                         Some(NodeKind::Filter) => {
-                            let v = evaluate(node.filter.as_deref().unwrap_or("true"), &c).map_err(|e| StepError::new(e.to_string()))?;
+                            let v = evaluate(node.filter.as_deref().unwrap_or("true"), &c)
+                                .map_err(|e| StepError::new(e.to_string()))?;
                             Ok(Out::Pass(truthy(&v)))
                         }
                         Some(NodeKind::Route) => {
@@ -1031,7 +1141,8 @@ impl Runner {
                             Ok(Out::Branch(None))
                         }
                         Some(NodeKind::Tap) => {
-                            self.action(plan, node.tap.as_deref().unwrap_or(""), "tap", &node, row, &meta, &emitted).await?;
+                            self.action(plan, node.tap.as_deref().unwrap_or(""), "tap", &node, row, &meta, &emitted)
+                                .await?;
                             Ok(Out::Data(row.data.clone()))
                         }
                         Some(NodeKind::Transform) => {
@@ -1070,7 +1181,19 @@ impl Runner {
                     // Per-packet cap: dead-lettered whatever `on_error.then` says (§3.11).
                     let mut p = policy.clone();
                     p.then = "dead_letter".into();
-                    return self.fail(plan, row, id, &p, Failure { code: kind.into(), message: error.message, attempts: Some(attempts), ..Default::default() }, None);
+                    return self.fail(
+                        plan,
+                        row,
+                        id,
+                        &p,
+                        Failure {
+                            code: kind.into(),
+                            message: error.message,
+                            attempts: Some(attempts),
+                            ..Default::default()
+                        },
+                        None,
+                    );
                 }
                 if policy.then == "continue" && kind == Some(NodeKind::Tap) {
                     return self.advance(plan, id, row.data.clone(), "node.failed_continued");
@@ -1080,7 +1203,13 @@ impl Runner {
                     row,
                     id,
                     &policy,
-                    Failure { code: "node.failed".into(), message: error.message, attempts: Some(attempts), elapsed: Some(elapsed), rule: None },
+                    Failure {
+                        code: "node.failed".into(),
+                        message: error.message,
+                        attempts: Some(attempts),
+                        elapsed: Some(elapsed),
+                        rule: None,
+                    },
                     None,
                 );
             }
@@ -1113,7 +1242,11 @@ impl Runner {
                     row,
                     id,
                     &loop_policy,
-                    Failure { code: "loop.max".into(), message: format!("loop reached max {} without '{}'", lp.max, lp.until), ..Default::default() },
+                    Failure {
+                        code: "loop.max".into(),
+                        message: format!("loop reached max {} without '{}'", lp.max, lp.until),
+                        ..Default::default()
+                    },
                     Some(data),
                 );
             }
@@ -1129,9 +1262,22 @@ impl Runner {
 
     /// One agent call (§3.4, §3.11, D36): budget checks, the rendered prompt under `timeout`, the usage journaled as
     /// soon as the provider reports it, then the output checked against `with.schema`.
-    async fn agent_call(&self, plan: &Plan, node: &crate::pipeline::Node, row: &PacketRow, id: &str, meta: &Value, attempt_no: u32) -> Result<Value, StepError> {
+    async fn agent_call(
+        &self,
+        plan: &Plan,
+        node: &crate::pipeline::Node,
+        row: &PacketRow,
+        id: &str,
+        meta: &Value,
+        attempt_no: u32,
+    ) -> Result<Value, StepError> {
         let name = node.agent.clone().unwrap_or_default();
-        let provider = self.agents.providers.get(&name).cloned().ok_or_else(|| StepError::new(format!("agent provider '{name}' is not available")))?;
+        let provider = self
+            .agents
+            .providers
+            .get(&name)
+            .cloned()
+            .ok_or_else(|| StepError::new(format!("agent provider '{name}' is not available")))?;
         let budget = self.budget.as_ref().ok_or_else(|| StepError::new("agent budget is not set up"))?;
         let root = row.root.clone().unwrap_or_else(|| row.id.clone());
         let per_packet = plan.pipeline.agent_budget.as_ref().and_then(|b| b.per_packet);
@@ -1149,7 +1295,8 @@ impl Runner {
         let used = budget.check_packet(&root, per_packet).map_err(refuse)?;
 
         let c = json!({ "data": row.data, "meta": meta, "env": self.env, "secrets": self.secrets.values });
-        let w = render(&Value::Object(node.with.clone().unwrap_or_default()), &c).map_err(|e| StepError::new(e.to_string()))?;
+        let w = render(&Value::Object(node.with.clone().unwrap_or_default()), &c)
+            .map_err(|e| StepError::new(e.to_string()))?;
         let cli = self.agents.is_cli(&name);
         // A CLI agent without a model uses the CLI's own default (D67).
         let model = match w.get("model") {
@@ -1158,23 +1305,24 @@ impl Runner {
         };
         let price = self.agents.pricing.get(&name).and_then(|p| price_for(p, &model));
         if price.is_none() && !cli {
-            return Err(StepError::new(format!("no price for model '{model}'; add agents.{name}.pricing.{model} to config.yaml")));
+            return Err(StepError::new(format!(
+                "no price for model '{model}'; add agents.{name}.pricing.{model} to config.yaml"
+            )));
         }
-        let manifest_timeout = self.agents.manifests.get(&name).and_then(|m| m.get("timeout")).and_then(|t| t.as_str()).map(str::to_owned);
+        let manifest_timeout =
+            self.agents.manifests.get(&name).and_then(|m| m.get("timeout")).and_then(|t| t.as_str()).map(str::to_owned);
         let timeout_text = w.get("timeout").map(to_text).or(manifest_timeout).unwrap_or_else(|| AGENT_TIMEOUT.into());
         let timeout = parse_duration(&timeout_text).map_err(StepError::new)?;
         let mut cwd = None;
-        if cli {
-            if let Some(dir) = w.get("cwd") {
-                let path = self.dir.join(to_text(dir));
-                if !path.is_dir() {
-                    return Err(StepError::new(format!(
-                        "with.cwd: {} is not a folder; create it, or leave cwd out to run in a fresh empty folder",
-                        path.display()
-                    )));
-                }
-                cwd = Some(path);
+        if cli && let Some(dir) = w.get("cwd") {
+            let path = self.dir.join(to_text(dir));
+            if !path.is_dir() {
+                return Err(StepError::new(format!(
+                    "with.cwd: {} is not a folder; create it, or leave cwd out to run in a fresh empty folder",
+                    path.display()
+                )));
             }
+            cwd = Some(path);
         }
         let configured = w.get("max_tokens").and_then(|m| m.as_f64()).map(|m| m as u64).unwrap_or(AGENT_MAX_TOKENS);
         // Never ask for more output than the packet has left (§3.11).
@@ -1182,9 +1330,12 @@ impl Runner {
             None => configured,
             Some(cap) => configured.min(cap.saturating_sub(used)).max(1),
         };
-        let schema = plan.agent_schemas.get(id).ok_or_else(|| StepError::new(format!("agent node '{id}' has no schema")))?;
+        let schema =
+            plan.agent_schemas.get(id).ok_or_else(|| StepError::new(format!("agent node '{id}' has no schema")))?;
         let record = |usage: &crate::agents::AgentUsage| -> u64 {
-            let cost = usage.cost_usd.unwrap_or_else(|| price.map(|p| cost_of(p, usage.input_tokens, usage.output_tokens)).unwrap_or(0.0));
+            let cost = usage
+                .cost_usd
+                .unwrap_or_else(|| price.map(|p| cost_of(p, usage.input_tokens, usage.output_tokens)).unwrap_or(0.0));
             let r = self.journal.borrow_mut().record_agent_usage(&crate::journal::AgentUsage {
                 at: now_ms(),
                 unit: row.id.clone(),
@@ -1222,7 +1373,10 @@ impl Runner {
             Ok(r) => r,
             Err(_) => {
                 abort.notify_one();
-                return Err(StepError::new(format!("agent call timed out after {} (with.timeout)", format_duration(timeout))));
+                return Err(StepError::new(format!(
+                    "agent call timed out after {} (with.timeout)",
+                    format_duration(timeout)
+                )));
             }
         };
         let result = match result {
@@ -1230,23 +1384,27 @@ impl Runner {
             Err(e) => {
                 if let Some(u) = &e.usage {
                     let total = record(u);
-                    if let Some(cap) = per_packet {
-                        if total > cap {
-                            return Err(stop(packet_stop(total, cap)));
-                        }
+                    if let Some(cap) = per_packet
+                        && total > cap
+                    {
+                        return Err(stop(packet_stop(total, cap)));
                     }
                 }
                 return Err(StepError::new(self.secrets.redact(&e.message)));
             }
         };
         let total = record(&result.usage);
-        if let Some(cap) = per_packet {
-            if total > cap {
-                return Err(stop(packet_stop(total, cap)));
-            }
+        if let Some(cap) = per_packet
+            && total > cap
+        {
+            return Err(stop(packet_stop(total, cap)));
         }
         if let Some(mismatch) = schema.check(&result.output) {
-            return Err(StepError::new(format!("agent output does not match {}: {}", schema.path, self.secrets.redact(&mismatch))));
+            return Err(StepError::new(format!(
+                "agent output does not match {}: {}",
+                schema.path,
+                self.secrets.redact(&mismatch)
+            )));
         }
         Ok(result.output)
     }
@@ -1256,7 +1414,14 @@ impl Runner {
         let to = plan.next_of(reference);
         match to.len() {
             0 => end("filtered", "packet.filtered"),
-            1 => Transition::Move { to: to[0].clone(), data, iteration: None, result: None, event: event.into(), extra: vec![] },
+            1 => Transition::Move {
+                to: to[0].clone(),
+                data,
+                iteration: None,
+                result: None,
+                event: event.into(),
+                extra: vec![],
+            },
             _ => Transition::Split { to: to.to_vec(), data, event: event.into(), extra: vec![] },
         }
     }
@@ -1273,14 +1438,19 @@ impl Runner {
         emitted: &Rc<RefCell<Emitted>>,
     ) -> Result<Option<Value>, StepError> {
         let data = &row.data;
-        if let Some(name) = fn_ref(action) {
-            if plan.fns.contains(action) {
-                let out = self.fns.call(plan.version as u32, name, data, meta).await.map_err(|e| StepError::new(self.secrets.redact(&e)))?;
-                return Ok(if kind == "transform" { out } else { None });
-            }
+        if let Some(name) = fn_ref(action)
+            && plan.fns.contains(action)
+        {
+            let out = self
+                .fns
+                .call(plan.version as u32, name, data, meta)
+                .await
+                .map_err(|e| StepError::new(self.secrets.redact(&e)))?;
+            return Ok(if kind == "transform" { out } else { None });
         }
         let c = json!({ "data": data, "meta": meta, "env": self.env, "secrets": self.secrets.values });
-        let w = render(&Value::Object(node.with.clone().unwrap_or_default()), &c).map_err(|e| StepError::new(e.to_string()))?;
+        let w = render(&Value::Object(node.with.clone().unwrap_or_default()), &c)
+            .map_err(|e| StepError::new(e.to_string()))?;
         let w = w.as_object().cloned().unwrap_or_default();
         let node_id = meta.get("node").and_then(|n| n.as_str()).unwrap_or_default().to_string();
         if kind == "tap" && action == "log" {
@@ -1290,7 +1460,12 @@ impl Runner {
             };
             let level = w.get("level").map(to_text).unwrap_or_else(|| "info".into());
             self.log(&level, &message);
-            self.event("log", Some(json!({ "level": level, "message": self.secrets.redact(&message) })), Some(&row.id), Some(&node_id));
+            self.event(
+                "log",
+                Some(json!({ "level": level, "message": self.secrets.redact(&message) })),
+                Some(&row.id),
+                Some(&node_id),
+            );
             return Ok(None);
         }
         if kind == "transform" && action == "map" {
@@ -1353,21 +1528,37 @@ impl Runner {
             };
             if !ok {
                 let mut policy = resolve_policy(None, None);
-                policy.then = out.on_invalid.as_ref().and_then(|i| i.then.clone()).unwrap_or_else(|| "dead_letter".into());
+                policy.then =
+                    out.on_invalid.as_ref().and_then(|i| i.then.clone()).unwrap_or_else(|| "dead_letter".into());
                 policy.message = out.on_invalid.as_ref().and_then(|i| i.message.clone());
-                return self.fail(plan, row, "output", &policy, Failure { code: "output.invalid".into(), rule: Some(rule), message: why, ..Default::default() }, None);
+                return self.fail(
+                    plan,
+                    row,
+                    "output",
+                    &policy,
+                    Failure { code: "output.invalid".into(), rule: Some(rule), message: why, ..Default::default() },
+                    None,
+                );
             }
         }
         // Only packets that passed validation join a batch (spec §3.5.1); the flush writes them.
         if out.batch.is_some() {
-            return Transition::Move { to: BATCH_STEP.into(), data: row.data.clone(), iteration: None, result: None, event: "output.batched".into(), extra: vec![] };
+            return Transition::Move {
+                to: BATCH_STEP.into(),
+                data: row.data.clone(),
+                iteration: None,
+                result: None,
+                event: "output.batched".into(),
+                extra: vec![],
+            };
         }
         let policy = resolve_policy(plan.pipeline.errors.as_ref(), out.on_error.as_ref());
         let run = attempt(
             &policy,
             |n| async move {
                 let item = self.write_item(plan, row, n).map_err(StepError::new)?;
-                let results = self.output.write(vec![item]).await.map_err(|e| StepError::new(self.secrets.redact(&e)))?;
+                let results =
+                    self.output.write(vec![item]).await.map_err(|e| StepError::new(self.secrets.redact(&e)))?;
                 Ok(results.into_iter().next().unwrap_or(Value::Null))
             },
             |err, n, wait| self.retrying(row, "output", &err.message, n, wait),
@@ -1388,7 +1579,13 @@ impl Runner {
                 row,
                 "output",
                 &policy,
-                Failure { code: "output.failed".into(), message: error.message, attempts: Some(attempts), elapsed: Some(elapsed), rule: None },
+                Failure {
+                    code: "output.failed".into(),
+                    message: error.message,
+                    attempts: Some(attempts),
+                    elapsed: Some(elapsed),
+                    rule: None,
+                },
                 None,
             ),
         }
@@ -1439,7 +1636,12 @@ impl Runner {
     /// One flush is one write of every packet in `rows`, retried under `on_error`. When the retries run out the
     /// group is split in half and each half flushed the same way, down to single packets, so only the packets that
     /// still fail get the policy's final action. A successful write commits all its packets' transitions at once.
-    fn flush_group<'a>(&'a self, plan: &'a Plan, policy: &'a ResolvedPolicy, rows: Vec<PacketRow>) -> connectors::LocalBoxFuture<'a, ()> {
+    fn flush_group<'a>(
+        &'a self,
+        plan: &'a Plan,
+        policy: &'a ResolvedPolicy,
+        rows: Vec<PacketRow>,
+    ) -> connectors::LocalBoxFuture<'a, ()> {
         Box::pin(async move {
             if self.s.borrow().closed || rows.is_empty() {
                 return;
@@ -1480,7 +1682,8 @@ impl Runner {
                     let n = rows.len();
                     let r = self.journal.borrow_mut().atomically(|j| {
                         for (i, row) in rows.iter().enumerate() {
-                            upd(j, 
+                            upd(
+                                j,
                                 &row.id,
                                 &PacketPatch {
                                     state: Some("verifying".into()),
@@ -1515,7 +1718,13 @@ impl Runner {
                 }
                 Attempted::Failed { error, attempts, elapsed } => (error, attempts, elapsed),
             };
-            let failure = Failure { code: "output.failed".into(), message: error.message.clone(), attempts: Some(attempts), elapsed: Some(elapsed), rule: None };
+            let failure = Failure {
+                code: "output.failed".into(),
+                message: error.message.clone(),
+                attempts: Some(attempts),
+                elapsed: Some(elapsed),
+                rule: None,
+            };
             if rows.len() == 1 {
                 let row = &rows[0];
                 let t = self.fail(plan, row, "output", policy, failure, None);
@@ -1555,7 +1764,8 @@ impl Runner {
         let message = self.secrets.redact(error);
         let r = self.journal.borrow_mut().atomically(|j| {
             for row in rows {
-                upd(j, 
+                upd(
+                    j,
                     &row.id,
                     &PacketPatch { attempt: Some(n), ..Default::default() },
                     "step.retry",
@@ -1572,7 +1782,11 @@ impl Runner {
         }
         self.log(
             "warn",
-            &format!("batch of {} failed at output (attempt {n}): {message}; retrying in {}", rows.len(), format_duration(wait)),
+            &format!(
+                "batch of {} failed at output (attempt {n}): {message}; retrying in {}",
+                rows.len(),
+                format_duration(wait)
+            ),
         );
     }
 
@@ -1586,7 +1800,14 @@ impl Runner {
             Ok(i) => i,
             Err(e) => {
                 let policy = resolve_policy(None, delivered.as_ref().and_then(|d| d.on_fail.as_ref()));
-                return self.fail(plan, row, "delivered", &policy, Failure { code: "delivery.unverified".into(), message: e, attempts: Some(1), ..Default::default() }, None);
+                return self.fail(
+                    plan,
+                    row,
+                    "delivered",
+                    &policy,
+                    Failure { code: "delivery.unverified".into(), message: e, attempts: Some(1), ..Default::default() },
+                    None,
+                );
             }
         };
         let meta = self.meta(plan, row, "delivered", 1);
@@ -1594,11 +1815,13 @@ impl Runner {
             "data": row.data, "meta": meta, "env": self.env, "secrets": self.secrets.values,
             "output": serde_json::to_value(&plan.pipeline.output).unwrap_or(Value::Null), "result": row.result,
         });
-        let check_with = render(&Value::Object(delivered.as_ref().and_then(|d| d.with.clone()).unwrap_or_default()), &c)
-            .ok()
-            .and_then(|v| v.as_object().cloned())
-            .unwrap_or_default();
-        let within = parse_duration(delivered.as_ref().and_then(|d| d.within.as_deref()).unwrap_or("10s")).unwrap_or(10_000);
+        let check_with =
+            render(&Value::Object(delivered.as_ref().and_then(|d| d.with.clone()).unwrap_or_default()), &c)
+                .ok()
+                .and_then(|v| v.as_object().cloned())
+                .unwrap_or_default();
+        let within =
+            parse_duration(delivered.as_ref().and_then(|d| d.within.as_deref()).unwrap_or("10s")).unwrap_or(10_000);
         let started = now_ms();
         let mut last_error: Option<String> = None;
         let mut checks = 0;
@@ -1622,9 +1845,24 @@ impl Runner {
         let policy = resolve_policy(None, delivered.as_ref().and_then(|d| d.on_fail.as_ref()));
         let message = match last_error {
             Some(e) => format!("delivery check '{check}' errored: {e}"),
-            None => format!("delivery check '{check}' did not pass after {checks} checks over {}", format_duration(elapsed)),
+            None => {
+                format!("delivery check '{check}' did not pass after {checks} checks over {}", format_duration(elapsed))
+            }
         };
-        self.fail(plan, row, "delivered", &policy, Failure { code: "delivery.unverified".into(), message, attempts: Some(checks), elapsed: Some(elapsed), rule: None }, None)
+        self.fail(
+            plan,
+            row,
+            "delivered",
+            &policy,
+            Failure {
+                code: "delivery.unverified".into(),
+                message,
+                attempts: Some(checks),
+                elapsed: Some(elapsed),
+                rule: None,
+            },
+            None,
+        )
     }
 
     // ── external acknowledgement (spec §3.10, D24) ───────────────────────────────
@@ -1637,8 +1875,14 @@ impl Runner {
             return Some(end("delivered", "packet.delivered"));
         }
         let delivered = plan.pipeline.delivered.clone();
-        let within = parse_duration(delivered.as_ref().and_then(|d| d.within.as_deref()).unwrap_or("10s")).unwrap_or(10_000) as i64;
-        let mark = self.journal.borrow().latest_event(&row.id, &["output.written", "packet.held", "delivery.awaiting_ack"]).ok().flatten();
+        let within = parse_duration(delivered.as_ref().and_then(|d| d.within.as_deref()).unwrap_or("10s"))
+            .unwrap_or(10_000) as i64;
+        let mark = self
+            .journal
+            .borrow()
+            .latest_event(&row.id, &["output.written", "packet.held", "delivery.awaiting_ack"])
+            .ok()
+            .flatten();
         let (deadline, since) = match &mark {
             Some(m) if m.kind == "delivery.awaiting_ack" => (
                 m.detail.get("deadline").and_then(|d| d.as_i64()).unwrap_or(0),
@@ -1729,15 +1973,27 @@ impl Runner {
         if check != "external" {
             return Err(ControlError::new(
                 "invalid_state",
-                format!("packet {id} does not wait for an ack: delivered.check is '{check}' in version {}", found.version),
+                format!(
+                    "packet {id} does not wait for an ack: delivered.check is '{check}' in version {}",
+                    found.version
+                ),
                 "only pipelines with delivered.check: external take acks",
             ));
         }
         if self.s.borrow().closed {
-            return Err(ControlError::new("unavailable", format!("pipeline is {}", self.state().as_str()), "try again once it runs"));
+            return Err(ControlError::new(
+                "unavailable",
+                format!("pipeline is {}", self.state().as_str()),
+                "try again once it runs",
+            ));
         }
         // Re-read after the await: the packet may have moved on meanwhile.
-        let row = self.journal.borrow().get(id).map_err(internal)?.ok_or_else(|| internal(format!("packet {id} vanished")))?;
+        let row = self
+            .journal
+            .borrow()
+            .get(id)
+            .map_err(internal)?
+            .ok_or_else(|| internal(format!("packet {id} vanished")))?;
         if row.state == "delivered" {
             return Ok(json!({ "packet_id": id, "state": row.state, "acked": true, "already": true }));
         }
@@ -1758,7 +2014,8 @@ impl Runner {
         }
         let already = self.journal.borrow().latest_event(id, &["packet.acked"]).map_err(internal)?.is_some();
         if !already {
-            jev(&self.journal.borrow(), "packet.acked", Some(json!({ "by": by })), Some(id), Some(VERIFY_STEP)).map_err(internal)?;
+            jev(&self.journal.borrow(), "packet.acked", Some(json!({ "by": by })), Some(id), Some(VERIFY_STEP))
+                .map_err(internal)?;
         }
         self.unpark(id);
         Ok(json!({ "packet_id": id, "state": row.state, "acked": true, "already": already }))
@@ -1767,7 +2024,8 @@ impl Runner {
     fn write_item(&self, plan: &Plan, row: &PacketRow, attempt_no: u32) -> Result<WriteItem, String> {
         let meta = self.meta(plan, row, "output", attempt_no);
         let c = json!({ "data": row.data, "meta": meta, "env": self.env, "secrets": self.secrets.values });
-        let w = render(&Value::Object(plan.pipeline.output.with.clone().unwrap_or_default()), &c).map_err(|e| e.to_string())?;
+        let w = render(&Value::Object(plan.pipeline.output.with.clone().unwrap_or_default()), &c)
+            .map_err(|e| e.to_string())?;
         // The journal unit is the default idempotency key: `packet_id`, or `packet_id:<branch>` for a copy (D22).
         Ok(WriteItem {
             packet_id: row.id.clone(),
@@ -1778,7 +2036,15 @@ impl Runner {
     }
 
     /// Apply a policy's final action to a failed step.
-    fn fail(&self, plan: &Plan, row: &PacketRow, step: &str, policy: &ResolvedPolicy, f: Failure, data: Option<Value>) -> Transition {
+    fn fail(
+        &self,
+        plan: &Plan,
+        row: &PacketRow,
+        step: &str,
+        policy: &ResolvedPolicy,
+        f: Failure,
+        data: Option<Value>,
+    ) -> Transition {
         let data = data.unwrap_or_else(|| row.data.clone());
         let meta = self.meta(plan, row, step, 1);
         let error_ctx = json!({
@@ -1790,26 +2056,39 @@ impl Runner {
             "result": row.result, "error": error_ctx,
         });
         let message = self.message(policy.message.as_deref(), &c, &f.message);
-        let error = PacketError { code: f.code.clone(), message, node: Some(step.into()), attempts: Some(f.attempts.unwrap_or(1)) };
+        let error = PacketError {
+            code: f.code.clone(),
+            message,
+            node: Some(step.into()),
+            attempts: Some(f.attempts.unwrap_or(1)),
+        };
         // A unit a stall handed over goes to the agent whatever its policy says, except past its token cap (D50).
         let stalled = self.s.borrow().hand_over.get(&row.id).cloned();
-        if let Some(s) = stalled {
-            if f.code != "budget.packet" {
-                return Transition::Escalate { stall_reason: true, error, stall: Some(s) };
-            }
+        if let Some(s) = stalled
+            && f.code != "budget.packet"
+        {
+            return Transition::Escalate { stall_reason: true, error, stall: Some(s) };
         }
         match policy.then.as_str() {
             "agent" => Transition::Escalate { stall_reason: false, error, stall: None },
-            "drop" => Transition::End { state: "filtered", error: Some(error), event: "packet.dropped".into(), extra: vec![] },
+            "drop" => {
+                Transition::End { state: "filtered", error: Some(error), event: "packet.dropped".into(), extra: vec![] }
+            }
             "pause" => Transition::Hold { pause: true, error, reason: None, detail: Map::new() },
             "halt" => Transition::Hold { pause: false, error, reason: None, detail: Map::new() },
-            _ => Transition::End { state: "dead_lettered", error: Some(error), event: "packet.dead_lettered".into(), extra: vec![] },
+            _ => Transition::End {
+                state: "dead_lettered",
+                error: Some(error),
+                event: "packet.dead_lettered".into(),
+                extra: vec![],
+            },
         }
     }
 
     fn retrying(&self, row: &PacketRow, step: &str, error: &str, n: u32, wait: u64) {
         let message = self.secrets.redact(error);
-        let r = upd(&mut self.journal.borrow_mut(), 
+        let r = upd(
+            &mut self.journal.borrow_mut(),
             &row.id,
             &PacketPatch { attempt: Some(n), ..Default::default() },
             "step.retry",
@@ -1823,7 +2102,11 @@ impl Runner {
         }
         self.log(
             "warn",
-            &format!("packet {} failed at {step} (attempt {n}): {message}; retrying in {}", row.id, format_duration(wait)),
+            &format!(
+                "packet {} failed at {step} (attempt {n}): {message}; retrying in {}",
+                row.id,
+                format_duration(wait)
+            ),
         );
     }
 }
@@ -1848,7 +2131,8 @@ fn copies(parent: &PacketRow, to: &[String], data: &Value, hops: u32) -> Vec<cra
     to.iter()
         .map(|cursor| {
             let segment = if cursor == OUTPUT_STEP { "output" } else { cursor.as_str() };
-            let branch = if parent.branch.is_empty() { segment.to_string() } else { format!("{}/{segment}", parent.branch) };
+            let branch =
+                if parent.branch.is_empty() { segment.to_string() } else { format!("{}/{segment}", parent.branch) };
             let state = if cursor == OUTPUT_STEP { "writing" } else { "processing" };
             crate::journal::NewCopy {
                 id: format!("{}:{branch}", parent.root.as_deref().unwrap_or(&parent.id)),
@@ -1878,7 +2162,13 @@ pub(super) fn upd(
 }
 
 /// `Journal::event` with an owned detail.
-pub(super) fn jev(j: &Journal, kind: &str, detail: Option<Value>, packet_id: Option<&str>, node: Option<&str>) -> crate::journal::Result<()> {
+pub(super) fn jev(
+    j: &Journal,
+    kind: &str,
+    detail: Option<Value>,
+    packet_id: Option<&str>,
+    node: Option<&str>,
+) -> crate::journal::Result<()> {
     j.event(kind, detail.as_ref(), packet_id, node)
 }
 

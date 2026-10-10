@@ -88,7 +88,11 @@ async fn run_in(command: &str, args: &[String], o: &RunOptions, dir: &Path) -> R
         .process_group(0)
         .kill_on_drop(false);
     let mut child = cmd.spawn().map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound { format!("spawn {command} ENOENT") } else { format!("spawn {command}: {e}") }
+        if e.kind() == std::io::ErrorKind::NotFound {
+            format!("spawn {command} ENOENT")
+        } else {
+            format!("spawn {command}: {e}")
+        }
     })?;
     let pid = child.id();
     let deadline = async {
@@ -120,7 +124,10 @@ async fn run_in(command: &str, args: &[String], o: &RunOptions, dir: &Path) -> R
     })
 }
 
-async fn kill_then_wait(child: &mut tokio::process::Child, pid: Option<u32>) -> std::io::Result<std::process::ExitStatus> {
+async fn kill_then_wait(
+    child: &mut tokio::process::Child,
+    pid: Option<u32>,
+) -> std::io::Result<std::process::ExitStatus> {
     signal_group(pid, libc::SIGTERM);
     match tokio::time::timeout(Duration::from_secs(2), child.wait()).await {
         Ok(s) => s,
@@ -153,9 +160,16 @@ mod tests {
 
     #[tokio::test]
     async fn runs_and_times_out() {
-        let r = run_cli("sh", &["-c".into(), "cat; echo err >&2; exit 3".into()], RunOptions { stdin: Some("hi".into()), ..Default::default() }).await.unwrap();
+        let r = run_cli(
+            "sh",
+            &["-c".into(), "cat; echo err >&2; exit 3".into()],
+            RunOptions { stdin: Some("hi".into()), ..Default::default() },
+        )
+        .await
+        .unwrap();
         assert_eq!((r.code, r.stdout.as_str(), r.stderr.as_str()), (Some(3), "hi", "err\n"));
-        let r = run_cli("sleep", &["5".into()], RunOptions { timeout_ms: Some(100), ..Default::default() }).await.unwrap();
+        let r =
+            run_cli("sleep", &["5".into()], RunOptions { timeout_ms: Some(100), ..Default::default() }).await.unwrap();
         assert_eq!(r.signal.as_deref(), Some("SIGTERM"));
         assert!(run_cli("pipo-no-such-command", &[], RunOptions::default()).await.unwrap_err().contains("ENOENT"));
     }

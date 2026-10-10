@@ -85,9 +85,10 @@ fn append(path: &Path, text: &str) -> Result<(), String> {
 fn append_or_cut_back(path: &Path, size: u64, chunk: &str) -> Result<(), String> {
     append(path, chunk).inspect_err(|_| {
         if file_size(path) > size
-            && let Ok(f) = std::fs::OpenOptions::new().write(true).open(path) {
-                let _ = f.set_len(size);
-            }
+            && let Ok(f) = std::fs::OpenOptions::new().write(true).open(path)
+        {
+            let _ = f.set_len(size);
+        }
     })
 }
 
@@ -216,7 +217,12 @@ impl FileOutput {
     fn append_json(&self, path: &Path, group: &[&WriteItem]) -> Result<Vec<Value>, String> {
         let mut records: Vec<Value> = vec![];
         if file_size(path) > 0 {
-            let bad = || format!("{} is not a JSON array written by Pipo; use mode: write, or another path or format", path.display());
+            let bad = || {
+                format!(
+                    "{} is not a JSON array written by Pipo; use mode: write, or another path or format",
+                    path.display()
+                )
+            };
             match serde_json::from_str::<Value>(&read_text(path)?) {
                 Ok(Value::Array(a)) => records = a,
                 _ => return Err(bad()),
@@ -252,12 +258,20 @@ impl FileOutput {
             } else {
                 csv_columns(&todo[0].data)
             };
-            let header = if size > 0 { String::new() } else { format!("{}\n", cols.iter().map(|c| csv_cell(&json!(c))).collect::<Vec<_>>().join(",")) };
+            let header = if size > 0 {
+                String::new()
+            } else {
+                format!("{}\n", cols.iter().map(|c| csv_cell(&json!(c))).collect::<Vec<_>>().join(","))
+            };
             header + &todo.iter().map(|i| csv_row(&i.data, &cols)).collect::<String>()
         } else {
             todo.iter().map(|i| format!("{}\n", to_text(&i.data))).collect()
         };
-        let ids = if todo.len() == 1 { json!(todo[0].packet_id) } else { json!(todo.iter().map(|i| &i.packet_id).collect::<Vec<_>>()) };
+        let ids = if todo.len() == 1 {
+            json!(todo[0].packet_id)
+        } else {
+            json!(todo.iter().map(|i| &i.packet_id).collect::<Vec<_>>())
+        };
         let log = PathBuf::from(format!("{}.pipo-keys", path.display()));
         append(&log, &format!("{}\n", js_json(&json!(["begin", ids, size, chunk.len()]))))?;
         if let Err(e) = append_or_cut_back(path, size, &chunk) {
@@ -275,7 +289,12 @@ impl FileOutput {
         if !["file_exists", "file_nonempty", "line_contains", "checksum"].contains(&check) {
             return Err(format!("file output does not support delivery check '{check}'"));
         }
-        let target = check_with.get("path").filter(|v| !v.is_null()).or_else(|| item.with.get("path")).map(to_text).unwrap_or_default();
+        let target = check_with
+            .get("path")
+            .filter(|v| !v.is_null())
+            .or_else(|| item.with.get("path"))
+            .map(to_text)
+            .unwrap_or_default();
         if target.is_empty() {
             return Err("delivered.with.path is empty after rendering; set it or output.with.path".into());
         }
@@ -297,11 +316,17 @@ impl FileOutput {
                         _ => return Err("delivered.with.value is empty; give the text to look for".into()),
                     };
                     let text = std::fs::read(&path).map_err(|e| e.to_string())?;
-                    Ok(String::from_utf8_lossy(&text).split('\n').any(|l| l.strip_suffix('\r').unwrap_or(l).contains(value.as_str())))
+                    Ok(String::from_utf8_lossy(&text)
+                        .split('\n')
+                        .any(|l| l.strip_suffix('\r').unwrap_or(l).contains(value.as_str())))
                 }
                 _ => {
                     let want = match check_with.get("sha256") {
-                        Some(Value::String(v)) if v.trim().len() == 64 && v.trim().bytes().all(|b| b.is_ascii_hexdigit()) => v.trim().to_lowercase(),
+                        Some(Value::String(v))
+                            if v.trim().len() == 64 && v.trim().bytes().all(|b| b.is_ascii_hexdigit()) =>
+                        {
+                            v.trim().to_lowercase()
+                        }
                         _ => return Err("delivered.with.sha256 must be 64 hex characters".into()),
                     };
                     let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
@@ -309,7 +334,9 @@ impl FileOutput {
                 }
             }
         };
-        run().map_err(|e| format!("cannot read {} for check '{check}': {e}; check the path and permissions", path.display()))
+        run().map_err(|e| {
+            format!("cannot read {} for check '{check}': {e}; check the path and permissions", path.display())
+        })
     }
 }
 
@@ -319,7 +346,11 @@ fn whole(format: &str, item: &WriteItem) -> String {
         "json" => format!("{}\n", pretty(&item.data)),
         "csv" => {
             let cols = csv_columns(&item.data);
-            format!("{}\n{}", cols.iter().map(|c| csv_cell(&json!(c))).collect::<Vec<_>>().join(","), csv_row(&item.data, &cols))
+            format!(
+                "{}\n{}",
+                cols.iter().map(|c| csv_cell(&json!(c))).collect::<Vec<_>>().join(","),
+                csv_row(&item.data, &cols)
+            )
         }
         _ => format!("{}\n", to_text(&item.data)),
     }
@@ -330,9 +361,10 @@ fn jsonl_keys(path: &Path) -> HashSet<String> {
     if let Ok(text) = read_text(path) {
         for line in text.split('\n') {
             if let Ok(v) = serde_json::from_str::<Value>(line)
-                && let Some(id) = v.get("packet_id").and_then(|i| i.as_str()) {
-                    keys.insert(id.to_string());
-                }
+                && let Some(id) = v.get("packet_id").and_then(|i| i.as_str())
+            {
+                keys.insert(id.to_string());
+            }
         }
     }
     keys
@@ -418,10 +450,19 @@ mod tests {
         let b = TempDir::new();
         let w = json!({ "path": "out/a.jsonl" });
         let out = FileOutput::new(b.path());
-        let r = out.write_now(&[item("p1", json!({"n": 1}), w.clone()), item("p2", json!({"n": 2}), w.clone()), item("p1", json!({"n": 1}), w.clone())]).unwrap();
+        let r = out
+            .write_now(&[
+                item("p1", json!({"n": 1}), w.clone()),
+                item("p2", json!({"n": 2}), w.clone()),
+                item("p1", json!({"n": 1}), w.clone()),
+            ])
+            .unwrap();
         assert_eq!(r[2]["skipped"], json!(true));
-        FileOutput::new(b.path()).write_now(&[item("p2", json!({"n": 2}), w.clone()), item("p3", json!({"n": 3}), w)]).unwrap();
-        let lines: Vec<Value> = read(b.join("out/a.jsonl")).trim().split('\n').map(|l| serde_json::from_str(l).unwrap()).collect();
+        FileOutput::new(b.path())
+            .write_now(&[item("p2", json!({"n": 2}), w.clone()), item("p3", json!({"n": 3}), w)])
+            .unwrap();
+        let lines: Vec<Value> =
+            read(b.join("out/a.jsonl")).trim().split('\n').map(|l| serde_json::from_str(l).unwrap()).collect();
         assert_eq!(
             lines,
             vec![
@@ -441,7 +482,8 @@ mod tests {
         let b = TempDir::new();
         let out = FileOutput::new(b.path());
         let w = json!({ "path": "a.json", "format": "json" });
-        out.write_now(&[item("p1", json!(1), w.clone()), item("p1", json!(1), w.clone()), item("p2", json!(2), w)]).unwrap();
+        out.write_now(&[item("p1", json!(1), w.clone()), item("p1", json!(1), w.clone()), item("p2", json!(2), w)])
+            .unwrap();
         let v: Value = serde_json::from_str(&read(b.join("a.json"))).unwrap();
         assert_eq!(v, json!([{"packet_id": "p1", "data": 1}, {"packet_id": "p2", "data": 2}]));
         let ww = json!({ "path": "b.json", "format": "json", "mode": "write" });
@@ -457,11 +499,17 @@ mod tests {
         let b = TempDir::new();
         let out = FileOutput::new(b.path());
         let w = json!({ "path": "a.csv", "format": "csv" });
-        out.write_now(&[item("p1", json!({"name": "A \"x\", y", "n": 1}), w.clone()), item("p2", json!({"name": "B", "n": 2}), w.clone()), item("p1", json!({}), w.clone())]).unwrap();
+        out.write_now(&[
+            item("p1", json!({"name": "A \"x\", y", "n": 1}), w.clone()),
+            item("p2", json!({"name": "B", "n": 2}), w.clone()),
+            item("p1", json!({}), w.clone()),
+        ])
+        .unwrap();
         assert_eq!(read(b.join("a.csv")), "name,n\n\"A \"\"x\"\", y\",1\nB,2\n");
         out.write_now(&[item("p3", json!({"n": 3, "name": "C"}), w)]).unwrap();
         assert_eq!(read(b.join("a.csv")), "name,n\n\"A \"\"x\"\", y\",1\nB,2\nC,3\n");
-        out.write_now(&[item("p4", json!("plain"), json!({"path": "v.csv", "format": "csv", "mode": "write"}))]).unwrap();
+        out.write_now(&[item("p4", json!("plain"), json!({"path": "v.csv", "format": "csv", "mode": "write"}))])
+            .unwrap();
         assert_eq!(read(b.join("v.csv")), "value\nplain\n");
     }
 
@@ -469,10 +517,16 @@ mod tests {
     fn text_append_and_write() {
         let b = TempDir::new();
         let out = FileOutput::new(b.path());
-        out.write_now(&[item("p1", json!("hello"), json!({"path": "a.txt", "format": "text"})), item("p2", json!("world"), json!({"path": "a.txt", "format": "text"}))]).unwrap();
+        out.write_now(&[
+            item("p1", json!("hello"), json!({"path": "a.txt", "format": "text"})),
+            item("p2", json!("world"), json!({"path": "a.txt", "format": "text"})),
+        ])
+        .unwrap();
         assert_eq!(read(b.join("a.txt")), "hello\nworld\n");
-        out.write_now(&[item("p3", json!("only"), json!({"path": "w.txt", "format": "text", "mode": "write"}))]).unwrap();
-        out.write_now(&[item("p4", json!("last"), json!({"path": "w.txt", "format": "text", "mode": "write"}))]).unwrap();
+        out.write_now(&[item("p3", json!("only"), json!({"path": "w.txt", "format": "text", "mode": "write"}))])
+            .unwrap();
+        out.write_now(&[item("p4", json!("last"), json!({"path": "w.txt", "format": "text", "mode": "write"}))])
+            .unwrap();
         assert_eq!(read(b.join("w.txt")), "last\n");
         assert!(!b.join("w.txt.tmp").exists());
     }
@@ -531,10 +585,22 @@ mod tests {
         // Real errors.
         std::fs::write(b.join("f"), "x").unwrap();
         let f = item("p1", json!({}), json!({"path": "f"}));
-        assert!(out.verify_now("checksum", json!({"sha256": "abc"}).as_object().unwrap(), &f).unwrap_err().contains("64 hex"));
+        assert!(
+            out.verify_now("checksum", json!({"sha256": "abc"}).as_object().unwrap(), &f)
+                .unwrap_err()
+                .contains("64 hex")
+        );
         let none = item("p1", json!({}), json!({}));
-        assert!(out.verify_now("file_exists", json!({"path": ""}).as_object().unwrap(), &none).unwrap_err().contains("path"));
+        assert!(
+            out.verify_now("file_exists", json!({"path": ""}).as_object().unwrap(), &none)
+                .unwrap_err()
+                .contains("path")
+        );
         assert!(out.verify_now("record_exists", &Map::new(), &f).unwrap_err().contains("does not support"));
-        assert!(out.verify_now("file_exists", json!({"path": "out"}).as_object().unwrap(), &f).unwrap_err().contains("is not a file"));
+        assert!(
+            out.verify_now("file_exists", json!({"path": "out"}).as_object().unwrap(), &f)
+                .unwrap_err()
+                .contains("is not a file")
+        );
     }
 }

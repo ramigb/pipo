@@ -30,20 +30,11 @@ mod tests {
 
     #[test]
     fn a_fixed_clock_holds_on_other_threads() {
-        let opts = EvalOptions {
-            clock: Clock::Fixed(1_767_225_600_000.0),
-        };
-        let iso = std::thread::spawn(move || evaluate_with("iso()", &json!({}), &opts))
-            .join()
-            .unwrap();
+        let opts = EvalOptions { clock: Clock::Fixed(1_767_225_600_000.0) };
+        let iso = std::thread::spawn(move || evaluate_with("iso()", &json!({}), &opts)).join().unwrap();
         assert_eq!(iso, Ok(JsValue::Str("2026-01-01T00:00:00.000Z".into())));
-        assert_eq!(
-            evaluate_with("now()", &json!({}), &opts),
-            Ok(JsValue::Num(1_767_225_600_000.0))
-        );
-        let JsValue::Num(now) = evaluate("now()", &json!({})).unwrap() else {
-            panic!()
-        };
+        assert_eq!(evaluate_with("now()", &json!({}), &opts), Ok(JsValue::Num(1_767_225_600_000.0)));
+        let JsValue::Num(now) = evaluate("now()", &json!({})).unwrap() else { panic!() };
         assert!(now > 1.7e12);
     }
 
@@ -63,10 +54,7 @@ mod tests {
         assert_eq!(to_text(&json!("s")), "s");
         assert_eq!(to_text(&json!(36)), "36");
         assert_eq!(to_text(&json!(1e21)), "1e+21");
-        assert_eq!(
-            to_text(&json!({ "b": [1, "x"], "1": true })),
-            r#"{"1":true,"b":[1,"x"]}"#
-        );
+        assert_eq!(to_text(&json!({ "b": [1, "x"], "1": true })), r#"{"1":true,"b":[1,"x"]}"#);
         assert_eq!(js_json(&json!("a\"\n\u{1}")), r#""a\"\n\u0001""#);
         assert_eq!(js_number(2.0), json!(2));
     }

@@ -112,7 +112,13 @@ mod tests {
     use serde_json::json;
 
     fn input(node: &str, w: Value) -> StepInput {
-        StepInput { packet_id: "pk".into(), node: node.into(), data: json!({"a": 1}), with: w.as_object().cloned().unwrap(), origin: None }
+        StepInput {
+            packet_id: "pk".into(),
+            node: node.into(),
+            data: json!({"a": 1}),
+            with: w.as_object().cloned().unwrap(),
+            origin: None,
+        }
     }
 
     #[test]
@@ -170,7 +176,10 @@ mod tests {
             FileTap::new(b.path()).run(input("n", json!({"path": "out/log.jsonl"}))).await.unwrap();
             tap.run(input("m", json!({"path": "out/log.jsonl"}))).await.unwrap();
             let text = std::fs::read_to_string(b.join("out/log.jsonl")).unwrap();
-            assert_eq!(text, "{\"packet_id\":\"pk:n\",\"data\":{\"a\":1}}\n{\"packet_id\":\"pk:m\",\"data\":{\"a\":1}}\n");
+            assert_eq!(
+                text,
+                "{\"packet_id\":\"pk:n\",\"data\":{\"a\":1}}\n{\"packet_id\":\"pk:m\",\"data\":{\"a\":1}}\n"
+            );
             let e = tap.run(input("n", json!({"path": ""}))).await.unwrap_err();
             assert_eq!(e, "nodes.n.with.path is empty after rendering; check the template");
         });
@@ -181,7 +190,10 @@ mod tests {
         local(async {
             let r = EmitTap.run(input("n", json!({"event": "enriched", "detail": {"v": 1}}))).await.unwrap();
             assert_eq!(r.events, vec![("enriched".to_string(), Some(json!({"v": 1})))]);
-            assert_eq!(EmitTap.run(input("n", json!({"event": "x"}))).await.unwrap().events, vec![("x".to_string(), None)]);
+            assert_eq!(
+                EmitTap.run(input("n", json!({"event": "x"}))).await.unwrap().events,
+                vec![("x".to_string(), None)]
+            );
             let e = EmitTap.run(input("n", json!({}))).await.unwrap_err();
             assert_eq!(e, "nodes.n.with.event is empty after rendering; check the template");
         });

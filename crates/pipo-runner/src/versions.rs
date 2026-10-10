@@ -81,7 +81,13 @@ fn peek(path: &Path) -> Result<(Option<Latest>, Option<String>), String> {
         );
         let latest = db
             .query_row(&sql, [], |r| {
-                Ok(Latest { version: r.get(0)?, hash: r.get(1)?, source: r.get(2)?, author: r.get(3)?, reason: r.get(4)? })
+                Ok(Latest {
+                    version: r.get(0)?,
+                    hash: r.get(1)?,
+                    source: r.get(2)?,
+                    author: r.get(3)?,
+                    reason: r.get(4)?,
+                })
             })
             .optional()?;
         let file_hash = if tables.iter().any(|t| t == "meta") {
@@ -138,8 +144,10 @@ pub fn canon(v: &Value) -> String {
         Value::Object(o) => {
             let mut keys: Vec<&String> = o.keys().collect();
             keys.sort();
-            let parts: Vec<String> =
-                keys.iter().map(|k| format!("{}:{}", serde_json::to_string(k).unwrap_or_default(), canon(&o[*k]))).collect();
+            let parts: Vec<String> = keys
+                .iter()
+                .map(|k| format!("{}:{}", serde_json::to_string(k).unwrap_or_default(), canon(&o[*k])))
+                .collect();
             format!("{{{}}}", parts.join(","))
         }
         other => crate::expr::js_json(other),
@@ -186,7 +194,8 @@ pub fn bound_changes(current: &Pipeline, next: &Pipeline) -> Vec<String> {
     if differ(&lifetime(current), &lifetime(next)) {
         out.push("lifetime".to_string());
     }
-    let stall = |p: &Pipeline| serde_json::to_value(p.delivered.as_ref().and_then(|d| d.stall.as_ref())).unwrap_or(Value::Null);
+    let stall =
+        |p: &Pipeline| serde_json::to_value(p.delivered.as_ref().and_then(|d| d.stall.as_ref())).unwrap_or(Value::Null);
     if differ(&stall(current), &stall(next)) {
         out.push("delivered.stall".to_string());
     }
@@ -252,7 +261,13 @@ pub fn file_changes(
 
 /// The fn module a version was compiled with, when the file on disk has changed since (D60): the version keeps
 /// running the code it was compiled with until a restart or apply compiles the file again.
-pub fn stale_module(fn_path: Option<&str>, compiled_hash: Option<&str>, dir: &Path, version: i64, name: &str) -> Vec<VersionWarning> {
+pub fn stale_module(
+    fn_path: Option<&str>,
+    compiled_hash: Option<&str>,
+    dir: &Path,
+    version: i64,
+    name: &str,
+) -> Vec<VersionWarning> {
     let (Some(file), Some(loaded)) = (fn_path, compiled_hash) else { return vec![] };
     let disk = hash_file(&dir.join(file));
     if disk.as_deref() == Some(loaded) {
@@ -271,6 +286,11 @@ pub fn stale_module(fn_path: Option<&str>, compiled_hash: Option<&str>, dir: &Pa
         ),
         hint: format!("restart to compile the file as it is now (pipo restart {name})"),
     }]
+}
+
+/// D60 file hashes as `pipo compile` gives them (a JSON map) in the journal's form.
+pub fn file_hashes(files: &Map<String, Value>) -> FileHashes {
+    files.iter().filter_map(|(k, v)| v.as_str().map(|h| (k.clone(), h.to_string()))).collect()
 }
 
 #[cfg(test)]
@@ -298,9 +318,4 @@ mod tests {
     fn canon_sorts_keys() {
         assert_eq!(canon(&json!({"b": 1, "a": [true, null, "x"]})), r#"{"a":[true,null,"x"],"b":1}"#);
     }
-}
-
-/// D60 file hashes as `pipo compile` gives them (a JSON map) in the journal's form.
-pub fn file_hashes(files: &Map<String, Value>) -> FileHashes {
-    files.iter().filter_map(|(k, v)| v.as_str().map(|h| (k.clone(), h.to_string()))).collect()
 }

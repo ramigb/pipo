@@ -29,13 +29,18 @@ fn cpu_times() -> Option<(u64, u64)> {
     let stat = read("/proc/stat")?;
     let line = stat.lines().find(|l| l.starts_with("cpu "))?;
     let f: Vec<u64> = line.split_whitespace().skip(1).map(|x| x.parse().unwrap_or(0)).collect();
-    let (user, nice, sys, idle, irq) = (*f.first()?, *f.get(1)?, *f.get(2)?, *f.get(3)?, f.get(5).copied().unwrap_or(0));
+    let (user, nice, sys, idle, irq) =
+        (*f.first()?, *f.get(1)?, *f.get(2)?, *f.get(3)?, f.get(5).copied().unwrap_or(0));
     Some((idle, user + nice + sys + idle + irq))
 }
 
 fn cores() -> usize {
     read("/proc/stat")
-        .map(|s| s.lines().filter(|l| l.starts_with("cpu") && l.as_bytes().get(3).is_some_and(|b| b.is_ascii_digit())).count())
+        .map(|s| {
+            s.lines()
+                .filter(|l| l.starts_with("cpu") && l.as_bytes().get(3).is_some_and(|b| b.is_ascii_digit()))
+                .count()
+        })
         .filter(|n| *n > 0)
         .unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1))
 }
@@ -142,9 +147,15 @@ impl SystemInput {
         if every_ms < 1 {
             return Err("system `every` must be at least 1ms".into());
         }
-        let metrics = o.metrics.filter(|m| !m.is_empty()).unwrap_or_else(|| SYSTEM_METRICS.iter().map(|m| m.to_string()).collect());
+        let metrics = o
+            .metrics
+            .filter(|m| !m.is_empty())
+            .unwrap_or_else(|| SYSTEM_METRICS.iter().map(|m| m.to_string()).collect());
         let sampler = o.sampler.unwrap_or_else(|| os_sampler("/"));
-        Ok(SystemInput { inner: Rc::new(Inner { every_ms, metrics, sampler, log: o.log, stop: Stopper::default() }), task: RefCell::new(None) })
+        Ok(SystemInput {
+            inner: Rc::new(Inner { every_ms, metrics, sampler, log: o.log, stop: Stopper::default() }),
+            task: RefCell::new(None),
+        })
     }
 }
 
@@ -154,11 +165,14 @@ impl Inner {
             let source = iso(now_ms());
             let mut data = (self.sampler)(&self.metrics);
             data.insert("sampled_at".into(), Value::String(source.clone()));
-            let why = match intake(Value::Object(data), Origin { trigger: "system".into(), source: source.clone() }, None).await {
-                IntakeResult::Accepted { .. } => continue,
-                IntakeResult::Rejected { message, .. } => message,
-                IntakeResult::Unavailable { reason } => reason,
-            };
+            let why =
+                match intake(Value::Object(data), Origin { trigger: "system".into(), source: source.clone() }, None)
+                    .await
+                {
+                    IntakeResult::Accepted { .. } => continue,
+                    IntakeResult::Rejected { message, .. } => message,
+                    IntakeResult::Unavailable { reason } => reason,
+                };
             if let Some(l) = &self.log {
                 l("warn", &format!("system sample {source} was not accepted: {why}"));
             }

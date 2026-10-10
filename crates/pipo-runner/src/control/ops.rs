@@ -23,7 +23,6 @@ const CHUNK: usize = 200;
 /// At most this many replayed packets are listed in a reply (the count is always exact).
 const LISTED: usize = 100;
 
-
 fn internal(e: impl ToString) -> ControlError {
     ControlError::new("internal", e.to_string(), "see the runner log")
 }
@@ -97,7 +96,11 @@ fn targets(args: &Map<String, Value>, op: &str) -> Result<Option<Vec<String>>, C
         ControlError::new("bad_request", format!("{op} needs `ids` (packet ids) or `all: true`"), example.clone())
     })?;
     if ids.len() > MAX_IDS {
-        return Err(ControlError::new("bad_request", format!("at most {MAX_IDS} ids per {op}"), "split the list, or use all: true"));
+        return Err(ControlError::new(
+            "bad_request",
+            format!("at most {MAX_IDS} ids per {op}"),
+            "split the list, or use all: true",
+        ));
     }
     Ok(Some(ids))
 }
@@ -122,7 +125,11 @@ fn id_list(v: Option<&Value>) -> Option<Vec<String>> {
 fn dlq_entry(r: &Runner, id: &str, op: &str) -> Result<PacketRow, ControlError> {
     let name = r.pipeline().name.clone();
     let row = r.journal.borrow().get(id).map_err(internal)?.ok_or_else(|| {
-        ControlError::new("not_found", format!("no packet '{id}' in {name}"), format!("list the dead-letter queue with pipo dlq {name}"))
+        ControlError::new(
+            "not_found",
+            format!("no packet '{id}' in {name}"),
+            format!("list the dead-letter queue with pipo dlq {name}"),
+        )
     })?;
     if let Some(root) = &row.root {
         return Err(ControlError::new(
@@ -160,14 +167,22 @@ async fn plan_replay(r: &Runner, id: &str) -> Result<ReplayItem, ControlError> {
         let at = leaf.error.as_ref().and_then(|e| e.node.clone());
         let reset = if leaf.error.as_ref().map(|e| e.code == "loop.max").unwrap_or(false) { Some(0) } else { None };
         if matches!(at.as_deref(), Some("output") | Some("delivered")) {
-            leaves.push(ReplayLeaf { id: leaf.id.clone(), cursor: OUTPUT_STEP.into(), state: "writing".into(), iteration: reset });
+            leaves.push(ReplayLeaf {
+                id: leaf.id.clone(),
+                cursor: OUTPUT_STEP.into(),
+                state: "writing".into(),
+                iteration: reset,
+            });
             continue;
         }
         let pinned = r.pipeline_of(leaf.version).await.map_err(internal)?;
         match at {
-            Some(node) if pinned.nodes.get(&node).is_some() => {
-                leaves.push(ReplayLeaf { id: leaf.id.clone(), cursor: node, state: "processing".into(), iteration: reset })
-            }
+            Some(node) if pinned.nodes.get(&node).is_some() => leaves.push(ReplayLeaf {
+                id: leaf.id.clone(),
+                cursor: node,
+                state: "processing".into(),
+                iteration: reset,
+            }),
             other => {
                 return Err(ControlError::new(
                     "invalid_state",
@@ -185,7 +200,11 @@ async fn plan_replay(r: &Runner, id: &str) -> Result<ReplayItem, ControlError> {
         }
     }
     if leaves.is_empty() {
-        return Err(ControlError::new("internal", format!("packet {id} is dead-lettered but none of its copies is"), "see the runner log"));
+        return Err(ControlError::new(
+            "internal",
+            format!("packet {id} is dead-lettered but none of its copies is"),
+            "see the runner log",
+        ));
     }
     Ok(ReplayItem { packet_id: id.to_string(), leaves })
 }
@@ -218,7 +237,11 @@ fn dead_ids(r: &Runner) -> Result<Vec<String>, ControlError> {
         .db()
         .prepare("SELECT id FROM packets WHERE state = 'dead_lettered' AND branch = '' ORDER BY id")
         .map_err(internal)?;
-    let ids = stmt.query_map([], |row| row.get::<_, String>(0)).map_err(internal)?.collect::<Result<Vec<_>, _>>().map_err(internal)?;
+    let ids = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(internal)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(internal)?;
     Ok(ids)
 }
 
@@ -226,7 +249,11 @@ fn replay_view(i: &ReplayItem) -> Value {
     json!({ "packet_id": i.packet_id, "units": i.leaves.iter().map(|l| json!({ "id": l.id, "node": l.cursor })).collect::<Vec<_>>() })
 }
 
-pub async fn handle(r: &Rc<Runner>, op: &str, args: &Map<String, Value>) -> Result<(Value, Option<super::server::After>), ControlError> {
+pub async fn handle(
+    r: &Rc<Runner>,
+    op: &str,
+    args: &Map<String, Value>,
+) -> Result<(Value, Option<super::server::After>), ControlError> {
     let name = r.pipeline().name.clone();
     let plain = |v: Value| Ok((v, None));
     match op {
@@ -241,13 +268,17 @@ pub async fn handle(r: &Rc<Runner>, op: &str, args: &Map<String, Value>) -> Resu
                 stats[k] = v;
             }
             let stall = r.stall_info();
-            stats["stalled"] = stall.as_ref().map(|s| json!({ "node": s.node, "since": s.since })).unwrap_or(Value::Null);
+            stats["stalled"] =
+                stall.as_ref().map(|s| json!({ "node": s.node, "since": s.since })).unwrap_or(Value::Null);
             stats["agent_spend_today"] = json!(r.agent_spend_today());
             let last_seq = j.last_seq().map_err(internal)?;
             drop(j);
             let mut out = hello(r);
-            out["paused_reason"] =
-                if r.state() == RunnerState::Paused { json!(r.pause_reason().unwrap_or_else(|| "manual".into())) } else { Value::Null };
+            out["paused_reason"] = if r.state() == RunnerState::Paused {
+                json!(r.pause_reason().unwrap_or_else(|| "manual".into()))
+            } else {
+                Value::Null
+            };
             out["stats"] = stats;
             out["budget_resumes_at"] = json!(r.budget_resumes_at());
             out["note"] = stall.map(|s| json!(format!("stalled at '{}'", s.node))).unwrap_or(Value::Null);
@@ -270,7 +301,11 @@ pub async fn handle(r: &Rc<Runner>, op: &str, args: &Map<String, Value>) -> Resu
                 return plain(json!({ "state": "paused", "already": true }));
             }
             if r.state() != RunnerState::Active {
-                return Err(ControlError::new("invalid_state", format!("cannot pause: pipeline is {}", r.state().as_str()), "pause works while it is active"));
+                return Err(ControlError::new(
+                    "invalid_state",
+                    format!("cannot pause: pipeline is {}", r.state().as_str()),
+                    "pause works while it is active",
+                ));
             }
             r.pause(reason, Map::new());
             plain(json!({ "state": r.state().as_str(), "already": false }))
@@ -280,7 +315,11 @@ pub async fn handle(r: &Rc<Runner>, op: &str, args: &Map<String, Value>) -> Resu
                 return plain(json!({ "state": "active", "already": true }));
             }
             if r.state() != RunnerState::Paused {
-                return Err(ControlError::new("invalid_state", format!("cannot resume: pipeline is {}", r.state().as_str()), "resume works while it is paused"));
+                return Err(ControlError::new(
+                    "invalid_state",
+                    format!("cannot resume: pipeline is {}", r.state().as_str()),
+                    "resume works while it is paused",
+                ));
             }
             r.resume(false);
             plain(json!({ "state": r.state().as_str(), "already": false }))
@@ -290,7 +329,11 @@ pub async fn handle(r: &Rc<Runner>, op: &str, args: &Map<String, Value>) -> Resu
                 return plain(json!({ "state": "draining", "already": true }));
             }
             if !running(r) {
-                return Err(ControlError::new("invalid_state", format!("cannot drain: pipeline is {}", r.state().as_str()), "drain works while it runs"));
+                return Err(ControlError::new(
+                    "invalid_state",
+                    format!("cannot drain: pipeline is {}", r.state().as_str()),
+                    "drain works while it runs",
+                ));
             }
             // Reply first: draining ends with the socket closing.
             let after: super::server::After = Box::new(|r: Rc<Runner>| {
@@ -313,7 +356,11 @@ pub async fn handle(r: &Rc<Runner>, op: &str, args: &Map<String, Value>) -> Resu
                 None => "control".to_string(),
                 Some(Value::String(s)) if s.chars().count() <= 200 => s.clone(),
                 Some(_) => {
-                    return Err(ControlError::new("bad_request", "`source` must be a string of at most 200 characters", "e.g. cli, ui, mcp"));
+                    return Err(ControlError::new(
+                        "bad_request",
+                        "`source` must be a string of at most 200 characters",
+                        "e.g. cli, ui, mcp",
+                    ));
                 }
             };
             match r.intake(data, Origin { trigger: "push".into(), source }, None).await {
@@ -337,16 +384,31 @@ pub async fn handle(r: &Rc<Runner>, op: &str, args: &Map<String, Value>) -> Resu
             let id = args.get("packet_id").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).ok_or_else(|| {
                 ControlError::new("bad_request", "ack needs `packet_id`", r#"{"op":"ack","args":{"packet_id":"01J…"}}"#)
             })?;
-            let by: String = args.get("by").and_then(|b| b.as_str()).map(|b| b.chars().take(200).collect()).unwrap_or_else(|| "control".into());
+            let by: String = args
+                .get("by")
+                .and_then(|b| b.as_str())
+                .map(|b| b.chars().take(200).collect())
+                .unwrap_or_else(|| "control".into());
             plain(r.ack(id, &by).await?)
         }
         "events" => {
             let after = args.get("after_seq").map(whole).unwrap_or(Some(0)).filter(|a| *a >= 0).ok_or_else(|| {
-                ControlError::new("bad_request", "`after_seq` must be a whole number ≥ 0", "use the last seq you saw, or 0")
+                ControlError::new(
+                    "bad_request",
+                    "`after_seq` must be a whole number ≥ 0",
+                    "use the last seq you saw, or 0",
+                )
             })?;
-            let limit = args.get("limit").map(whole).unwrap_or(Some(100)).filter(|l| (1..=MAX_EVENTS).contains(l)).ok_or_else(|| {
-                ControlError::new("bad_request", format!("`limit` must be between 1 and {MAX_EVENTS}"), "page with after_seq")
-            })?;
+            let limit =
+                args.get("limit").map(whole).unwrap_or(Some(100)).filter(|l| (1..=MAX_EVENTS).contains(l)).ok_or_else(
+                    || {
+                        ControlError::new(
+                            "bad_request",
+                            format!("`limit` must be between 1 and {MAX_EVENTS}"),
+                            "page with after_seq",
+                        )
+                    },
+                )?;
             let j = r.journal.borrow();
             let events = j.events_after(after, limit).map_err(internal)?;
             let last = events.last().map(|e| e.seq).unwrap_or(after);
@@ -359,18 +421,21 @@ pub async fn handle(r: &Rc<Runner>, op: &str, args: &Map<String, Value>) -> Resu
             plain(read(j.db(), op, args, &name, Some(r.version()))?)
         }
         "apply" => {
-            let source = args.get("source").and_then(|s| s.as_str()).filter(|s| !s.trim().is_empty()).ok_or_else(|| {
-                ControlError::new(
-                    "bad_request",
-                    "apply needs `source`: the whole .pipo definition",
-                    r#"{"op":"apply","args":{"source":"pipo: 1\n…","reason":"why"}}"#,
-                )
-            })?;
+            let source =
+                args.get("source").and_then(|s| s.as_str()).filter(|s| !s.trim().is_empty()).ok_or_else(|| {
+                    ControlError::new(
+                        "bad_request",
+                        "apply needs `source`: the whole .pipo definition",
+                        r#"{"op":"apply","args":{"source":"pipo: 1\n…","reason":"why"}}"#,
+                    )
+                })?;
             let reason = match args.get("reason").and_then(|s| s.as_str()) {
                 Some(s) if !s.trim().is_empty() => s.chars().take(500).collect(),
                 _ => "applied".to_string(),
             };
-            let applied = r.apply_version(source, How { author: by_arg(args), reason, author_kind: None, proposal: None }).await?;
+            let applied = r
+                .apply_version(source, How { author: by_arg(args), reason, author_kind: None, proposal: None })
+                .await?;
             plain(applied.to_value())
         }
         "rollback" => {
@@ -395,7 +460,9 @@ pub async fn handle(r: &Rc<Runner>, op: &str, args: &Map<String, Value>) -> Resu
             let kind = match args.get("author_kind") {
                 None | Some(Value::Null) => "human",
                 Some(Value::String(k)) if k == "agent" || k == "human" => k.as_str(),
-                Some(_) => return Err(ControlError::new("bad_request", "`author_kind` must be agent or human", example)),
+                Some(_) => {
+                    return Err(ControlError::new("bad_request", "`author_kind` must be agent or human", example));
+                }
             };
             let apply = match args.get("apply") {
                 None => true,
@@ -441,17 +508,26 @@ pub async fn handle(r: &Rc<Runner>, op: &str, args: &Map<String, Value>) -> Resu
                     r#"{"op":"reject_proposal","args":{"id":"pr_01J…","reason":"why","by":"cli"}}"#,
                 )
             })?;
-            let reason = args.get("reason").and_then(Value::as_str).filter(|s| !s.trim().is_empty()).ok_or_else(|| {
-                ControlError::new("bad_request", "reject_proposal needs `reason`", "say why it is rejected")
-            })?;
+            let reason =
+                args.get("reason").and_then(Value::as_str).filter(|s| !s.trim().is_empty()).ok_or_else(|| {
+                    ControlError::new("bad_request", "reject_proposal needs `reason`", "say why it is rejected")
+                })?;
             let reason = String::from_utf16_lossy(&reason.encode_utf16().take(2000).collect::<Vec<u16>>());
             plain(r.proposals.mark_rejected(id, &by_arg(args), &reason, None)?.to_value())
         }
         "resolve" => {
-            let example = r#"{"op":"resolve","args":{"ids":["01J…"],"action":"retry","by":"agent-ops","by_kind":"agent"}}"#;
-            let action = args.get("action").and_then(|a| a.as_str()).filter(|a| RESOLVE_ACTIONS.contains(a)).ok_or_else(|| {
-                ControlError::new("bad_request", format!("resolve needs `action`: one of {}", RESOLVE_ACTIONS.join(", ")), example)
-            })?;
+            let example =
+                r#"{"op":"resolve","args":{"ids":["01J…"],"action":"retry","by":"agent-ops","by_kind":"agent"}}"#;
+            let action =
+                args.get("action").and_then(|a| a.as_str()).filter(|a| RESOLVE_ACTIONS.contains(a)).ok_or_else(
+                    || {
+                        ControlError::new(
+                            "bad_request",
+                            format!("resolve needs `action`: one of {}", RESOLVE_ACTIONS.join(", ")),
+                            example,
+                        )
+                    },
+                )?;
             if args.contains_key("ids") && args.contains_key("packet_id") {
                 return Err(ControlError::new("bad_request", "resolve takes `ids` or `packet_id`, not both", example));
             }
@@ -460,10 +536,15 @@ pub async fn handle(r: &Rc<Runner>, op: &str, args: &Map<String, Value>) -> Resu
                 (None, Some(p)) => Some(json!([p])),
                 _ => None,
             };
-            let ids = id_list(raw.as_ref())
-                .ok_or_else(|| ControlError::new("bad_request", "resolve needs `ids` (unit ids: packet ids or copy ids)", example))?;
+            let ids = id_list(raw.as_ref()).ok_or_else(|| {
+                ControlError::new("bad_request", "resolve needs `ids` (unit ids: packet ids or copy ids)", example)
+            })?;
             if ids.len() > MAX_IDS {
-                return Err(ControlError::new("bad_request", format!("at most {MAX_IDS} ids per resolve"), "split the list"));
+                return Err(ControlError::new(
+                    "bad_request",
+                    format!("at most {MAX_IDS} ids per resolve"),
+                    "split the list",
+                ));
             }
             let kind = match args.get("by_kind") {
                 None | Some(Value::Null) => None,
@@ -472,7 +553,9 @@ pub async fn handle(r: &Rc<Runner>, op: &str, args: &Map<String, Value>) -> Resu
             };
             let reason = match args.get("reason") {
                 None => None,
-                Some(Value::String(s)) => Some(s.chars().take(2000).collect::<String>()).filter(|s| !s.trim().is_empty()),
+                Some(Value::String(s)) => {
+                    Some(s.chars().take(2000).collect::<String>()).filter(|s| !s.trim().is_empty())
+                }
                 Some(_) => return Err(ControlError::new("bad_request", "`reason` must be a string", example)),
             };
             plain(r.resolve(&ids, action, &by_arg(args), kind.as_deref(), reason.as_deref())?)
@@ -510,7 +593,14 @@ pub async fn handle(r: &Rc<Runner>, op: &str, args: &Map<String, Value>) -> Resu
                         Ok(i) => items.push(i),
                         Err(e) => {
                             // Replayed or purged by someone else meanwhile: not an error for `all`.
-                            let still = r.journal.borrow().get(id).ok().flatten().map(|p| p.state == "dead_lettered").unwrap_or(false);
+                            let still = r
+                                .journal
+                                .borrow()
+                                .get(id)
+                                .ok()
+                                .flatten()
+                                .map(|p| p.state == "dead_lettered")
+                                .unwrap_or(false);
                             if still {
                                 skipped.push(json!({ "packet_id": id, "error": e.message }));
                             }
@@ -548,7 +638,9 @@ pub async fn handle(r: &Rc<Runner>, op: &str, args: &Map<String, Value>) -> Resu
                 }
                 let chunk: Vec<String> = chunk
                     .iter()
-                    .filter(|id| r.journal.borrow().get(id).ok().flatten().map(|p| p.state == "dead_lettered").unwrap_or(false))
+                    .filter(|id| {
+                        r.journal.borrow().get(id).ok().flatten().map(|p| p.state == "dead_lettered").unwrap_or(false)
+                    })
                     .cloned()
                     .collect();
                 commit_purge(r, &chunk, &by)?;
@@ -565,4 +657,3 @@ pub async fn handle(r: &Rc<Runner>, op: &str, args: &Map<String, Value>) -> Resu
         _ => Err(ControlError::new("unknown_op", format!("unknown op '{op}'"), format!("ops: {}", OPS.join(", ")))),
     }
 }
-

@@ -70,7 +70,11 @@ impl Runner {
     fn assert_can_apply(&self) -> Result<(), ControlError> {
         self.assert_runnable()?;
         if self.s.borrow().applying {
-            return Err(ControlError::new("invalid_state", "another version is being applied right now", "try again in a moment"));
+            return Err(ControlError::new(
+                "invalid_state",
+                "another version is being applied right now",
+                "try again in a moment",
+            ));
         }
         Ok(())
     }
@@ -112,7 +116,13 @@ impl Runner {
                 ));
             }
             let warnings = self.stale(previous);
-            return Ok(Applied { version: previous, previous, changed: false, pending_older: self.pending_older(), warnings });
+            return Ok(Applied {
+                version: previous,
+                previous,
+                changed: false,
+                pending_older: self.pending_older(),
+                warnings,
+            });
         }
         self.s.borrow_mut().applying = true;
         let out = self.apply_checked(source, &hash, previous, &name, how).await;
@@ -120,7 +130,14 @@ impl Runner {
         out
     }
 
-    async fn apply_checked(&self, source: &str, hash: &str, previous: i64, name: &str, how: How) -> Result<Applied, ControlError> {
+    async fn apply_checked(
+        &self,
+        source: &str,
+        hash: &str,
+        previous: i64,
+        name: &str,
+        how: How,
+    ) -> Result<Applied, ControlError> {
         let shown = self.opts.file.display().to_string();
         let compiled = crate::compile::compile(&self.file, &self.home, Some(source))
             .await
@@ -128,11 +145,17 @@ impl Runner {
         let errors = compiled.errors();
         if !errors.is_empty() {
             // The text for people, and the diagnostics themselves for tools (D60).
-            let lines: Vec<String> =
-                errors.iter().map(|d| format!("  {}", crate::format::format_diagnostic(d).replace('\n', "\n  "))).collect();
+            let lines: Vec<String> = errors
+                .iter()
+                .map(|d| format!("  {}", crate::format::format_diagnostic(d).replace('\n', "\n  ")))
+                .collect();
             let mut e = ControlError::new(
                 "invalid_pipeline",
-                format!("the new version fails pipo check with {} error(s), so nothing was applied:\n{}", errors.len(), lines.join("\n")),
+                format!(
+                    "the new version fails pipo check with {} error(s), so nothing was applied:\n{}",
+                    errors.len(),
+                    lines.join("\n")
+                ),
                 format!("fix those, or roll back to a version that passes (pipo history {name})"),
             );
             e.diagnostics = compiled.diagnostics.clone();
@@ -148,11 +171,16 @@ impl Runner {
                     "the new version changes {}, which the runner binds when it starts, so it can't be applied while {name} runs",
                     bound.join(", ")
                 ),
-                format!("put that definition in {shown} and restart (pipo restart {name}); a changed file wins on the next start (D38)"),
+                format!(
+                    "put that definition in {shown} and restart (pipo restart {name}); a changed file wins on the next start (D38)"
+                ),
             ));
         }
-        let missing: Vec<String> =
-            gaps(&next).into_iter().filter(|g| g.level == "refuse").map(|g| format!("{} ({})", g.feature, g.path)).collect();
+        let missing: Vec<String> = gaps(&next)
+            .into_iter()
+            .filter(|g| g.level == "refuse")
+            .map(|g| format!("{} ({})", g.feature, g.path))
+            .collect();
         if !missing.is_empty() {
             return Err(ControlError::new(
                 "invalid_state",
@@ -163,8 +191,10 @@ impl Runner {
         for (id, node) in next.nodes.iter() {
             let Some(agent) = &node.agent else { continue };
             let model = node.with.as_ref().and_then(|w| w.get("model")).and_then(|m| m.as_str());
-            let priced = |m: &str| self.agents.pricing.get(agent).and_then(|p| crate::agents::price_for(p, m)).is_some();
-            let unpriced = !self.agents.is_cli(agent) && model.map(|m| !m.contains("${") && !priced(m)).unwrap_or(false);
+            let priced =
+                |m: &str| self.agents.pricing.get(agent).and_then(|p| crate::agents::price_for(p, m)).is_some();
+            let unpriced =
+                !self.agents.is_cli(agent) && model.map(|m| !m.contains("${") && !priced(m)).unwrap_or(false);
             if !self.agents.providers.contains_key(agent) || unpriced {
                 return Err(ControlError::new(
                     "invalid_state",
@@ -172,15 +202,21 @@ impl Runner {
                         "agent node '{id}' needs provider '{agent}'{}, which this runner did not set up when it started",
                         model.map(|m| format!(" with model '{m}'")).unwrap_or_default()
                     ),
-                    format!("put that definition in {shown} and restart (pipo restart {name}), so the provider and its price are set up"),
+                    format!(
+                        "put that definition in {shown} and restart (pipo restart {name}), so the provider and its price are set up"
+                    ),
                 ));
             }
         }
         let number = self.journal.borrow().latest_version().ok().flatten().map(|l| l.version).unwrap_or(0) + 1;
         let compiled = Rc::new(compiled);
-        let plan = plan::build(number, compiled.clone(), &self.fns)
-            .await
-            .map_err(|e| ControlError::new("invalid_pipeline", format!("the new version can't be prepared: {e}"), "check its fn module and schema files"))?;
+        let plan = plan::build(number, compiled.clone(), &self.fns).await.map_err(|e| {
+            ControlError::new(
+                "invalid_pipeline",
+                format!("the new version can't be prepared: {e}"),
+                "check its fn module and schema files",
+            )
+        })?;
         self.assert_runnable()?;
         // From here to the swap nothing awaits: the version, its event, a proposal's `applied` state and the
         // in-memory switch happen together (D38, D49).
@@ -222,7 +258,11 @@ impl Runner {
                 how.proposal.as_ref().map(|(id, _)| format!("proposal {id}: ")).unwrap_or_default(),
                 how.reason,
                 how.author,
-                if older > 0 { format!(", {older} packet(s) in flight finish on their own version") } else { String::new() }
+                if older > 0 {
+                    format!(", {older} packet(s) in flight finish on their own version")
+                } else {
+                    String::new()
+                }
             ),
         );
         let warnings = self.stale(version);
@@ -255,7 +295,8 @@ impl Runner {
         if p.author_kind == "agent" {
             let internal = |e: String| ControlError::new("internal", e, "see the runner log");
             let current = self.pipeline_of(latest).await.map_err(internal)?;
-            let base = self.compiled_version(latest).await.map_err(internal)?.pipeline.clone().unwrap_or_else(|| json!({}));
+            let base =
+                self.compiled_version(latest).await.map_err(internal)?.pipeline.clone().unwrap_or_else(|| json!({}));
             let proposed = crate::compile::compile(&self.file, &self.home, Some(&p.source))
                 .await
                 .map_err(|e| ControlError::new("internal", e, "check that pipo compile works (PIPO_COMPILE)"))?;
@@ -340,7 +381,10 @@ impl Runner {
             )
         })?;
         let applied = self
-            .apply_version(&source, How { author: by.to_string(), reason: format!("rollback to v{to}"), author_kind: None, proposal: None })
+            .apply_version(
+                &source,
+                How { author: by.to_string(), reason: format!("rollback to v{to}"), author_kind: None, proposal: None },
+            )
             .await?;
         let runs = crate::versions::file_hashes(&self.compiled.borrow().files);
         let recorded = self.journal.borrow().version_files(to).ok().flatten();

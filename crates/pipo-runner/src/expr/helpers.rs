@@ -13,9 +13,8 @@ use super::value::{JsValue, K, R, js_trim, stringify, type_of, utf16_len};
 use crate::cron::civil_from_days;
 use crate::duration::parse_duration_f64;
 
-const HELPERS: [&str; 13] = [
-    "exists", "len", "size", "type", "lower", "upper", "trim", "matches", "default", "json", "now", "iso", "duration",
-];
+const HELPERS: [&str; 13] =
+    ["exists", "len", "size", "type", "lower", "upper", "trim", "matches", "default", "json", "now", "iso", "duration"];
 
 pub(crate) fn is_helper(name: &str) -> bool {
     HELPERS.contains(&name)
@@ -105,11 +104,7 @@ pub(crate) fn call<'a>(name: &str, mut args: Vec<V<'a>>, opts: &EvalOptions) -> 
         }
         "json" => {
             let mut out = String::new();
-            own(if stringify(x, &mut out) {
-                JsValue::Str(out)
-            } else {
-                JsValue::Undefined
-            })
+            own(if stringify(x, &mut out) { JsValue::Str(out) } else { JsValue::Undefined })
         }
         "now" => own(JsValue::Num(opts.clock.now_ms())),
         "iso" => {
@@ -175,11 +170,7 @@ const SPACE: &str = r"\t\n\x0B\x0C\r \xA0\x{1680}\x{2000}-\x{200A}\x{2028}\x{202
 
 fn hex(c: &[char], from: usize, n: usize) -> Option<u32> {
     let digits: String = c.get(from..from + n)?.iter().collect();
-    if digits.chars().all(|d| d.is_ascii_hexdigit()) {
-        u32::from_str_radix(&digits, 16).ok()
-    } else {
-        None
-    }
+    if digits.chars().all(|d| d.is_ascii_hexdigit()) { u32::from_str_radix(&digits, 16).ok() } else { None }
 }
 
 fn literal(out: &mut String, ch: char) {
@@ -308,11 +299,7 @@ fn translate(p: &str) -> Result<String, String> {
                 }
                 if c.get(i) == Some(&']') {
                     i += 1;
-                    out.push_str(if negated {
-                        r"[\x{0}-\x{10FFFF}]"
-                    } else {
-                        r"[^\x{0}-\x{10FFFF}]"
-                    });
+                    out.push_str(if negated { r"[\x{0}-\x{10FFFF}]" } else { r"[^\x{0}-\x{10FFFF}]" });
                 } else {
                     class = true;
                     last_dash = false;
@@ -376,14 +363,8 @@ mod tests {
         assert_eq!(iso_string(-1.0).unwrap(), "1969-12-31T23:59:59.999Z");
         assert_eq!(iso_string(1.9).unwrap(), "1970-01-01T00:00:00.001Z");
         assert_eq!(iso_string(-1.9).unwrap(), "1969-12-31T23:59:59.999Z");
-        assert_eq!(
-            iso_string(253_402_300_800_000.0).unwrap(),
-            "+010000-01-01T00:00:00.000Z"
-        );
-        assert_eq!(
-            iso_string(-62_198_755_200_001.0).unwrap(),
-            "-000002-12-31T23:59:59.999Z"
-        );
+        assert_eq!(iso_string(253_402_300_800_000.0).unwrap(), "+010000-01-01T00:00:00.000Z");
+        assert_eq!(iso_string(-62_198_755_200_001.0).unwrap(), "-000002-12-31T23:59:59.999Z");
         assert_eq!(iso_string(1e20).unwrap_err(), "Invalid Date");
     }
 }

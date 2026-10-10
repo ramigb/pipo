@@ -67,10 +67,7 @@ pub fn segments(input: &str) -> Result<Vec<Segment>, ExprError> {
             out.push(Segment::Text(String::from_utf16_lossy(&text)));
             text.clear();
         }
-        out.push(Segment::Expr {
-            expr: String::from_utf16_lossy(&s[start..j - 1]),
-            offset: start,
-        });
+        out.push(Segment::Expr { expr: String::from_utf16_lossy(&s[start..j - 1]), offset: start });
         i = j;
     }
     if !text.is_empty() {
@@ -126,10 +123,7 @@ fn walk(value: &Value, ctx: &Value, opts: &EvalOptions) -> Result<Option<Value>,
             v => Some(v.to_json()),
         },
         Value::Array(items) => Some(Value::Array(
-            items
-                .iter()
-                .map(|v| Ok(walk(v, ctx, opts)?.unwrap_or(Value::Null)))
-                .collect::<Result<_, ExprError>>()?,
+            items.iter().map(|v| Ok(walk(v, ctx, opts)?.unwrap_or(Value::Null))).collect::<Result<_, ExprError>>()?,
         )),
         Value::Object(m) => {
             let mut out = serde_json::Map::new();

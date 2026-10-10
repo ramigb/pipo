@@ -289,7 +289,8 @@ pub fn validate_proposal(a: ValidateArgs) -> Validation {
             code: "invalid_pipeline",
             path: None,
             message: format!("the proposed source fails pipo check with {errors} error(s)"),
-            hint: "fix the errors in `diagnostics` (pipo check on a local copy shows the same) and propose again".into(),
+            hint: "fix the errors in `diagnostics` (pipo check on a local copy shows the same) and propose again"
+                .into(),
         });
     } else if let Some(after) = after {
         match Pipeline::from_value(after.clone()) {
@@ -340,7 +341,8 @@ const SUMMARY_COLUMNS: &str = "id, pipeline, base_version, author, author_kind, 
      removed, verify, applied_version, decided_by, created_at, decided_at";
 
 fn parse(text: &str) -> rusqlite::Result<Value> {
-    serde_json::from_str(text).map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))
+    serde_json::from_str(text)
+        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))
 }
 
 fn decode_summary(r: &rusqlite::Row) -> rusqlite::Result<ProposalSummary> {
@@ -419,7 +421,10 @@ fn internal(e: impl ToString) -> ControlError {
 
 /// Run `f` as one journal transaction (a savepoint inside another), rolled back when it fails; its ControlError
 /// comes back as it is.
-pub fn control_tx<T>(j: &mut Journal, f: impl FnOnce(&mut Journal) -> Result<T, ControlError>) -> Result<T, ControlError> {
+pub fn control_tx<T>(
+    j: &mut Journal,
+    f: impl FnOnce(&mut Journal) -> Result<T, ControlError>,
+) -> Result<T, ControlError> {
     let mut refused = None;
     let out = j.atomically(|j| {
         f(j).map_err(|e| {
@@ -438,10 +443,18 @@ fn js_len(s: &str) -> usize {
 
 fn str_arg<'a>(v: &'a Value, key: &str, max: usize) -> Result<&'a str, ControlError> {
     let s = v.as_str().filter(|s| !s.trim().is_empty()).ok_or_else(|| {
-        ControlError::new("bad_request", format!("`{key}` must be a non-empty string"), format!("pass {key} with the proposal"))
+        ControlError::new(
+            "bad_request",
+            format!("`{key}` must be a non-empty string"),
+            format!("pass {key} with the proposal"),
+        )
     })?;
     if js_len(s) > max {
-        return Err(ControlError::new("bad_request", format!("`{key}` is longer than {max} characters"), format!("shorten {key}")));
+        return Err(ControlError::new(
+            "bad_request",
+            format!("`{key}` is longer than {max} characters"),
+            format!("shorten {key}"),
+        ));
     }
     Ok(s)
 }
@@ -556,7 +569,13 @@ impl Proposals {
                 author_kind,
                 compiled: &compiled,
             });
-            let d = unified_diff(&base_source, source, &format!("{pipeline} v{base}"), &format!("{pipeline} proposal {id}"), 3);
+            let d = unified_diff(
+                &base_source,
+                source,
+                &format!("{pipeline} v{base}"),
+                &format!("{pipeline} proposal {id}"),
+                3,
+            );
             let state = if v.problems.is_empty() { "validated" } else { "rejected" };
             let changed: Vec<String> = v.changed.iter().map(|p| dotted(p)).collect();
             let redact = |t: &str| self.redact(t);
@@ -617,7 +636,11 @@ impl Proposals {
     fn get_in(&self, j: &Journal, id: &str) -> Result<Proposal, ControlError> {
         read_get(j.db(), id).map_err(internal)?.ok_or_else(|| {
             let name = &self.opts.pipeline;
-            ControlError::new("not_found", format!("{name} has no proposal {id}"), format!("list them with pipo proposals {name}"))
+            ControlError::new(
+                "not_found",
+                format!("{name} has no proposal {id}"),
+                format!("list them with pipo proposals {name}"),
+            )
         })
     }
 
@@ -630,13 +653,25 @@ impl Proposals {
     }
 
     /// The dry run passed. validated → verified.
-    pub fn mark_verified(&self, id: &str, by: &str, report: Option<Value>, summary: Option<String>) -> Result<Proposal, ControlError> {
+    pub fn mark_verified(
+        &self,
+        id: &str,
+        by: &str,
+        report: Option<Value>,
+        summary: Option<String>,
+    ) -> Result<Proposal, ControlError> {
         let extra = Extra { decision: Some(summary), verification: report, ..Default::default() };
         self.transition_in(&mut self.journal.borrow_mut(), id, &["validated"], "verified", by, extra)
     }
 
     /// A dry run diverged, the base went stale at apply, or a human rejected it. validated|verified → rejected.
-    pub fn mark_rejected(&self, id: &str, by: &str, reason: &str, report: Option<Value>) -> Result<Proposal, ControlError> {
+    pub fn mark_rejected(
+        &self,
+        id: &str,
+        by: &str,
+        reason: &str,
+        report: Option<Value>,
+    ) -> Result<Proposal, ControlError> {
         let extra = Extra { decision: Some(Some(reason.to_string())), verification: report, ..Default::default() };
         self.transition_in(&mut self.journal.borrow_mut(), id, &["validated", "verified"], "rejected", by, extra)
     }
@@ -668,8 +703,16 @@ impl Proposals {
             ));
         }
         let Some(verify) = p.verify.clone() else {
-            let why = if p.author_kind == "human" { "it is a human's".to_string() } else { format!("v{} sets no agent.verify", p.base_version) };
-            return Err(ControlError::new("invalid_state", format!("proposal {id} needs no dry run: {why}"), "apply it directly"));
+            let why = if p.author_kind == "human" {
+                "it is a human's".to_string()
+            } else {
+                format!("v{} sets no agent.verify", p.base_version)
+            };
+            return Err(ControlError::new(
+                "invalid_state",
+                format!("proposal {id} needs no dry run: {why}"),
+                "apply it directly",
+            ));
         };
         if !self.dry_running.borrow_mut().insert(id.to_string()) {
             return Err(ControlError::new(
@@ -709,17 +752,32 @@ impl Proposals {
             Ok(plan) => plan,
             Err(e) => {
                 let d = format!("the dry run could not start: {e}");
-                return self.transition_in(&mut self.journal.borrow_mut(), &id, &["validated"], "rejected", by, reject(d));
+                return self.transition_in(
+                    &mut self.journal.borrow_mut(),
+                    &id,
+                    &["validated"],
+                    "rejected",
+                    by,
+                    reject(d),
+                );
             }
         };
         // The replay reads the journal through its own read-only connection, so the runner's stays free meanwhile.
         let path = self.journal.borrow().path().to_path_buf();
         let db = crate::journal::open_readonly(&path, crate::journal::BUSY_RETRY_MS).map_err(internal)?;
-        let report = match crate::dryrun::dry_run(&db, &plan, &fns, p.base_version, verify, self.opts.env.clone()).await {
+        let report = match crate::dryrun::dry_run(&db, &plan, &fns, p.base_version, verify, self.opts.env.clone()).await
+        {
             Ok(r) => r,
             Err(e) => {
                 let d = format!("the dry run could not start: {}", e.0);
-                return self.transition_in(&mut self.journal.borrow_mut(), &id, &["validated"], "rejected", by, reject(d));
+                return self.transition_in(
+                    &mut self.journal.borrow_mut(),
+                    &id,
+                    &["validated"],
+                    "rejected",
+                    by,
+                    reject(d),
+                );
             }
         };
         crate::crashpoint::crash_point("dryrun.replayed");
@@ -785,7 +843,15 @@ impl Proposals {
     }
 
     /// One state move: the row and its `proposal.<to>` event in one transaction; refused unless the row is in `from`.
-    fn transition_in(&self, j: &mut Journal, id: &str, from: &[&str], to: &str, by: &str, extra: Extra) -> Result<Proposal, ControlError> {
+    fn transition_in(
+        &self,
+        j: &mut Journal,
+        id: &str,
+        from: &[&str],
+        to: &str,
+        by: &str,
+        extra: Extra,
+    ) -> Result<Proposal, ControlError> {
         let by_name = self.redact(str_arg(&json!(by), "by", MAX_AUTHOR_CHARS)?);
         control_tx(j, |j| {
             let p = self.get_in(j, id)?;
@@ -834,7 +900,8 @@ impl Proposals {
 
 /// One line saying how a dry run went (dryRunSummary), stored as the proposal's decision.
 pub fn dry_run_summary(r: &crate::dryrun::DryRunReport) -> String {
-    let skipped = if r.skipped > 0 { format!(", {} skipped (input gone under retention)", r.skipped) } else { String::new() };
+    let skipped =
+        if r.skipped > 0 { format!(", {} skipped (input gone under retention)", r.skipped) } else { String::new() };
     if r.diverged == 0 {
         return if r.replayed > 0 {
             format!(
@@ -855,6 +922,13 @@ pub fn dry_run_summary(r: &crate::dryrun::DryRunReport) -> String {
             None => p.packet_id.clone(),
         })
         .collect();
-    let more = if r.diverged > first.len() { format!(", and {} more", r.diverged - first.len()) } else { String::new() };
-    format!("dry run diverged ({}) on {} of {} replayed packet(s): {}{more}", r.verify, r.diverged, r.replayed, first.join("; "))
+    let more =
+        if r.diverged > first.len() { format!(", and {} more", r.diverged - first.len()) } else { String::new() };
+    format!(
+        "dry run diverged ({}) on {} of {} replayed packet(s): {}{more}",
+        r.verify,
+        r.diverged,
+        r.replayed,
+        first.join("; ")
+    )
 }

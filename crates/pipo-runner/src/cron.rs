@@ -25,31 +25,11 @@ struct Field {
 }
 
 const FIELDS: [Field; 5] = [
-    Field {
-        name: "minute",
-        min: 0,
-        max: 59,
-    },
-    Field {
-        name: "hour",
-        min: 0,
-        max: 23,
-    },
-    Field {
-        name: "day-of-month",
-        min: 1,
-        max: 31,
-    },
-    Field {
-        name: "month",
-        min: 1,
-        max: 12,
-    },
-    Field {
-        name: "day-of-week",
-        min: 0,
-        max: 7,
-    },
+    Field { name: "minute", min: 0, max: 59 },
+    Field { name: "hour", min: 0, max: 23 },
+    Field { name: "day-of-month", min: 1, max: 31 },
+    Field { name: "month", min: 1, max: 12 },
+    Field { name: "day-of-week", min: 0, max: 7 },
 ];
 
 const HINT: &str = "use 5 fields: minute hour day-of-month month day-of-week, e.g. '*/15 9-17 * * 1-5'";
@@ -83,11 +63,7 @@ fn parse_field(text: &str, f: &Field) -> Result<u64, String> {
         }
         let mut step_n = 1u64;
         if let Some(step) = step {
-            let n: f64 = if digits(step) {
-                step.parse().unwrap_or(f64::INFINITY)
-            } else {
-                0.0
-            };
+            let n: f64 = if digits(step) { step.parse().unwrap_or(f64::INFINITY) } else { 0.0 };
             if n < 1.0 {
                 return bad(format!("step '{step}' must be a positive integer"));
             }
@@ -119,15 +95,9 @@ fn parse_field(text: &str, f: &Field) -> Result<u64, String> {
 /// Parse a cron expression. The error says what is wrong and how to fix it.
 pub fn parse_cron(text: &str) -> Result<Cron, String> {
     let trimmed = js_trim(text);
-    let parts: Vec<&str> = trimmed
-        .split(crate::expr::is_js_space)
-        .filter(|p| !p.is_empty())
-        .collect();
+    let parts: Vec<&str> = trimmed.split(crate::expr::is_js_space).filter(|p| !p.is_empty()).collect();
     if parts.len() != 5 {
-        return Err(format!(
-            "cron '{text}' has {} field(s), expected 5; {HINT}",
-            parts.len()
-        ));
+        return Err(format!("cron '{text}' has {} field(s), expected 5; {HINT}", parts.len()));
     }
     let mut sets = [0u64; 5];
     for (i, f) in FIELDS.iter().enumerate() {
@@ -143,9 +113,7 @@ pub fn parse_cron(text: &str) -> Result<Cron, String> {
         weekdays_restricted: !parts[4].starts_with('*'),
     };
     if next_cron(&cron, 0).is_none() {
-        return Err(format!(
-            "cron '{text}' never fires (for example, day 31 in a month that has only 30 days)"
-        ));
+        return Err(format!("cron '{text}' never fires (for example, day 31 in a month that has only 30 days)"));
     }
     Ok(cron)
 }
@@ -188,11 +156,7 @@ pub fn next_cron(c: &Cron, after_ms: i64) -> Option<i64> {
 fn day_matches(c: &Cron, day: i64, days: i64) -> bool {
     let by_day = has(c.days, day);
     let by_weekday = has(c.weekdays, (days + 4).rem_euclid(7));
-    if c.days_restricted && c.weekdays_restricted {
-        by_day || by_weekday
-    } else {
-        by_day && by_weekday
-    }
+    if c.days_restricted && c.weekdays_restricted { by_day || by_weekday } else { by_day && by_weekday }
 }
 
 /// Days since 1970-01-01 of a proleptic Gregorian date (H. Hinnant's algorithm).
@@ -246,96 +210,45 @@ mod tests {
 
     #[test]
     fn every_minute_and_strictly_after() {
-        assert_eq!(
-            next("* * * * *", "2026-01-01T00:00:00Z").unwrap(),
-            "2026-01-01T00:01:00.000Z"
-        );
-        assert_eq!(
-            next("* * * * *", "2026-01-01T00:00:30Z").unwrap(),
-            "2026-01-01T00:01:00.000Z"
-        );
+        assert_eq!(next("* * * * *", "2026-01-01T00:00:00Z").unwrap(), "2026-01-01T00:01:00.000Z");
+        assert_eq!(next("* * * * *", "2026-01-01T00:00:30Z").unwrap(), "2026-01-01T00:01:00.000Z");
     }
 
     #[test]
     fn steps_and_ranges() {
-        assert_eq!(
-            next("*/15 * * * *", "2026-01-01T10:16:00Z").unwrap(),
-            "2026-01-01T10:30:00.000Z"
-        );
-        assert_eq!(
-            next("10-20/5 * * * *", "2026-01-01T10:11:00Z").unwrap(),
-            "2026-01-01T10:15:00.000Z"
-        );
-        assert_eq!(
-            next("5/20 * * * *", "2026-01-01T10:26:00Z").unwrap(),
-            "2026-01-01T10:45:00.000Z"
-        );
-        assert_eq!(
-            next("0 9,17 * * *", "2026-01-01T09:00:00Z").unwrap(),
-            "2026-01-01T17:00:00.000Z"
-        );
+        assert_eq!(next("*/15 * * * *", "2026-01-01T10:16:00Z").unwrap(), "2026-01-01T10:30:00.000Z");
+        assert_eq!(next("10-20/5 * * * *", "2026-01-01T10:11:00Z").unwrap(), "2026-01-01T10:15:00.000Z");
+        assert_eq!(next("5/20 * * * *", "2026-01-01T10:26:00Z").unwrap(), "2026-01-01T10:45:00.000Z");
+        assert_eq!(next("0 9,17 * * *", "2026-01-01T09:00:00Z").unwrap(), "2026-01-01T17:00:00.000Z");
     }
 
     #[test]
     fn rolls_over_day_month_and_year() {
-        assert_eq!(
-            next("0 0 * * *", "2026-12-31T23:59:00Z").unwrap(),
-            "2027-01-01T00:00:00.000Z"
-        );
-        assert_eq!(
-            next("0 0 31 * *", "2026-04-15T00:00:00Z").unwrap(),
-            "2026-05-31T00:00:00.000Z"
-        );
-        assert_eq!(
-            next("0 12 29 2 *", "2026-03-01T00:00:00Z").unwrap(),
-            "2028-02-29T12:00:00.000Z"
-        );
-        assert_eq!(
-            next("59 23 * * *", "2026-01-01T23:59:00Z").unwrap(),
-            "2026-01-02T23:59:00.000Z"
-        );
+        assert_eq!(next("0 0 * * *", "2026-12-31T23:59:00Z").unwrap(), "2027-01-01T00:00:00.000Z");
+        assert_eq!(next("0 0 31 * *", "2026-04-15T00:00:00Z").unwrap(), "2026-05-31T00:00:00.000Z");
+        assert_eq!(next("0 12 29 2 *", "2026-03-01T00:00:00Z").unwrap(), "2028-02-29T12:00:00.000Z");
+        assert_eq!(next("59 23 * * *", "2026-01-01T23:59:00Z").unwrap(), "2026-01-02T23:59:00.000Z");
     }
 
     #[test]
     fn day_of_week_0_and_7_are_sunday() {
         // 2026-01-01 is a Thursday; the next Sunday is 2026-01-04
-        assert_eq!(
-            next("0 0 * * 0", "2026-01-01T00:00:00Z").unwrap(),
-            "2026-01-04T00:00:00.000Z"
-        );
-        assert_eq!(
-            next("0 0 * * 7", "2026-01-01T00:00:00Z").unwrap(),
-            "2026-01-04T00:00:00.000Z"
-        );
-        assert_eq!(
-            next("0 0 * * 5-7", "2026-01-01T00:00:00Z").unwrap(),
-            "2026-01-02T00:00:00.000Z"
-        );
+        assert_eq!(next("0 0 * * 0", "2026-01-01T00:00:00Z").unwrap(), "2026-01-04T00:00:00.000Z");
+        assert_eq!(next("0 0 * * 7", "2026-01-01T00:00:00Z").unwrap(), "2026-01-04T00:00:00.000Z");
+        assert_eq!(next("0 0 * * 5-7", "2026-01-01T00:00:00Z").unwrap(), "2026-01-02T00:00:00.000Z");
     }
 
     #[test]
     fn day_fields_are_ored_when_both_restricted() {
         // 15th or Monday; 2026-01-05 is a Monday
-        assert_eq!(
-            next("0 0 15 * 1", "2026-01-01T00:00:00Z").unwrap(),
-            "2026-01-05T00:00:00.000Z"
-        );
-        assert_eq!(
-            next("0 0 15 * 1", "2026-01-10T00:00:00Z").unwrap(),
-            "2026-01-12T00:00:00.000Z"
-        );
-        assert_eq!(
-            next("0 0 15 * 1", "2026-01-13T00:00:00Z").unwrap(),
-            "2026-01-15T00:00:00.000Z"
-        );
+        assert_eq!(next("0 0 15 * 1", "2026-01-01T00:00:00Z").unwrap(), "2026-01-05T00:00:00.000Z");
+        assert_eq!(next("0 0 15 * 1", "2026-01-10T00:00:00Z").unwrap(), "2026-01-12T00:00:00.000Z");
+        assert_eq!(next("0 0 15 * 1", "2026-01-13T00:00:00Z").unwrap(), "2026-01-15T00:00:00.000Z");
     }
 
     #[test]
     fn negative_times_work() {
-        assert_eq!(
-            next("0 0 * * *", "1969-12-31T12:00:30Z").unwrap(),
-            "1970-01-01T00:00:00.000Z"
-        );
+        assert_eq!(next("0 0 * * *", "1969-12-31T12:00:30Z").unwrap(), "1970-01-01T00:00:00.000Z");
     }
 
     #[test]
@@ -351,26 +264,14 @@ mod tests {
             ("* * 0 * *", "invalid cron day-of-month field '0': 0 is outside 1-31"),
             ("* * * 13 *", "invalid cron month field '13': 13 is outside 1-12"),
             ("* * * * 8", "invalid cron day-of-week field '8': 8 is outside 0-7"),
-            (
-                "*/0 * * * *",
-                "invalid cron minute field '*/0': step '0' must be a positive integer",
-            ),
-            (
-                "*/ * * * *",
-                "invalid cron minute field '*/': step '' must be a positive integer",
-            ),
+            ("*/0 * * * *", "invalid cron minute field '*/0': step '0' must be a positive integer"),
+            ("*/ * * * *", "invalid cron minute field '*/': step '' must be a positive integer"),
             ("5-1 * * * *", "invalid cron minute field '5-1': range 5-1 is backwards"),
-            (
-                "a * * * *",
-                "invalid cron minute field 'a': 'a' is not a number (names are not supported)",
-            ),
+            ("a * * * *", "invalid cron minute field 'a': 'a' is not a number (names are not supported)"),
             ("1,,2 * * * *", "invalid cron minute field '1,,2': empty list item"),
             ("1/2/3 * * * *", "invalid cron minute field '1/2/3': more than one '/'"),
             ("99999999999999999999999 * * * *", "1e+23 is outside 0-59"),
-            (
-                "0 0 31 2 *",
-                "cron '0 0 31 2 *' never fires (for example, day 31 in a month that has only 30 days)",
-            ),
+            ("0 0 31 2 *", "cron '0 0 31 2 *' never fires (for example, day 31 in a month that has only 30 days)"),
         ];
         for (expr, want) in cases {
             let err = parse_cron(expr).unwrap_err();

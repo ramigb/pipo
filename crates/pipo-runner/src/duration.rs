@@ -91,25 +91,10 @@ mod tests {
 
     #[test]
     fn rejects_anything_else() {
-        for bad in [
-            "",
-            "5",
-            "m",
-            "5 m",
-            "-5s",
-            "1.s",
-            ".5s",
-            "1.2.3s",
-            "5w",
-            "5M",
-            "1e3s",
-            "30 minutes",
-        ] {
+        for bad in ["", "5", "m", "5 m", "-5s", "1.s", ".5s", "1.2.3s", "5w", "5M", "1e3s", "30 minutes"] {
             assert_eq!(
                 parse_duration(bad),
-                Err(format!(
-                    "invalid duration '{bad}' (expected e.g. 500ms, 2s, 5m, 1h, 7d)"
-                )),
+                Err(format!("invalid duration '{bad}' (expected e.g. 500ms, 2s, 5m, 1h, 7d)")),
                 "{bad:?}"
             );
         }

@@ -47,8 +47,11 @@ fn marks(n: usize) -> String {
 /// columns before D49, `files` before D60), since a read without the runner never migrates (D34).
 fn summary_columns(db: &Connection) -> Result<String, ControlError> {
     let mut stmt = db.prepare("PRAGMA table_info(versions)").map_err(internal)?;
-    let cols: HashSet<String> =
-        stmt.query_map([], |r| r.get::<_, String>("name")).map_err(internal)?.collect::<Result<_, _>>().map_err(internal)?;
+    let cols: HashSet<String> = stmt
+        .query_map([], |r| r.get::<_, String>("name"))
+        .map_err(internal)?
+        .collect::<Result<_, _>>()
+        .map_err(internal)?;
     let opt = |c: &str| if cols.contains(c) { c.to_string() } else { format!("NULL AS {c}") };
     Ok(format!(
         "version, hash, author, {}, {}, {}, {}, created_at",
@@ -129,7 +132,8 @@ fn definition_of(db: &Connection, version: i64, pipeline: &str) -> Result<Map<St
         .optional()
         .map_err(internal)?;
     let Some((mut summary, source)) = row else {
-        let latest: Option<i64> = db.query_row("SELECT MAX(version) FROM versions", [], |r| r.get(0)).map_err(internal)?;
+        let latest: Option<i64> =
+            db.query_row("SELECT MAX(version) FROM versions", [], |r| r.get(0)).map_err(internal)?;
         return Err(ControlError::new(
             "not_found",
             format!(
@@ -210,8 +214,11 @@ fn line_ops<'a>(a: &[&'a str], b: &[&'a str]) -> Vec<Op<'a>> {
         let mut lcs = vec![0i32; (n + 1) * w];
         for i in (0..n).rev() {
             for j in (0..m).rev() {
-                lcs[i * w + j] =
-                    if am[i] == bm[j] { lcs[(i + 1) * w + j + 1] + 1 } else { lcs[(i + 1) * w + j].max(lcs[i * w + j + 1]) };
+                lcs[i * w + j] = if am[i] == bm[j] {
+                    lcs[(i + 1) * w + j + 1] + 1
+                } else {
+                    lcs[(i + 1) * w + j].max(lcs[i * w + j + 1])
+                };
             }
         }
         let (mut i, mut j) = (0, 0);

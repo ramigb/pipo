@@ -2,8 +2,8 @@
 // handed to the runner's intake, which journals the packet; only then is the next fire armed. Fires missed while
 // the runner was down or suspended are skipped, not replayed (spec §14).
 
-use crate::cron::{Cron, next_cron, parse_cron};
 use super::{InputAdapter, InputRuntime, Intake, IntakeResult, LocalBoxFuture, Log, Origin, Stopper};
+use crate::cron::{Cron, next_cron, parse_cron};
 use crate::duration::{format_duration, parse_duration};
 use crate::time::{iso, now_ms};
 use serde_json::{Map, Value};
@@ -123,7 +123,9 @@ impl Inner {
                 }
             }
             let source = iso(tick);
-            match intake(self.payload.clone(), Origin { trigger: "schedule".into(), source: source.clone() }, None).await {
+            match intake(self.payload.clone(), Origin { trigger: "schedule".into(), source: source.clone() }, None)
+                .await
+            {
                 IntakeResult::Accepted { .. } => {}
                 IntakeResult::Rejected { message, .. } => {
                     self.log("warn", &format!("schedule tick {source} was not accepted: {message}"))
@@ -312,7 +314,8 @@ pub(crate) mod tests {
             wait_for(|| got.borrow().len() >= 3, 5000, "three ticks").await;
             input.stop().await;
             let n = got.borrow().len();
-            let sources: std::collections::HashSet<String> = got.borrow().iter().map(|(_, o)| o.source.clone()).collect();
+            let sources: std::collections::HashSet<String> =
+                got.borrow().iter().map(|(_, o)| o.source.clone()).collect();
             assert_eq!(sources.len(), n);
             tokio::time::sleep(std::time::Duration::from_millis(60)).await;
             assert_eq!(got.borrow().len(), n);

@@ -131,7 +131,11 @@ fn after_arg(raw: Option<&Value>) -> Result<Option<String>, ControlError> {
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(s)) if s.is_empty() => Ok(None),
         Some(Value::String(s)) if js_len(s) <= 200 => Ok(Some(s.clone())),
-        _ => Err(ControlError::new("bad_request", "`after` must be a packet id", "use the `next` value of the previous page")),
+        _ => Err(ControlError::new(
+            "bad_request",
+            "`after` must be a packet id",
+            "use the `next` value of the previous page",
+        )),
     }
 }
 
@@ -234,7 +238,11 @@ pub fn list_packets(db: &Connection, args: &Map<String, Value>) -> Result<Value,
     // Never empty in practice: `escalated` drops the branch condition but adds the state one.
     let cond = |c: &[&str]| if c.is_empty() { "1".to_string() } else { c.join(" AND ") };
     let total: i64 = db
-        .query_row(&format!("SELECT COUNT(*) FROM packets p WHERE {}", cond(&clauses)), params_from_iter(params.iter()), |r| r.get(0))
+        .query_row(
+            &format!("SELECT COUNT(*) FROM packets p WHERE {}", cond(&clauses)),
+            params_from_iter(params.iter()),
+            |r| r.get(0),
+        )
         .map_err(internal)?;
     if let Some(a) = &after {
         clauses.push("p.id < ?");
@@ -282,8 +290,11 @@ impl RawEvent {
 
 fn has_patch_column(db: &Connection) -> Result<bool, ControlError> {
     let mut stmt = db.prepare("PRAGMA table_info(events)").map_err(internal)?;
-    let names: Vec<String> =
-        stmt.query_map([], |r| r.get::<_, String>("name")).map_err(internal)?.collect::<Result<_, _>>().map_err(internal)?;
+    let names: Vec<String> = stmt
+        .query_map([], |r| r.get::<_, String>("name"))
+        .map_err(internal)?
+        .collect::<Result<_, _>>()
+        .map_err(internal)?;
     Ok(names.iter().any(|n| n == "patch"))
 }
 
@@ -315,10 +326,7 @@ fn events_of(db: &Connection, id: &str, patches: bool) -> Result<Vec<RawEvent>, 
 /// None when the journal has never seen the id.
 pub fn packet_trace(db: &Connection, id: &str) -> Result<Option<Value>, ControlError> {
     let patches = has_patch_column(db)?;
-    let row = db
-        .query_row("SELECT * FROM packets WHERE id = ?", [id], trace_row)
-        .optional()
-        .map_err(internal)?;
+    let row = db.query_row("SELECT * FROM packets WHERE id = ?", [id], trace_row).optional().map_err(internal)?;
     if let Some(row) = row {
         return unit_trace(db, row, patches).map(Some);
     }
@@ -340,7 +348,11 @@ fn trace_row(r: &rusqlite::Row) -> rusqlite::Result<TraceRow> {
     Ok((PacketCols::read(r)?, r.get("root")?, r.get("branch")?, unjson(r.get("data")?)?, unjson(r.get("result")?)?))
 }
 
-fn unit_trace(db: &Connection, (p, root, branch, data, result): TraceRow, patches: bool) -> Result<Value, ControlError> {
+fn unit_trace(
+    db: &Connection,
+    (p, root, branch, data, result): TraceRow,
+    patches: bool,
+) -> Result<Value, ControlError> {
     let events = events_of(db, &p.id, patches)?;
     let (steps, retries, notes) = build_steps(&events);
     let copies: i64 =
@@ -358,11 +370,8 @@ fn unit_trace(db: &Connection, (p, root, branch, data, result): TraceRow, patche
         Value::Null
     };
     let mut stmt = db.prepare("SELECT * FROM packets WHERE parent = ? ORDER BY branch").map_err(internal)?;
-    let children: Vec<TraceRow> = stmt
-        .query_map([&p.id], trace_row)
-        .map_err(internal)?
-        .collect::<Result<_, _>>()
-        .map_err(internal)?;
+    let children: Vec<TraceRow> =
+        stmt.query_map([&p.id], trace_row).map_err(internal)?.collect::<Result<_, _>>().map_err(internal)?;
     let copies = children.into_iter().map(|c| unit_trace(db, c, patches)).collect::<Result<Vec<_>, _>>()?;
     Ok(json!({
         "packet": packet,
@@ -442,7 +451,8 @@ fn build_steps(events: &[RawEvent]) -> (Vec<Value>, Vec<Value>, Vec<Value>) {
             None if first && e.kind != "packet.branched" => json!("input"),
             None => Value::Null,
         };
-        let state = patch.get("state").filter(|s| !s.is_null()).cloned().unwrap_or_else(|| json!(legacy_state(&e.kind)));
+        let state =
+            patch.get("state").filter(|s| !s.is_null()).cloned().unwrap_or_else(|| json!(legacy_state(&e.kind)));
         let mut step = Map::new();
         step.insert("node".into(), node);
         step.insert("event".into(), json!(e.kind));
@@ -480,13 +490,21 @@ fn legacy_state(kind: &str) -> Option<&'static str> {
 
 /// Answer a read op against a journal database (the runner's own, or a read-only one). `current` is the version a
 /// running runner gives new packets (D38); None when reading the journal alone.
-pub fn read(db: &Connection, op: &str, args: &Map<String, Value>, pipeline: &str, current: Option<i64>) -> Result<Value, ControlError> {
+pub fn read(
+    db: &Connection,
+    op: &str,
+    args: &Map<String, Value>,
+    pipeline: &str,
+    current: Option<i64>,
+) -> Result<Value, ControlError> {
     match op {
         "packets" => list_packets(db, args),
         "dlq" => list_dlq(db, args),
         "versions" => list_versions(db, current),
         "version" => get_version(db, version_arg(args.get("version"), "version")?, pipeline),
-        "diff" => diff_versions(db, version_arg(args.get("from"), "from")?, version_arg(args.get("to"), "to")?, pipeline),
+        "diff" => {
+            diff_versions(db, version_arg(args.get("from"), "from")?, version_arg(args.get("to"), "to")?, pipeline)
+        }
         "proposals" => list_proposals(db, args),
         "proposal" => get_proposal(db, args.get("id"), pipeline),
         "packet" => {
@@ -540,10 +558,18 @@ fn list_proposals(db: &Connection, args: &Map<String, Value>) -> Result<Value, C
 
 fn get_proposal(db: &Connection, id: Option<&Value>, pipeline: &str) -> Result<Value, ControlError> {
     let id = id.and_then(Value::as_str).filter(|s| !s.is_empty()).ok_or_else(|| {
-        ControlError::new("bad_request", "proposal needs `id`: the proposal's id", format!("pipo proposals {pipeline} lists them"))
+        ControlError::new(
+            "bad_request",
+            "proposal needs `id`: the proposal's id",
+            format!("pipo proposals {pipeline} lists them"),
+        )
     })?;
     let p = read_get(db, id).map_err(internal)?.ok_or_else(|| {
-        ControlError::new("not_found", format!("{pipeline} has no proposal {id}"), format!("list them with pipo proposals {pipeline}"))
+        ControlError::new(
+            "not_found",
+            format!("{pipeline} has no proposal {id}"),
+            format!("list them with pipo proposals {pipeline}"),
+        )
     })?;
     Ok(p.to_value())
 }
@@ -592,7 +618,8 @@ pub fn offline_redaction(db: &Connection) -> Result<(Secrets, Option<String>), C
         .map_err(internal)?
         .iter()
         .any(|c| c == "compiled");
-    let sql = format!("SELECT version, source, {} FROM versions", if has_compiled { "compiled" } else { "NULL AS compiled" });
+    let sql =
+        format!("SELECT version, source, {} FROM versions", if has_compiled { "compiled" } else { "NULL AS compiled" });
     let mut stmt = db.prepare(&sql).map_err(internal)?;
     let rows: Vec<(i64, String, Option<String>)> = stmt
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
@@ -636,7 +663,12 @@ pub fn offline_redaction(db: &Connection) -> Result<(Secrets, Option<String>), C
 
 /// A read op answered from `<home>/pipelines/<name>/journal.db` while no runner runs, redacted like the runner's
 /// answers: `{result, withheld}`, or None when the pipeline has no journal.
-pub fn offline_read(path: &Path, op: &str, args: &Map<String, Value>, pipeline: &str) -> Result<Option<Value>, ControlError> {
+pub fn offline_read(
+    path: &Path,
+    op: &str,
+    args: &Map<String, Value>,
+    pipeline: &str,
+) -> Result<Option<Value>, ControlError> {
     if !path.exists() {
         return Ok(None);
     }

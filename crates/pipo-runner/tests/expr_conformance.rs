@@ -6,10 +6,7 @@ use pipo_runner::expr::{
 };
 use serde_json::{Value, json};
 
-const FIXTURE: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../packages/spec/test/fixtures/expr-cases.json"
-);
+const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../packages/spec/test/fixtures/expr-cases.json");
 
 /// The expected value, with `{"$undefined": true}` and `{"$number": "NaN"}` (etc.) decoded.
 fn decode(v: &Value) -> JsValue {
@@ -59,9 +56,7 @@ fn run(case: &Value, opts: &EvalOptions) -> Result<JsValue, ExprError> {
     }
     if let Some(src) = case.get("segments").and_then(Value::as_str) {
         let parts = segments(src)?;
-        return Ok(JsValue::from_json(&Value::Array(
-            parts.iter().map(segment_json).collect(),
-        )));
+        return Ok(JsValue::from_json(&Value::Array(parts.iter().map(segment_json).collect())));
     }
     let value = case.get("render").expect("case has expr, template, render or segments");
     Ok(JsValue::from_json(&render_with(value, &ctx, opts)?))
@@ -75,10 +70,7 @@ fn conformance() {
     let mut failures = vec![];
     for case in &cases {
         let name = case["name"].as_str().unwrap_or("?");
-        let clock = case
-            .get("now")
-            .and_then(Value::as_f64)
-            .map_or(Clock::System, Clock::Fixed);
+        let clock = case.get("now").and_then(Value::as_f64).map_or(Clock::System, Clock::Fixed);
         let got = run(case, &EvalOptions { clock });
         let problem = match (case.get("error").and_then(Value::as_str), &got) {
             (None, Ok(v)) => {
@@ -102,11 +94,5 @@ fn conformance() {
             failures.push(format!("{name}: {p}"));
         }
     }
-    assert!(
-        failures.is_empty(),
-        "{} of {} cases fail:\n{}",
-        failures.len(),
-        cases.len(),
-        failures.join("\n")
-    );
+    assert!(failures.is_empty(), "{} of {} cases fail:\n{}", failures.len(), cases.len(), failures.join("\n"));
 }

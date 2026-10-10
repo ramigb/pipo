@@ -164,7 +164,10 @@ async fn answer(r: &Rc<Runner>, line: &str) -> (Value, Option<After>) {
         return error(id, ControlError::new("bad_request", "missing `op`", EXAMPLE));
     };
     if !OPS.contains(&op) {
-        return error(id, ControlError::new("unknown_op", format!("unknown op '{op}'"), format!("ops: {}", OPS.join(", "))));
+        return error(
+            id,
+            ControlError::new("unknown_op", format!("unknown op '{op}'"), format!("ops: {}", OPS.join(", "))),
+        );
     }
     let args = match obj.get("args") {
         None | Some(Value::Null) => serde_json::Map::new(),

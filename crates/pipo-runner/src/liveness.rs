@@ -57,10 +57,10 @@ pub fn entry_alive(pid: i64, started_at: Option<&str>, proc_start_ticks: Option<
     if !pid_running(pid) {
         return false;
     }
-    if let Some(ticks) = proc_start_ticks {
-        if let Some(now) = proc_start(pid) {
-            return now == ticks;
-        }
+    if let Some(ticks) = proc_start_ticks
+        && let Some(now) = proc_start(pid)
+    {
+        return now == ticks;
     }
     !pid_reused(pid, started_at)
 }

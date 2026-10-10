@@ -9,17 +9,15 @@ pub async fn resolve_ref(reference: &str) -> Result<String, String> {
         return std::env::var(name).map_err(|_| format!("environment variable {name} is not set"));
     }
     if reference.starts_with("op://") {
-        let out = tokio::process::Command::new("op")
-            .args(["read", "--no-newline", reference])
-            .output()
-            .await
-            .map_err(|e| {
+        let out = tokio::process::Command::new("op").args(["read", "--no-newline", reference]).output().await.map_err(
+            |e| {
                 if e.kind() == std::io::ErrorKind::NotFound {
                     "1Password CLI 'op' is not installed; install it or use env: references".to_string()
                 } else {
                     format!("op read failed for {reference}: {e}")
                 }
-            })?;
+            },
+        )?;
         if !out.status.success() {
             return Err(format!("op read failed for {reference}: {}", String::from_utf8_lossy(&out.stderr).trim()));
         }

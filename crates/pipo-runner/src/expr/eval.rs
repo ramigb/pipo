@@ -46,10 +46,7 @@ pub fn evaluate_with(source: &str, ctx: &Value, opts: &EvalOptions) -> Result<Js
 
 /// Evaluate an expression that is already parsed.
 pub fn evaluate_compiled(c: &Compiled, ctx: &Value, opts: &EvalOptions) -> Result<JsValue, ExprError> {
-    let env = Env {
-        vars: ctx.as_object(),
-        opts,
-    };
+    let env = Env { vars: ctx.as_object(), opts };
     Ok(eval(&c.ast, &env)?.into_js())
 }
 
@@ -79,12 +76,7 @@ fn eval<'a>(node: &Ast, env: &Env<'a, '_>) -> Result<V<'a>, ExprError> {
             Some(v) => V::Ref(R::Json(v)),
             None => return Err(ExprError::new(format!("'{name}' is not available here"))),
         },
-        Ast::Member {
-            object,
-            property,
-            computed,
-            ..
-        } => {
+        Ast::Member { object, property, computed, .. } => {
             let target = eval(object, env)?;
             if *computed {
                 let key = eval(property, env)?;
@@ -101,9 +93,7 @@ fn eval<'a>(node: &Ast, env: &Env<'a, '_>) -> Result<V<'a>, ExprError> {
         }
         Ast::Call { callee, arguments, .. } => {
             let Ast::Identifier(name) = callee.as_ref() else {
-                return Err(ExprError::new(
-                    "only helper functions can be called, e.g. len(x) rather than x.length()",
-                ));
+                return Err(ExprError::new("only helper functions can be called, e.g. len(x) rather than x.length()"));
             };
             let args = arguments.iter().map(|a| eval(a, env)).collect::<Result<Vec<_>, _>>()?;
             helpers::call(name, args, env.opts).map_err(ExprError::new)?
@@ -128,11 +118,7 @@ fn eval<'a>(node: &Ast, env: &Env<'a, '_>) -> Result<V<'a>, ExprError> {
             let r = eval(right, env)?;
             V::Own(binary(op, l.r(), r.r())?)
         }
-        Ast::Conditional {
-            test,
-            consequent,
-            alternate,
-        } => {
+        Ast::Conditional { test, consequent, alternate } => {
             if truthy_r(eval(test, env)?.r()) {
                 eval(consequent, env)?
             } else {
@@ -197,9 +183,7 @@ fn get_member<'a>(target: V<'a>, k: &str) -> V<'a> {
                 if k == "length" {
                     V::Own(JsValue::Num(a.len() as f64))
                 } else {
-                    array_index(k)
-                        .and_then(|i| a.get(i as usize))
-                        .map_or_else(undefined, V::Ref)
+                    array_index(k).and_then(|i| a.get(i as usize)).map_or_else(undefined, V::Ref)
                 }
             }
             K::Obj(o) => o.get(k).map_or_else(undefined, V::Ref),
@@ -244,9 +228,7 @@ pub(crate) fn deep_equal(a: R, b: R) -> bool {
         (K::Arr(x), K::Arr(y)) => x.len() == y.len() && x.iter().zip(y.iter()).all(|(p, q)| deep_equal(p, q)),
         (K::Obj(x), K::Obj(y)) => {
             x.len() == y.len()
-                && x.entries()
-                    .into_iter()
-                    .all(|(k, v)| deep_equal(v, y.get(k).unwrap_or(R::Js(&UNDEFINED))))
+                && x.entries().into_iter().all(|(k, v)| deep_equal(v, y.get(k).unwrap_or(R::Js(&UNDEFINED))))
         }
         _ => false,
     }

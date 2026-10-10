@@ -16,8 +16,18 @@ pub struct Gap {
 
 const HTTP_FORMATS: &[&str] = &["json", "text", "form", "csv", "bytes"];
 const CHECKS: &[&str] = &[
-    "ack", "none", "record_exists", "row_count", "query", "file_exists", "file_nonempty", "line_contains", "checksum",
-    "status", "follow_up", "external",
+    "ack",
+    "none",
+    "record_exists",
+    "row_count",
+    "query",
+    "file_exists",
+    "file_nonempty",
+    "line_contains",
+    "checksum",
+    "status",
+    "follow_up",
+    "external",
 ];
 const THEN: &[&str] = &["dead_letter", "drop", "continue", "pause", "halt", "agent"];
 
@@ -34,15 +44,19 @@ pub fn gaps(p: &Pipeline) -> Vec<Gap> {
         }
     }
     for (id, n) in p.nodes.iter() {
-        if let Some(tap) = &n.tap {
-            if fn_ref(tap).is_none() && tap != "log" && !TAPS.contains(&tap.as_str()) {
-                refuse(format!("nodes.{id}.tap"), format!("tap '{tap}'"));
-            }
+        if let Some(tap) = &n.tap
+            && fn_ref(tap).is_none()
+            && tap != "log"
+            && !TAPS.contains(&tap.as_str())
+        {
+            refuse(format!("nodes.{id}.tap"), format!("tap '{tap}'"));
         }
-        if let Some(t) = &n.transform {
-            if fn_ref(t).is_none() && t != "map" && !TRANSFORMS.contains(&t.as_str()) {
-                refuse(format!("nodes.{id}.transform"), format!("transform '{t}'"));
-            }
+        if let Some(t) = &n.transform
+            && fn_ref(t).is_none()
+            && t != "map"
+            && !TRANSFORMS.contains(&t.as_str())
+        {
+            refuse(format!("nodes.{id}.transform"), format!("transform '{t}'"));
         }
     }
     if !OUTPUTS.contains(&p.output.to.as_str()) {

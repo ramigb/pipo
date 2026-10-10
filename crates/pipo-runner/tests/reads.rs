@@ -106,37 +106,113 @@ fn to(state: &str, cursor: Option<&str>) -> PacketPatch {
 /// in flight with a pending retry, fanned out with copies (one escalated), purged; and two proposals.
 fn build(path: &Path) {
     let mut j = Journal::open(path).unwrap();
-    let v1 = j.version("h1", &source("env:PIPO_READS_TOKEN", ""), "human", Some("first start"), Some(&compiled("env:PIPO_READS_TOKEN"))).unwrap();
+    let v1 = j
+        .version(
+            "h1",
+            &source("env:PIPO_READS_TOKEN", ""),
+            "human",
+            Some("first start"),
+            Some(&compiled("env:PIPO_READS_TOKEN")),
+        )
+        .unwrap();
     // p1: accepted → a (one retry, a log) → output → delivered; its data holds the secret.
-    j.insert(&packet("01P1", v1, "processing", Some("a"), json!({ "name": "Ada", "tok": TOKEN }), 1000), "packet.accepted", None, None).unwrap();
-    j.event("step.retry", Some(&json!({ "attempt": 1, "wait": 30, "error": "boom" })), Some("01P1"), Some("a")).unwrap();
+    j.insert(
+        &packet("01P1", v1, "processing", Some("a"), json!({ "name": "Ada", "tok": TOKEN }), 1000),
+        "packet.accepted",
+        None,
+        None,
+    )
+    .unwrap();
+    j.event("step.retry", Some(&json!({ "attempt": 1, "wait": 30, "error": "boom" })), Some("01P1"), Some("a"))
+        .unwrap();
     j.event("log", Some(&json!({ "level": "info", "message": "seen" })), Some("01P1"), Some("a")).unwrap();
-    step(&mut j, "01P1", PacketPatch { data: Some(json!({ "name": "Ada", "tok": TOKEN, "x": 1 })), ..to("processing", Some("$output")) }, "node.done", Some("a"), None);
-    step(&mut j, "01P1", PacketPatch { result: Some(json!({ "ok": true })), ..to("verifying", Some("$verify")) }, "output.written", Some("$output"), None);
-    step(&mut j, "01P1", PacketPatch { error: Some(None), ..to("delivered", None) }, "packet.delivered", Some("$verify"), None);
+    step(
+        &mut j,
+        "01P1",
+        PacketPatch { data: Some(json!({ "name": "Ada", "tok": TOKEN, "x": 1 })), ..to("processing", Some("$output")) },
+        "node.done",
+        Some("a"),
+        None,
+    );
+    step(
+        &mut j,
+        "01P1",
+        PacketPatch { result: Some(json!({ "ok": true })), ..to("verifying", Some("$verify")) },
+        "output.written",
+        Some("$output"),
+        None,
+    );
+    step(
+        &mut j,
+        "01P1",
+        PacketPatch { error: Some(None), ..to("delivered", None) },
+        "packet.delivered",
+        Some("$verify"),
+        None,
+    );
     // p2: dead-lettered at a, after 3 attempts.
-    j.insert(&packet("01P2", v1, "processing", Some("a"), json!({ "n": 2 }), 2000), "packet.accepted", None, None).unwrap();
+    j.insert(&packet("01P2", v1, "processing", Some("a"), json!({ "n": 2 }), 2000), "packet.accepted", None, None)
+        .unwrap();
     let e = err("node.failed", "a failed", Some("a"), Some(3));
-    step(&mut j, "01P2", PacketPatch { error: Some(Some(e.clone())), ..to("dead_lettered", None) }, "packet.dead_lettered", Some("a"), Some(serde_json::to_value(&e).unwrap()));
-    let v2 = j.version("h2", &source("op://vault/item/field", "description: two\n"), "cli", Some("applied"), Some(&compiled("op://vault/item/field"))).unwrap();
+    step(
+        &mut j,
+        "01P2",
+        PacketPatch { error: Some(Some(e.clone())), ..to("dead_lettered", None) },
+        "packet.dead_lettered",
+        Some("a"),
+        Some(serde_json::to_value(&e).unwrap()),
+    );
+    let v2 = j
+        .version(
+            "h2",
+            &source("op://vault/item/field", "description: two\n"),
+            "cli",
+            Some("applied"),
+            Some(&compiled("op://vault/item/field")),
+        )
+        .unwrap();
     // p3: in flight at a on v2, with a retry pending.
-    j.insert(&packet("01P3", v2, "processing", Some("a"), json!({ "n": 3 }), 3000), "packet.accepted", None, None).unwrap();
+    j.insert(&packet("01P3", v2, "processing", Some("a"), json!({ "n": 3 }), 3000), "packet.accepted", None, None)
+        .unwrap();
     j.event("step.retry", Some(&json!({ "attempt": 1, "error": "slow" })), Some("01P3"), Some("a")).unwrap();
     // p4: fanned out into p4:a (delivered) and p4:b (escalated).
-    j.insert(&packet("01P4", v2, "processing", Some("a"), json!({ "n": 4 }), 4000), "packet.accepted", None, None).unwrap();
+    j.insert(&packet("01P4", v2, "processing", Some("a"), json!({ "n": 4 }), 4000), "packet.accepted", None, None)
+        .unwrap();
     let row = j.get("01P4").unwrap().unwrap();
     j.atomically(|j| {
         j.update("01P4", &to(BRANCHED, None), "packet.fanned_out", Some("a"), None, &[], None)?;
-        let copy = |b: &str| NewCopy { id: format!("01P4:{b}"), branch: b.into(), state: "processing".into(), cursor: "$output".into(), data: json!({ "n": 4, "b": b }), hops: 1 };
+        let copy = |b: &str| NewCopy {
+            id: format!("01P4:{b}"),
+            branch: b.into(),
+            state: "processing".into(),
+            cursor: "$output".into(),
+            data: json!({ "n": 4, "b": b }),
+            hops: 1,
+        };
         j.insert_copies(&row, &[copy("a"), copy("b")], Some("a"))
     })
     .unwrap();
     step(&mut j, "01P4:a", to("delivered", None), "packet.delivered", Some("$verify"), None);
     let stall = err("stall", "stalled", Some("$output"), None);
-    step(&mut j, "01P4:b", PacketPatch { error: Some(Some(stall)), ..to(ESCALATED, Some("$output")) }, "packet.escalated", Some("$output"), Some(json!({ "reason": "stall" })));
+    step(
+        &mut j,
+        "01P4:b",
+        PacketPatch { error: Some(Some(stall)), ..to(ESCALATED, Some("$output")) },
+        "packet.escalated",
+        Some("$output"),
+        Some(json!({ "reason": "stall" })),
+    );
     // p5: dead-lettered, then purged.
-    j.insert(&packet("01P5", v2, "processing", Some("a"), json!({ "n": 5 }), 5000), "packet.accepted", None, None).unwrap();
-    step(&mut j, "01P5", PacketPatch { error: Some(Some(err("node.failed", "x", Some("a"), None))), ..to("dead_lettered", None) }, "packet.dead_lettered", Some("a"), None);
+    j.insert(&packet("01P5", v2, "processing", Some("a"), json!({ "n": 5 }), 5000), "packet.accepted", None, None)
+        .unwrap();
+    step(
+        &mut j,
+        "01P5",
+        PacketPatch { error: Some(Some(err("node.failed", "x", Some("a"), None))), ..to("dead_lettered", None) },
+        "packet.dead_lettered",
+        Some("a"),
+        None,
+    );
     j.purge(&["01P5".to_string()], "test").unwrap();
     // Two proposals, as the store writes them.
     for (id, state, at) in [("pr_01A", "validated", 10), ("pr_01B", "rejected", 20)] {
@@ -194,13 +270,28 @@ fn packets_page_newest_first_with_filters_and_bad_arguments() {
     let dlq = rd(&db, "dlq", json!({})).unwrap();
     assert_eq!(dlq["total"], 1);
     assert_eq!(dlq["packets"][0]["node"], "a");
-    assert_eq!(dlq["packets"][0]["error"], json!({ "code": "node.failed", "message": "a failed", "node": "a", "attempts": 3 }));
+    assert_eq!(
+        dlq["packets"][0]["error"],
+        json!({ "code": "node.failed", "message": "a failed", "node": "a", "attempts": 3 })
+    );
     let esc = rd(&db, "packets", json!({ "state": "escalated" })).unwrap();
     assert_eq!(esc["packets"][0]["packet_id"], "01P4:b");
     let keys: Vec<&String> = dlq["packets"][0].as_object().unwrap().keys().collect();
     assert_eq!(
         keys,
-        ["packet_id", "state", "node", "version", "trigger", "source", "attempt", "error", "copies", "received_at", "updated_at"]
+        [
+            "packet_id",
+            "state",
+            "node",
+            "version",
+            "trigger",
+            "source",
+            "attempt",
+            "error",
+            "copies",
+            "received_at",
+            "updated_at"
+        ]
     );
     let bad = rd(&db, "packets", json!({ "state": "lost" })).unwrap_err();
     assert_eq!((bad.code, bad.message.as_str()), ("bad_request", "unknown packet state \"lost\""));
@@ -225,7 +316,10 @@ fn a_packet_trace_has_data_timings_retries_notes_and_copies() {
     assert_eq!(nodes, [&json!("input"), &json!("a"), &json!("$output"), &json!("$verify")]);
     assert_eq!(steps[0]["state"], "processing");
     assert_eq!(steps[0]["changed"], true);
-    assert_eq!(steps[1]["retries"], json!([{ "attempt": 1, "at": steps[1]["retries"][0]["at"], "wait_ms": 30, "error": "boom" }]));
+    assert_eq!(
+        steps[1]["retries"],
+        json!([{ "attempt": 1, "at": steps[1]["retries"][0]["at"], "wait_ms": 30, "error": "boom" }])
+    );
     assert_eq!(steps[1]["attempts"], 2);
     assert_eq!(steps[1]["notes"][0]["type"], "log");
     assert_eq!(steps[1]["changed"], true);
@@ -236,7 +330,20 @@ fn a_packet_trace_has_data_timings_retries_notes_and_copies() {
     let keys: Vec<&String> = steps[1].as_object().unwrap().keys().collect();
     assert_eq!(
         keys,
-        ["node", "event", "state", "started_at", "at", "duration_ms", "attempts", "retries", "error", "data", "changed", "notes"]
+        [
+            "node",
+            "event",
+            "state",
+            "started_at",
+            "at",
+            "duration_ms",
+            "attempts",
+            "retries",
+            "error",
+            "data",
+            "changed",
+            "notes"
+        ]
     );
 
     let dead = rd(&db, "packet", json!({ "packet_id": "01P2" })).unwrap();
@@ -275,12 +382,18 @@ fn versions_version_and_diff() {
     assert_eq!((h["current"].clone(), h["latest"].clone()), (json!(2), json!(2)));
     let v2 = &h["versions"][0];
     let keys: Vec<&String> = v2.as_object().unwrap().keys().collect();
-    assert_eq!(keys, ["version", "hash", "author", "reason", "author_kind", "proposal", "files", "created_at", "pending"]);
+    assert_eq!(
+        keys,
+        ["version", "hash", "author", "reason", "author_kind", "proposal", "files", "created_at", "pending"]
+    );
     // p3 is in flight and p4 branched on v2; p4's copies don't count.
     assert_eq!(v2["pending"], 2);
     let v = rd(&db, "version", json!({ "version": "v2" })).unwrap();
     assert_eq!(v["definition"], source("op://vault/item/field", "description: two\n"));
-    assert_eq!(v["diff"], "--- demo v1\n+++ demo v2\n@@ -1,7 +1,8 @@\n pipo: 1\n name: demo\n-secrets: { tok: \"env:PIPO_READS_TOKEN\" }\n+secrets: { tok: \"op://vault/item/field\" }\n input: { via: push }\n nodes:\n   a: { from: input, transform: map, with: { data: { x: 1 } } }\n output: { from: a, to: stdout }\n+description: two");
+    assert_eq!(
+        v["diff"],
+        "--- demo v1\n+++ demo v2\n@@ -1,7 +1,8 @@\n pipo: 1\n name: demo\n-secrets: { tok: \"env:PIPO_READS_TOKEN\" }\n+secrets: { tok: \"op://vault/item/field\" }\n input: { via: push }\n nodes:\n   a: { from: input, transform: map, with: { data: { x: 1 } } }\n output: { from: a, to: stdout }\n+description: two"
+    );
     assert_eq!(rd(&db, "version", json!({ "version": 1 })).unwrap()["diff"], Value::Null);
     let missing = rd(&db, "version", json!({ "version": 7 })).unwrap_err();
     assert_eq!(missing.message, "demo has no version 7 (versions are v1 to v2)");
@@ -304,7 +417,10 @@ fn proposals_list_and_get() {
     let ids: Vec<&Value> = list["proposals"].as_array().unwrap().iter().map(|p| &p["id"]).collect();
     assert_eq!(ids, [&json!("pr_01B"), &json!("pr_01A")]);
     assert!(list["proposals"][0].get("source").is_none());
-    assert_eq!(rd(&db, "proposals", json!({ "state": "validated", "limit": "1" })).unwrap()["proposals"][0]["id"], "pr_01A");
+    assert_eq!(
+        rd(&db, "proposals", json!({ "state": "validated", "limit": "1" })).unwrap()["proposals"][0]["id"],
+        "pr_01A"
+    );
     let p = rd(&db, "proposal", json!({ "id": "pr_01B" })).unwrap();
     assert_eq!(p["verification"], json!({ "replayed": 1 }));
     assert_eq!(p["problems"][0]["code"], "stale_base");
@@ -323,8 +439,11 @@ fn offline_reads_redact_and_withhold_payloads_when_a_secret_cant_be_resolved() {
     let path = t.path("journal.db");
     {
         let mut j = Journal::open(&path).unwrap();
-        let v = j.version("h1", &source("env:PIPO_READS_TOKEN", ""), "human", None, Some(&compiled("env:PIPO_READS_TOKEN"))).unwrap();
-        j.insert(&packet("01P1", v, "processing", Some("a"), json!({ "v": TOKEN }), 1), "packet.accepted", None, None).unwrap();
+        let v = j
+            .version("h1", &source("env:PIPO_READS_TOKEN", ""), "human", None, Some(&compiled("env:PIPO_READS_TOKEN")))
+            .unwrap();
+        j.insert(&packet("01P1", v, "processing", Some("a"), json!({ "v": TOKEN }), 1), "packet.accepted", None, None)
+            .unwrap();
     }
     let page = offline_read(&path, "packets", &Map::new(), "demo").unwrap().unwrap();
     assert_eq!(page["result"]["packets"][0]["packet_id"], "01P1");
@@ -336,7 +455,10 @@ fn offline_reads_redact_and_withhold_payloads_when_a_secret_cant_be_resolved() {
     assert_eq!(missing.message, "no packet 'nope' in demo");
 
     // A version that declares an op:// secret: it can't be resolved without the runner, so payloads are withheld.
-    Journal::open(&path).unwrap().version("h2", &source("op://vault/item/field", ""), "human", None, Some(&compiled("op://vault/item/field"))).unwrap();
+    Journal::open(&path)
+        .unwrap()
+        .version("h2", &source("op://vault/item/field", ""), "human", None, Some(&compiled("op://vault/item/field")))
+        .unwrap();
     let withheld = offline_read(&path, "packet", &args(json!({ "packet_id": "01P1" })), "demo").unwrap().unwrap();
     assert_eq!(
         withheld["withheld"],
@@ -347,7 +469,10 @@ fn offline_reads_redact_and_withhold_payloads_when_a_secret_cant_be_resolved() {
     assert!(!withheld.to_string().contains(TOKEN));
 
     // A version stored without its compiled form (by the TS runner) whose source mentions secrets: unknown, withheld.
-    Journal::open(&path).unwrap().version("h3", &source("env:PIPO_READS_TOKEN", "description: three\n"), "human", None, None).unwrap();
+    Journal::open(&path)
+        .unwrap()
+        .version("h3", &source("env:PIPO_READS_TOKEN", "description: three\n"), "human", None, None)
+        .unwrap();
     let j = Journal::open(&path).unwrap();
     j.db().execute("DELETE FROM versions WHERE version = 2", []).unwrap();
     j.close().unwrap();
@@ -384,8 +509,12 @@ fn journals_from_before_patches_trace_by_event_type() {
     Journal::open(&path).unwrap().close().unwrap();
     let r = offline_read(&path, "packet", &args(json!({ "packet_id": "p1" })), "old").unwrap().unwrap();
     assert_eq!(r["withheld"], Value::Null);
-    let steps: Vec<Value> =
-        r["result"]["steps"].as_array().unwrap().iter().map(|s| json!([s["node"], s["state"], s["duration_ms"]])).collect();
+    let steps: Vec<Value> = r["result"]["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| json!([s["node"], s["state"], s["duration_ms"]]))
+        .collect();
     assert_eq!(steps, [json!(["input", "accepted", 0]), json!(["n", null, 50]), json!(["$verify", "delivered", 150])]);
     assert!(r["result"]["steps"][0].get("data").is_none());
 }
@@ -435,7 +564,8 @@ fn the_read_mode_prints_the_result_or_the_error() {
     let v: Value = serde_json::from_str(&out).unwrap();
     assert_eq!(v["result"]["packets"][0]["packet_id"], "01P2");
     assert!(v["withheld"].as_str().unwrap().contains("tok"));
-    let (code, out) = run(&["--home", home_s, "--pipeline", "demo", "--op", "packet", "--args", r#"{"packet_id":"nope"}"#]);
+    let (code, out) =
+        run(&["--home", home_s, "--pipeline", "demo", "--op", "packet", "--args", r#"{"packet_id":"nope"}"#]);
     assert_eq!(code, Some(1));
     let v: Value = serde_json::from_str(&out).unwrap();
     assert_eq!(v["error"]["code"], "not_found");
@@ -519,7 +649,13 @@ fn reads_match_the_typescript_implementation() {
         }
     }
     let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/support/ts-read.ts");
-    let out = Command::new("bun").arg(&script).arg(&path).arg(Value::Array(requests.clone()).to_string()).current_dir(repo()).output().unwrap();
+    let out = Command::new("bun")
+        .arg(&script)
+        .arg(&path)
+        .arg(Value::Array(requests.clone()).to_string())
+        .current_dir(repo())
+        .output()
+        .unwrap();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let got: Vec<Value> = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(got.len(), expected.len());
@@ -537,7 +673,10 @@ fn unified_diff_matches_the_typescript_outputs() {
         let d = unified_diff(before, after, "p v1", "p v2", case["context"].as_u64().unwrap() as usize);
         let expected = &case["expected"];
         assert_eq!(d.diff, expected["diff"].as_str().unwrap(), "{before:?} → {after:?}");
-        assert_eq!((d.added as u64, d.removed as u64), (expected["added"].as_u64().unwrap(), expected["removed"].as_u64().unwrap()));
+        assert_eq!(
+            (d.added as u64, d.removed as u64),
+            (expected["added"].as_u64().unwrap(), expected["removed"].as_u64().unwrap())
+        );
     }
     // Around MAX_CELLS: aligned line by line below it, removed-then-added above it.
     let big = |n: usize, side: &str| {
@@ -566,7 +705,10 @@ fn unified_diff_hunks_edges_and_identical_texts() {
         "--- p v1\n+++ p v2\n@@ -1,6 +1,7 @@\n+x\n l1\n l2\n-l3\n+L3\n l4\n l5\n l6\n@@ -9,4 +10,3 @@\n l9\n l10\n l11\n-l12"
     );
     assert_eq!((d.added, d.removed), (2, 2));
-    assert_eq!(unified_diff("a\nb\nc\nd\ne\nf\ng\nh\n", "A\nb\nc\nd\ne\nf\ng\nH\n", "a", "b", 3).diff.matches("@@").count(), 2);
+    assert_eq!(
+        unified_diff("a\nb\nc\nd\ne\nf\ng\nh\n", "A\nb\nc\nd\ne\nf\ng\nH\n", "a", "b", 3).diff.matches("@@").count(),
+        2
+    );
     assert_eq!(unified_diff("x\n", "y\n", "a", "b", 3).diff, "--- a\n+++ b\n@@ -1,1 +1,1 @@\n-x\n+y");
     assert_eq!(unified_diff("", "y\n", "a", "b", 3).diff, "--- a\n+++ b\n@@ -0,0 +1,1 @@\n+y");
     let same = unified_diff("same\n", "same\n", "a", "b", 3);

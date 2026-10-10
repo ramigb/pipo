@@ -1606,6 +1606,12 @@ impl InputState<'_> {
     }
 }
 
+impl From<Error> for String {
+    fn from(e: Error) -> String {
+        e.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1666,11 +1672,5 @@ mod tests {
     fn journal_is_send() {
         fn send<T: Send>() {}
         send::<Journal>();
-    }
-}
-
-impl From<Error> for String {
-    fn from(e: Error) -> String {
-        e.to_string()
     }
 }

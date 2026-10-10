@@ -316,7 +316,8 @@ pub mod indexmap_like {
             let m = Option::<Map<String, Value>>::deserialize(d)?.unwrap_or_default();
             let mut out = Vec::with_capacity(m.len());
             for (k, v) in m {
-                let n: Node = serde_json::from_value(v).map_err(|e| serde::de::Error::custom(format!("nodes.{k}: {e}")))?;
+                let n: Node =
+                    serde_json::from_value(v).map_err(|e| serde::de::Error::custom(format!("nodes.{k}: {e}")))?;
                 out.push((k, n));
             }
             Ok(Nodes(out))
@@ -327,10 +328,10 @@ pub mod indexmap_like {
 impl Pipeline {
     /// Parse `load()`'s value. `fn` is renamed by hand since it is a Rust keyword.
     pub fn from_value(mut v: Value) -> Result<Pipeline, String> {
-        if let Some(obj) = v.as_object_mut() {
-            if let Some(f) = obj.remove("fn") {
-                obj.insert("fn_".into(), f);
-            }
+        if let Some(obj) = v.as_object_mut()
+            && let Some(f) = obj.remove("fn")
+        {
+            obj.insert("fn_".into(), f);
         }
         serde_json::from_value(v).map_err(|e| format!("pipeline does not match the runner's model: {e}"))
     }
@@ -338,10 +339,10 @@ impl Pipeline {
     /// Back to the shape `load()` gives (`fn`, not `fn_`): what `meta`, the dry run and control replies show.
     pub fn to_value(&self) -> Value {
         let mut v = serde_json::to_value(self).expect("pipeline serializes");
-        if let Some(obj) = v.as_object_mut() {
-            if let Some(f) = obj.remove("fn_") {
-                obj.insert("fn".into(), f);
-            }
+        if let Some(obj) = v.as_object_mut()
+            && let Some(f) = obj.remove("fn_")
+        {
+            obj.insert("fn".into(), f);
         }
         v
     }

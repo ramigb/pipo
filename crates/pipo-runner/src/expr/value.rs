@@ -34,11 +34,9 @@ impl JsValue {
             JsValue::Num(n) => js_number(*n),
             JsValue::Str(s) => Value::String(s.clone()),
             JsValue::Array(items) => Value::Array(items.iter().map(JsValue::to_json).collect()),
-            JsValue::Object(m) => Value::Object(
-                m.iter()
-                    .filter_map(|(k, v)| v.to_json_opt().map(|v| (k.clone(), v)))
-                    .collect(),
-            ),
+            JsValue::Object(m) => {
+                Value::Object(m.iter().filter_map(|(k, v)| v.to_json_opt().map(|v| (k.clone(), v))).collect())
+            }
         })
     }
 
@@ -294,10 +292,7 @@ impl<'a> Obj<'a> {
     pub(crate) fn entries(self) -> Vec<(&'a String, R<'a>)> {
         match self {
             Obj::Js(m) => m.iter().map(|(k, v)| (k, R::Js(v))).collect(),
-            Obj::Json(m) => ordered_keys(m.keys())
-                .into_iter()
-                .map(|k| (k, R::Json(&m[k])))
-                .collect(),
+            Obj::Json(m) => ordered_keys(m.keys()).into_iter().map(|k| (k, R::Json(&m[k]))).collect(),
         }
     }
 }
@@ -321,10 +316,8 @@ pub(crate) fn to_js_string(r: R) -> String {
         K::Num(n) => number_to_text(n),
         K::Str(s) => s.to_string(),
         K::Arr(a) => {
-            let parts: Vec<String> = a
-                .iter()
-                .map(|x| if x.is_nullish() { String::new() } else { to_js_string(x) })
-                .collect();
+            let parts: Vec<String> =
+                a.iter().map(|x| if x.is_nullish() { String::new() } else { to_js_string(x) }).collect();
             parts.join(",")
         }
         K::Obj(_) => "[object Object]".into(),
@@ -398,11 +391,7 @@ pub(crate) fn string_to_number(s: &str) -> f64 {
             return radix_number(&t[2..], radix);
         }
     }
-    if decimal_literal(b) {
-        t.parse::<f64>().unwrap_or(f64::NAN)
-    } else {
-        f64::NAN
-    }
+    if decimal_literal(b) { t.parse::<f64>().unwrap_or(f64::NAN) } else { f64::NAN }
 }
 
 fn radix_number(digits: &str, radix: u32) -> f64 {
@@ -605,10 +594,7 @@ mod tests {
     fn to_json_follows_json_stringify() {
         let mut m = IndexMap::new();
         m.insert("a".to_string(), JsValue::Undefined);
-        m.insert(
-            "b".to_string(),
-            JsValue::Array(vec![JsValue::Undefined, JsValue::Num(f64::INFINITY)]),
-        );
+        m.insert("b".to_string(), JsValue::Array(vec![JsValue::Undefined, JsValue::Num(f64::INFINITY)]));
         assert_eq!(JsValue::Object(m).to_json().to_string(), r#"{"b":[null,null]}"#);
         assert_eq!(JsValue::Undefined.to_json(), Value::Null);
     }

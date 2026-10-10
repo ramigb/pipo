@@ -7,7 +7,9 @@
 // scan diffs the folder against the saved snapshot, replaying what changed while the runner was down; the very first
 // start (or a changed glob) only records a baseline.
 
-use super::{Commit, InputAdapter, InputRuntime, Intake, IntakeResult, LocalBoxFuture, Log, Origin, Stopper, resolve_path};
+use super::{
+    Commit, InputAdapter, InputRuntime, Intake, IntakeResult, LocalBoxFuture, Log, Origin, Stopper, resolve_path,
+};
 use crate::journal::Journal;
 use crate::time::iso;
 use serde_json::{Map, Value, json};
@@ -137,7 +139,9 @@ fn match_segment(pat: &[char], s: &[char]) -> bool {
 fn match_parts(pat: &[Vec<char>], path: &[Vec<char>]) -> bool {
     match pat.first() {
         None => path.is_empty(),
-        Some(p) if p.len() == 2 && p[0] == '*' && p[1] == '*' => (0..=path.len()).any(|k| match_parts(&pat[1..], &path[k..])),
+        Some(p) if p.len() == 2 && p[0] == '*' && p[1] == '*' => {
+            (0..=path.len()).any(|k| match_parts(&pat[1..], &path[k..]))
+        }
         Some(p) => !path.is_empty() && match_segment(p, &path[0]) && match_parts(&pat[1..], &path[1..]),
     }
 }
@@ -150,8 +154,10 @@ pub struct Glob {
 
 impl Glob {
     pub fn new(pattern: &str) -> Glob {
-        let patterns: Vec<Vec<Vec<char>>> =
-            expand_braces(pattern).iter().map(|p| p.split('/').filter(|s| !s.is_empty()).map(|s| s.chars().collect()).collect()).collect();
+        let patterns: Vec<Vec<Vec<char>>> = expand_braces(pattern)
+            .iter()
+            .map(|p| p.split('/').filter(|s| !s.is_empty()).map(|s| s.chars().collect()).collect())
+            .collect();
         let deep = patterns.iter().any(|p| p.iter().any(|s| s.len() == 2 && s[0] == '*' && s[1] == '*'));
         let max_depth = if deep { None } else { patterns.iter().map(|p| p.len()).max() };
         Glob { patterns, max_depth }
@@ -349,7 +355,9 @@ impl Inner {
 
     fn put(&self, path: &str, stamp: Option<Stamp>) -> Result<(), String> {
         match self.journal.borrow().as_ref() {
-            Some(j) => j.borrow().input_put(&self.scope(), path, stamp.map(Stamp::to_json).as_ref()).map_err(|e| e.to_string()),
+            Some(j) => {
+                j.borrow().input_put(&self.scope(), path, stamp.map(Stamp::to_json).as_ref()).map_err(|e| e.to_string())
+            }
             None => Ok(()),
         }
     }
@@ -421,7 +429,8 @@ impl Inner {
         }
         let source = format!("{path}#{event}@{}", stamp.mtime_ms.round() as i64);
         let (scope, key) = (self.scope(), path.to_string());
-        let commit: Commit = Box::new(move |j: &mut Journal| j.input_put(&scope, &key, saved.map(Stamp::to_json).as_ref()));
+        let commit: Commit =
+            Box::new(move |j: &mut Journal| j.input_put(&scope, &key, saved.map(Stamp::to_json).as_ref()));
         let Some(intake) = self.intake.borrow().clone() else { return Emitted::Full };
         match intake(Value::Object(data), Origin { trigger: "watch".into(), source }, Some(commit)).await {
             IntakeResult::Unavailable { reason } => {
@@ -449,7 +458,8 @@ impl InputAdapter for WatchInput {
             match saved {
                 Some(saved) => {
                     // Replay: the first scan diffs the folder against what the last run had journaled.
-                    *inner.known.borrow_mut() = saved.iter().filter_map(|(k, v)| Some((k.clone(), Stamp::from_json(v)?))).collect();
+                    *inner.known.borrow_mut() =
+                        saved.iter().filter_map(|(k, v)| Some((k.clone(), Stamp::from_json(v)?))).collect();
                     inner.log("info", &format!("watch: checking {} for changes since the last run", inner.base_text));
                 }
                 None => {
@@ -489,7 +499,8 @@ impl InputAdapter for WatchInput {
                         }
                     }));
                 }
-                Err(e) => inner.log("warn", &format!("watch: file events unavailable on {} ({e}); polling only", inner.base_text)),
+                Err(e) => inner
+                    .log("warn", &format!("watch: file events unavailable on {} ({e}); polling only", inner.base_text)),
             }
             let me = inner.clone();
             tasks.push(tokio::task::spawn_local(async move {
@@ -594,12 +605,13 @@ mod tests {
         let intake: Intake = Rc::new(move |payload, origin, commit: Option<Commit>| {
             let open = open.get();
             g.borrow_mut().push((payload, origin));
-            if open
-                && let Some(c) = commit {
-                    journal.borrow_mut().atomically(|j| c(j)).unwrap();
-                }
+            if open && let Some(c) = commit {
+                journal.borrow_mut().atomically(|j| c(j)).unwrap();
+            }
             let n = g.borrow().len();
-            Box::pin(async move { if open { accepted(n) } else { IntakeResult::Unavailable { reason: "paused".into() } } })
+            Box::pin(
+                async move { if open { accepted(n) } else { IntakeResult::Unavailable { reason: "paused".into() } } },
+            )
         });
         (intake, got)
     }
@@ -622,13 +634,19 @@ mod tests {
             std::fs::write(&f, "one").unwrap();
             wait_for(|| !got.borrow().is_empty(), 5000, "create").await;
             let (d, o) = got.borrow()[0].clone();
-            assert_eq!((d["event"].clone(), d["path"].clone(), d["name"].clone(), d["content"].clone(), d["size"].clone()), (json!("create"), json!(fp), json!("a.txt"), json!("one"), json!(3)));
+            assert_eq!(
+                (d["event"].clone(), d["path"].clone(), d["name"].clone(), d["content"].clone(), d["size"].clone()),
+                (json!("create"), json!(fp), json!("a.txt"), json!("one"), json!(3))
+            );
             assert!(d["mtime"].as_str().unwrap().ends_with('Z'));
             assert_eq!(o.trigger, "watch");
             assert!(o.source.starts_with(&format!("{fp}#create@")));
             std::fs::write(&f, "two!").unwrap();
             wait_for(|| got.borrow().len() >= 2, 5000, "change").await;
-            assert_eq!((got.borrow()[1].0["event"].clone(), got.borrow()[1].0["content"].clone()), (json!("change"), json!("two!")));
+            assert_eq!(
+                (got.borrow()[1].0["event"].clone(), got.borrow()[1].0["content"].clone()),
+                (json!("change"), json!("two!"))
+            );
             std::fs::remove_file(&f).unwrap();
             wait_for(|| got.borrow().len() >= 3, 5000, "delete").await;
             let d = got.borrow()[2].0.clone();
@@ -672,7 +690,8 @@ mod tests {
             std::fs::write(s.dir.join("top.json"), "{}").unwrap();
             wait_for(|| got.borrow().len() >= 2, 5000, "two json files").await;
             sleep(200).await;
-            let mut names: Vec<String> = got.borrow().iter().map(|g| g.0["name"].as_str().unwrap().to_string()).collect();
+            let mut names: Vec<String> =
+                got.borrow().iter().map(|g| g.0["name"].as_str().unwrap().to_string()).collect();
             names.sort();
             assert_eq!(names, vec!["sub/deep.json", "top.json"]);
             input.stop().await;
@@ -734,7 +753,10 @@ mod tests {
             input.start(intake, s.rt.clone()).await.unwrap();
             std::fs::write(s.dir.join("big.bin"), vec![0u8; MAX_CONTENT_BYTES as usize + 1]).unwrap();
             wait_for(|| !got.borrow().is_empty(), 5000, "big file").await;
-            assert_eq!((got.borrow()[0].0["content"].clone(), got.borrow()[0].0["truncated"].clone()), (Value::Null, json!(true)));
+            assert_eq!(
+                (got.borrow()[0].0["content"].clone(), got.borrow()[0].0["truncated"].clone()),
+                (Value::Null, json!(true))
+            );
             input.stop().await;
         });
     }
@@ -747,8 +769,13 @@ mod tests {
         wait_for(|| got.borrow().len() >= expect, 5000, &format!("{expect} packets")).await;
         sleep(300).await; // nothing extra arrives
         input.stop().await;
-        let mut out: Vec<(String, String, u64)> =
-            got.borrow().iter().map(|(d, _)| (d["event"].as_str().unwrap().into(), d["name"].as_str().unwrap().into(), d["size"].as_u64().unwrap())).collect();
+        let mut out: Vec<(String, String, u64)> = got
+            .borrow()
+            .iter()
+            .map(|(d, _)| {
+                (d["event"].as_str().unwrap().into(), d["name"].as_str().unwrap().into(), d["size"].as_u64().unwrap())
+            })
+            .collect();
         out.sort_by(|a, b| (&a.1, &a.0).cmp(&(&b.1, &b.0)));
         out
     }
@@ -831,7 +858,8 @@ mod tests {
             let saved = s.rt.journal.borrow().input_load(&scope).unwrap().unwrap();
             assert!(saved.is_empty(), "not taken, not saved");
             open.set(true);
-            wait_for(|| s.rt.journal.borrow().input_load(&scope).unwrap().unwrap().len() == 1, 5000, "the saved entry").await;
+            wait_for(|| s.rt.journal.borrow().input_load(&scope).unwrap().unwrap().len() == 1, 5000, "the saved entry")
+                .await;
             let saved = s.rt.journal.borrow().input_load(&scope).unwrap().unwrap();
             let entry = &saved[&s.dir.join("a.txt").display().to_string()];
             assert_eq!(entry["size"], json!(1));

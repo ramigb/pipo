@@ -85,17 +85,20 @@ pub fn bot_problems(name: &str, b: &Map<String, Value>) -> Vec<String> {
         out.push(format!("{at}: token is missing; paste it from @BotFather"));
     }
     if let Some(allow) = b.get("allow")
-        && !allow.as_array().is_some_and(|a| a.iter().all(|x| as_i64(x).is_some())) {
-            out.push(format!("{at}: allow must be a list of chat or user ids (whole numbers)"));
-        }
+        && !allow.as_array().is_some_and(|a| a.iter().all(|x| as_i64(x).is_some()))
+    {
+        out.push(format!("{at}: allow must be a list of chat or user ids (whole numbers)"));
+    }
     if let Some(p) = b.get("poll_every")
-        && crate::duration::parse_duration(&string_of(p)).unwrap_or(0) < 1000 {
-            out.push(format!("{at}: poll_every must be a duration of at least 1s, such as 10s or 1m"));
-        }
+        && crate::duration::parse_duration(&string_of(p)).unwrap_or(0) < 1000
+    {
+        out.push(format!("{at}: poll_every must be a duration of at least 1s, such as 10s or 1m"));
+    }
     if let Some(api) = b.get("api")
-        && !api.as_str().is_some_and(|a| a.starts_with("http://") || a.starts_with("https://")) {
-            out.push(format!("{at}: api must be an http(s) URL"));
-        }
+        && !api.as_str().is_some_and(|a| a.starts_with("http://") || a.starts_with("https://"))
+    {
+        out.push(format!("{at}: api must be an http(s) URL"));
+    }
     out
 }
 
@@ -124,9 +127,10 @@ pub fn read_bots(home: &Path) -> Result<BotsFile, String> {
     }
     let def = tg.and_then(|t| t.get("default")).filter(|d| !d.is_null());
     if let Some(d) = def
-        && !d.as_str().is_some_and(|d| bots.contains_key(d)) {
-            problems.push(format!("telegram.default names '{}', which is not one of the bots", string_of(d)));
-        }
+        && !d.as_str().is_some_and(|d| bots.contains_key(d))
+    {
+        problems.push(format!("telegram.default names '{}', which is not one of the bots", string_of(d)));
+    }
     if !problems.is_empty() {
         let list: Vec<String> = problems.iter().map(|x| format!("  {x}")).collect();
         return Err(format!("{p} has {} problem(s):\n{}", problems.len(), list.join("\n")));
@@ -196,7 +200,13 @@ pub async fn load_bots(home: &Path, p: &Pipeline) -> Result<Bots, String> {
             token = crate::secrets::resolve_ref(&token).await.map_err(|e| format!("telegram bot '{name}': {e}"))?;
         }
         let api = b.api.as_deref().unwrap_or(TELEGRAM_API).trim_end_matches('/').to_string();
-        let bot = Bot { name: name.clone(), token, api, allow: b.allow.clone().unwrap_or_default(), poll_every: b.poll_every.clone() };
+        let bot = Bot {
+            name: name.clone(),
+            token,
+            api,
+            allow: b.allow.clone().unwrap_or_default(),
+            poll_every: b.poll_every.clone(),
+        };
         bots.telegram.insert(name, bot);
     }
     Ok(bots)
@@ -209,12 +219,21 @@ pub fn pick_bot(bots: Option<&Bots>, w: &Map<String, Value>, owner: &str) -> Res
         if token.is_empty() {
             return Err(format!("{owner}.with.token is empty after rendering; check the secret"));
         }
-        return Ok(Bot { name: format!("bot {}", bot_id(&token)), token, api: TELEGRAM_API.into(), allow: vec![], poll_every: None });
+        return Ok(Bot {
+            name: format!("bot {}", bot_id(&token)),
+            token,
+            api: TELEGRAM_API.into(),
+            allow: vec![],
+            poll_every: None,
+        });
     }
-    let name = w.get("bot").and_then(|b| b.as_str()).map(str::to_owned).or_else(|| bots.and_then(|b| b.default.clone()));
+    let name =
+        w.get("bot").and_then(|b| b.as_str()).map(str::to_owned).or_else(|| bots.and_then(|b| b.default.clone()));
     match name.as_ref().and_then(|n| bots.and_then(|b| b.telegram.get(n))) {
         Some(bot) => Ok(bot.clone()),
-        None => Err(format!("{owner}: telegram bot '{}' was not loaded at start", name.as_deref().unwrap_or("(default)"))),
+        None => {
+            Err(format!("{owner}: telegram bot '{}' was not loaded at start", name.as_deref().unwrap_or("(default)")))
+        }
     }
 }
 
@@ -232,17 +251,32 @@ mod tests {
     fn reads_and_validates_bots_json() {
         let b = TempDir::new();
         assert_eq!(read_bots(b.path()).unwrap(), BotsFile::default());
-        std::fs::write(b.join("bots.json"), r#"{"telegram":{"default":"main","bots":{"main":{"token":"111:a","allow":[1, 2.0]}}}}"#).unwrap();
+        std::fs::write(
+            b.join("bots.json"),
+            r#"{"telegram":{"default":"main","bots":{"main":{"token":"111:a","allow":[1, 2.0]}}}}"#,
+        )
+        .unwrap();
         let f = read_bots(b.path()).unwrap();
         assert_eq!(f.default.as_deref(), Some("main"));
         assert_eq!(f.bots[0].1.allow, Some(vec![1, 2]));
-        std::fs::write(b.join("bots.json"), r#"{"telegram":{"default":"x","bots":{"main":{"token":"","poll_every":"10ms"}}}}"#).unwrap();
+        std::fs::write(
+            b.join("bots.json"),
+            r#"{"telegram":{"default":"x","bots":{"main":{"token":"","poll_every":"10ms"}}}}"#,
+        )
+        .unwrap();
         let e = read_bots(b.path()).unwrap_err();
         assert!(e.contains("has 3 problem(s):\n  telegram bot 'main': token is missing"), "{e}");
         assert!(e.contains("poll_every must be a duration of at least 1s") && e.contains("telegram.default names 'x'"));
-        std::fs::write(b.join("bots.json"), r#"{"telegram":{"bots":{"Bad":{"token":"t","api":"ftp://x","allow":[1.5],"extra":1}}}}"#).unwrap();
+        std::fs::write(
+            b.join("bots.json"),
+            r#"{"telegram":{"bots":{"Bad":{"token":"t","api":"ftp://x","allow":[1.5],"extra":1}}}}"#,
+        )
+        .unwrap();
         let e = read_bots(b.path()).unwrap_err();
-        assert!(e.contains("has 4 problem(s)") && e.contains("unknown key 'extra' (known: token, allow, poll_every, api)"), "{e}");
+        assert!(
+            e.contains("has 4 problem(s)") && e.contains("unknown key 'extra' (known: token, allow, poll_every, api)"),
+            "{e}"
+        );
         std::fs::write(b.join("bots.json"), "{").unwrap();
         assert!(read_bots(b.path()).unwrap_err().contains("is not valid JSON"));
         std::fs::write(b.join("bots.json"), r#"{"telegram":{"bots":[]}}"#).unwrap();
@@ -279,19 +313,32 @@ mod tests {
             let w = json!({"token": "444:inline"});
             assert_eq!(pick_bot(Some(&bots), w.as_object().unwrap(), "output").unwrap().name, "bot 444");
             let w = json!({"token": ""});
-            assert!(pick_bot(None, w.as_object().unwrap(), "output").unwrap_err().contains("output.with.token is empty"));
+            assert!(
+                pick_bot(None, w.as_object().unwrap(), "output").unwrap_err().contains("output.with.token is empty")
+            );
             let w = json!({"bot": "unused"});
             let e = pick_bot(Some(&bots), w.as_object().unwrap(), "nodes.n").unwrap_err();
             assert_eq!(e, "nodes.n: telegram bot 'unused' was not loaded at start");
             assert!(pick_bot(None, &Map::new(), "input").unwrap_err().contains("'(default)'"));
 
-            let p = pipeline(json!({"pipo": 1, "name": "t", "input": {"via": "telegram", "with": {"bot": "nope"}}, "output": {"from": "input", "to": "stdout"}}));
+            let p = pipeline(
+                json!({"pipo": 1, "name": "t", "input": {"via": "telegram", "with": {"bot": "nope"}}, "output": {"from": "input", "to": "stdout"}}),
+            );
             let e = load_bots(b.path(), &p).await.unwrap_err();
-            assert!(e.contains("input.with.bot names 'nope', but") && e.contains("(known: main, alerts, unused)"), "{e}");
+            assert!(
+                e.contains("input.with.bot names 'nope', but") && e.contains("(known: main, alerts, unused)"),
+                "{e}"
+            );
             std::fs::write(b.join("bots.json"), r#"{"telegram":{"default":null,"bots":{}}}"#).unwrap();
-            let p = pipeline(json!({"pipo": 1, "name": "t", "input": {"via": "telegram"}, "output": {"from": "input", "to": "stdout"}}));
+            let p = pipeline(
+                json!({"pipo": 1, "name": "t", "input": {"via": "telegram"}, "output": {"from": "input", "to": "stdout"}}),
+            );
             assert!(load_bots(b.path(), &p).await.unwrap_err().contains("input uses telegram but no bot is set up"));
-            std::fs::write(b.join("bots.json"), r#"{"telegram":{"default":"m","bots":{"m":{"token":"env:PIPO_TEST_NO_SUCH_VAR"}}}}"#).unwrap();
+            std::fs::write(
+                b.join("bots.json"),
+                r#"{"telegram":{"default":"m","bots":{"m":{"token":"env:PIPO_TEST_NO_SUCH_VAR"}}}}"#,
+            )
+            .unwrap();
             let e = load_bots(b.path(), &p).await.unwrap_err();
             assert_eq!(e, "telegram bot 'm': environment variable PIPO_TEST_NO_SUCH_VAR is not set");
         });

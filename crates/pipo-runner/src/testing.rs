@@ -7,7 +7,10 @@
 //
 // Fixture files are read by the CLI (TypeScript); this side takes them as JSON (`pipo-runner test` on stdin).
 
-use crate::dryrun::{AbortReason, HookError, PacketInput, ReplayEnd, ReplayEnv, ReplayFailure, ReplayHooks, ReplayUnit, Rejected, Scope, replay_packet};
+use crate::dryrun::{
+    AbortReason, HookError, PacketInput, Rejected, ReplayEnd, ReplayEnv, ReplayFailure, ReplayHooks, ReplayUnit, Scope,
+    replay_packet,
+};
 use crate::duration::format_duration;
 use crate::expr::{Clock, EvalOptions, render_string_with, to_text};
 use crate::jsfn::JsFns;
@@ -29,7 +32,8 @@ const SECRET: &str = "***";
 const SOURCE: &str = "test";
 const FORM: &str = r#"a fixture is the packet's data as JSON, or {"data": …, "meta": {…}, "stubs": {…}}"#;
 const META_KEYS: &[&str] = &["trigger", "source", "received_at"];
-pub const TEST_OUTCOMES: &[&str] = &["delivered", "filtered", "rejected", "dead_lettered", "escalated", "paused", "halted", "failed"];
+pub const TEST_OUTCOMES: &[&str] =
+    &["delivered", "filtered", "rejected", "dead_lettered", "escalated", "paused", "halted", "failed"];
 const RANK: &[&str] = &["failed", "halted", "paused", "escalated", "dead_lettered", "delivered", "filtered"];
 
 #[derive(Debug, Clone, Default)]
@@ -135,7 +139,12 @@ pub fn fixture_from_json(v: &Value) -> Result<Fixture, TestError> {
     let stubs = match o.get("stubs") {
         None | Some(Value::Null) => None,
         Some(Value::Object(m)) => Some(m.clone()),
-        Some(_) => return Err(TestError::fixture(format!("{}: stubs must be an object of node id → response", place()), Some(FORM))),
+        Some(_) => {
+            return Err(TestError::fixture(
+                format!("{}: stubs must be an object of node id → response", place()),
+                Some(FORM),
+            ));
+        }
     };
     Ok(Fixture {
         name: o.get("name").and_then(|n| n.as_str()).unwrap_or_default().to_string(),
@@ -148,7 +157,8 @@ pub fn fixture_from_json(v: &Value) -> Result<Fixture, TestError> {
 
 /// Run every fixture through the pipeline, one after another.
 pub async fn test_pipeline(opts: TestOptions) -> Result<Value, TestError> {
-    let compiled = crate::compile::compile(&opts.file, &opts.home, opts.source.as_deref()).await.map_err(TestError::prepare)?;
+    let compiled =
+        crate::compile::compile(&opts.file, &opts.home, opts.source.as_deref()).await.map_err(TestError::prepare)?;
     let shown = opts.file.display().to_string();
     let errors = compiled.errors().len();
     if errors > 0 {
@@ -157,7 +167,8 @@ pub async fn test_pipeline(opts: TestOptions) -> Result<Value, TestError> {
             ..TestError::prepare(format!("{shown} has {errors} error(s)"))
         });
     }
-    let pipeline = Pipeline::from_value(compiled.pipeline.clone().unwrap_or(Value::Null)).map_err(TestError::prepare)?;
+    let pipeline =
+        Pipeline::from_value(compiled.pipeline.clone().unwrap_or(Value::Null)).map_err(TestError::prepare)?;
     let refused: Vec<Gap> = gaps(&pipeline).into_iter().filter(|g| g.level == "refuse").collect();
     if !refused.is_empty() {
         return Err(TestError {
@@ -235,14 +246,18 @@ fn sqlite_record(packet_id: &str, data: &Value, with: &Map<String, Value>) -> Re
     let values = match with.get("columns").and_then(|c| c.as_object()) {
         Some(c) => c.clone(),
         None => {
-            let mut d = data.as_object().cloned().ok_or("data must be an object to map onto columns; set output.with.columns")?;
+            let mut d = data
+                .as_object()
+                .cloned()
+                .ok_or("data must be an object to map onto columns; set output.with.columns")?;
             d.insert(key.to_string(), json!(packet_id));
             d
         }
     };
     for name in values.keys() {
         let mut chars = name.chars();
-        let valid = chars.next().map(|c| c.is_ascii_alphabetic() || c == '_').unwrap_or(false) && chars.all(|c| c.is_ascii_alphanumeric() || c == '_');
+        let valid = chars.next().map(|c| c.is_ascii_alphabetic() || c == '_').unwrap_or(false)
+            && chars.all(|c| c.is_ascii_alphanumeric() || c == '_');
         if !valid {
             return Err(format!("'{name}' is not a valid column name"));
         }
@@ -283,7 +298,10 @@ impl TestHooks<'_> {
     fn entry(&mut self, u: &ReplayUnit) -> &mut Entry {
         if !self.entries.contains_key(&u.id) {
             self.order.push(u.id.clone());
-            self.entries.insert(u.id.clone(), Entry { unit: u.id.clone(), branch: u.branch.clone(), outcome: "filtered", ..Default::default() });
+            self.entries.insert(
+                u.id.clone(),
+                Entry { unit: u.id.clone(), branch: u.branch.clone(), outcome: "filtered", ..Default::default() },
+            );
         }
         let e = self.entries.get_mut(&u.id).expect("entry");
         e.path = u.path.clone();
@@ -343,7 +361,11 @@ impl TestHooks<'_> {
                     "add responses to stubs.{id} in {} (one per call, retries and loop passes included)",
                     self.place
                 )),
-                ..AbortReason::new(id, "stub.exhausted", format!("stubs.{id} has {} response(s), and call {} needs another", list.len(), n + 1))
+                ..AbortReason::new(
+                    id,
+                    "stub.exhausted",
+                    format!("stubs.{id} has {} response(s), and call {} needs another", list.len(), n + 1),
+                )
             })
         })
     }
@@ -351,12 +373,11 @@ impl TestHooks<'_> {
 
 /// `{"$error": "…"}` as a response makes that call fail with the message, so retries and policies can be tested.
 fn respond(value: Value) -> Result<Value, HookError> {
-    if let Some(o) = value.as_object() {
-        if o.len() == 1 {
-            if let Some(Value::String(m)) = o.get("$error") {
-                return Err(HookError::Fail(m.clone()));
-            }
-        }
+    if let Some(o) = value.as_object()
+        && o.len() == 1
+        && let Some(Value::String(m)) = o.get("$error")
+    {
+        return Err(HookError::Fail(m.clone()));
     }
     Ok(value)
 }
@@ -372,7 +393,15 @@ impl ReplayHooks for TestHooks<'_> {
             "error": { "code": f.code, "rule": f.rule, "message": f.message, "node": "input" },
         });
         let message = self.message(inv.as_ref().and_then(|i| i.message.as_deref()), &ctx, &f.message);
-        self.rejected = Some(StepError { step: "input".into(), code: f.code, message, rule: Some(f.rule), attempts: None, then: None, hint: None });
+        self.rejected = Some(StepError {
+            step: "input".into(),
+            code: f.code,
+            message,
+            rule: Some(f.rule),
+            attempts: None,
+            then: None,
+            hint: None,
+        });
     }
     fn started(&mut self, u: &ReplayUnit, parent: Option<&ReplayUnit>) {
         let trace = self.trace;
@@ -387,10 +416,10 @@ impl ReplayHooks for TestHooks<'_> {
         }
     }
     fn stepped(&mut self, u: &ReplayUnit, step: &str, data: &Value) {
-        if self.trace {
-            if let Some(steps) = self.entry(u).steps.as_mut() {
-                steps.push(json!({ "step": step, "data": data }));
-            }
+        if self.trace
+            && let Some(steps) = self.entry(u).steps.as_mut()
+        {
+            steps.push(json!({ "step": step, "data": data }));
         }
     }
     fn tap(&mut self, u: &ReplayUnit, id: &str, node: &Node, s: &Scope) -> Result<(), HookError> {
@@ -409,16 +438,19 @@ impl ReplayHooks for TestHooks<'_> {
     }
     fn call(&mut self, u: &ReplayUnit, id: &str, node: &Node, kind: &str, s: &Scope) -> Result<Value, HookError> {
         let w = self.e.render(node.with.as_ref(), &s.ctx(&u.data))?;
-        let what = if kind == "agent" { "agent node".to_string() } else { format!("transform: {}", node.transform.clone().unwrap_or_default()) };
+        let what = if kind == "agent" {
+            "agent node".to_string()
+        } else {
+            format!("transform: {}", node.transform.clone().unwrap_or_default())
+        };
         let value = self.take(id, &what)?;
         self.calls.push(json!({ "unit": u.id, "node": id, "kind": kind, "attempt": s.attempt, "with": w }));
         let data = respond(value)?;
-        if kind == "agent" {
-            if let Some(schema) = self.e.plan.agent_schemas.get(id) {
-                if let Some(m) = schema.check(&data) {
-                    return Err(HookError::Fail(format!("agent output does not match {}: {m}", schema.path)));
-                }
-            }
+        if kind == "agent"
+            && let Some(schema) = self.e.plan.agent_schemas.get(id)
+            && let Some(m) = schema.check(&data)
+        {
+            return Err(HookError::Fail(format!("agent output does not match {}: {m}", schema.path)));
         }
         Ok(data)
     }
@@ -464,17 +496,34 @@ impl ReplayHooks for TestHooks<'_> {
                 self.end(u, outcome_of(&f.policy.then), f.data.clone()).error = Some(error);
             }
             ReplayEnd::Aborted(a) => {
-                let error = StepError { step: a.step, code: a.code, message: a.message, rule: None, attempts: None, then: None, hint: a.hint };
+                let error = StepError {
+                    step: a.step,
+                    code: a.code,
+                    message: a.message,
+                    rule: None,
+                    attempts: None,
+                    then: None,
+                    hint: a.hint,
+                };
                 self.end(u, "failed", u.data.clone()).error = Some(error);
             }
         }
     }
 }
 
-async fn run_fixture(plan: &Plan, fns: &JsFns, fx: &Fixture, run_stubs: &Map<String, Value>, opts: &TestOptions, now: i64) -> Value {
+async fn run_fixture(
+    plan: &Plan,
+    fns: &JsFns,
+    fx: &Fixture,
+    run_stubs: &Map<String, Value>,
+    opts: &TestOptions,
+    now: i64,
+) -> Value {
     let pipeline = &plan.pipeline;
-    let secrets: Map<String, Value> = pipeline.secrets.iter().flatten().map(|(k, _)| (k.clone(), json!(SECRET))).collect();
-    let base = fx.file.as_deref().and_then(|f| std::path::Path::new(f).file_name()).map(|n| n.to_string_lossy().to_string());
+    let secrets: Map<String, Value> =
+        pipeline.secrets.iter().flatten().map(|(k, _)| (k.clone(), json!(SECRET))).collect();
+    let base =
+        fx.file.as_deref().and_then(|f| std::path::Path::new(f).file_name()).map(|n| n.to_string_lossy().to_string());
     let place = format!("fixtures/{}", base.unwrap_or_else(|| format!("{}.json", fx.name)));
     let mut stubs = run_stubs.clone();
     for (k, v) in fx.stubs.iter().flatten() {
@@ -482,7 +531,11 @@ async fn run_fixture(plan: &Plan, fns: &JsFns, fx: &Fixture, run_stubs: &Map<Str
     }
     let known = stubbable(pipeline);
     if let Some(unknown) = stubs.keys().find(|id| !known.contains(id)) {
-        let hint = if known.is_empty() { format!("remove stubs.{unknown}") } else { format!("nodes that take a stub: {}", known.join(", ")) };
+        let hint = if known.is_empty() {
+            format!("remove stubs.{unknown}")
+        } else {
+            format!("nodes that take a stub: {}", known.join(", "))
+        };
         return json!({
             "fixture": fx.name, "outcome": "failed", "units": [], "taps": [], "calls": [],
             "error": { "step": unknown, "code": "stub.unknown", "message": format!("stubs.{unknown} names no agent node or transform: http in {}", pipeline.name), "hint": hint },
@@ -498,7 +551,11 @@ async fn run_fixture(plan: &Plan, fns: &JsFns, fx: &Fixture, run_stubs: &Map<Str
     let meta = fx.meta.clone().unwrap_or_default();
     let input = PacketInput {
         id: fx.name.clone(),
-        trigger: meta.get("trigger").and_then(|t| t.as_str()).map(str::to_owned).unwrap_or_else(|| pipeline.input.via.clone()),
+        trigger: meta
+            .get("trigger")
+            .and_then(|t| t.as_str())
+            .map(str::to_owned)
+            .unwrap_or_else(|| pipeline.input.via.clone()),
         source: meta.get("source").and_then(|t| t.as_str()).unwrap_or(SOURCE).to_string(),
         received_at: meta.get("received_at").and_then(|t| t.as_f64()).map(|f| f as i64).unwrap_or(now),
         input: fx.data.clone(),
@@ -603,4 +660,3 @@ pub async fn main_test(input: &str) -> (Value, i32) {
         Err(e) => (json!({ "error": e.to_value() }), 1),
     }
 }
-

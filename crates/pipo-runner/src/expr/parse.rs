@@ -9,9 +9,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 use super::helpers::is_helper;
 
 pub const BLOCKED_KEYS: [&str; 3] = ["__proto__", "constructor", "prototype"];
-const BINARY_OPS: [&str; 17] = [
-    "+", "-", "*", "/", "%", "==", "!=", "===", "!==", "<", "<=", ">", ">=", "&&", "||", "??", "in",
-];
+const BINARY_OPS: [&str; 17] =
+    ["+", "-", "*", "/", "%", "==", "!=", "===", "!==", "<", "<=", ">", ">=", "&&", "||", "??", "in"];
 const UNARY_OPS: [&str; 3] = ["!", "-", "+"];
 
 pub const LIMIT_SOURCE_LENGTH: usize = 2000;
@@ -29,17 +28,11 @@ pub struct ExprError {
 
 impl ExprError {
     pub fn new(message: impl Into<String>) -> Self {
-        ExprError {
-            message: message.into(),
-            index: None,
-        }
+        ExprError { message: message.into(), index: None }
     }
 
     pub fn at(message: impl Into<String>, index: usize) -> Self {
-        ExprError {
-            message: message.into(),
-            index: Some(index),
-        }
+        ExprError { message: message.into(), index: Some(index) }
     }
 }
 
@@ -102,11 +95,7 @@ pub enum Lit {
 pub enum Prop {
     /// `key: value` or the shorthand `{ name }` (where the value is the key). A computed key (`[k]: v`)
     /// keeps the first element of the brackets, if any.
-    Property {
-        key: Option<Box<Ast>>,
-        value: Box<Ast>,
-        computed: bool,
-    },
+    Property { key: Option<Box<Ast>>, value: Box<Ast>, computed: bool },
     /// Anything else the object plugin accepts inside braces (`{ a b }`, `{ 1 }`); rejected by `parse`.
     Other(Box<Ast>),
 }
@@ -165,22 +154,10 @@ pub fn parse(source: &str) -> Result<Arc<Compiled>, ExprError> {
 fn compile(source: &str) -> Result<Compiled, ExprError> {
     let units: Vec<u16> = source.encode_utf16().collect();
     if units.len() > LIMIT_SOURCE_LENGTH {
-        return Err(ExprError::new(format!(
-            "expression is longer than {LIMIT_SOURCE_LENGTH} characters"
-        )));
+        return Err(ExprError::new(format!("expression is longer than {LIMIT_SOURCE_LENGTH} characters")));
     }
-    let ast = Parser {
-        s: &units,
-        i: 0,
-        depth: 0,
-    }
-    .parse()?;
-    let mut compiled = Compiled {
-        source: source.to_string(),
-        ast: Ast::This,
-        identifiers: vec![],
-        helpers: vec![],
-    };
+    let ast = Parser { s: &units, i: 0, depth: 0 }.parse()?;
+    let mut compiled = Compiled { source: source.to_string(), ast: Ast::This, identifiers: vec![], helpers: vec![] };
     let mut count = 0;
     vet(&ast, 0, &mut count, &mut compiled)?;
     compiled.ast = ast;
@@ -199,9 +176,7 @@ fn vet(node: &Ast, depth: usize, count: &mut usize, c: &mut Compiled) -> Result<
         return Err(ExprError::new(format!("expression has more than {LIMIT_NODES} parts")));
     }
     if depth > LIMIT_DEPTH {
-        return Err(ExprError::new(format!(
-            "expression is nested deeper than {LIMIT_DEPTH}"
-        )));
+        return Err(ExprError::new(format!("expression is nested deeper than {LIMIT_DEPTH}")));
     }
     match node {
         Ast::Literal(_) => Ok(()),
@@ -209,12 +184,7 @@ fn vet(node: &Ast, depth: usize, count: &mut usize, c: &mut Compiled) -> Result<
             add(&mut c.identifiers, name);
             Ok(())
         }
-        Ast::Member {
-            object,
-            property,
-            computed,
-            ..
-        } => {
+        Ast::Member { object, property, computed, .. } => {
             vet(object, depth + 1, count, c)?;
             if *computed {
                 vet(property, depth + 1, count, c)
@@ -229,9 +199,7 @@ fn vet(node: &Ast, depth: usize, count: &mut usize, c: &mut Compiled) -> Result<
         }
         Ast::Call { callee, arguments, .. } => {
             let Ast::Identifier(name) = callee.as_ref() else {
-                return Err(ExprError::new(
-                    "only helper functions can be called, e.g. len(x) rather than x.length()",
-                ));
+                return Err(ExprError::new("only helper functions can be called, e.g. len(x) rather than x.length()"));
             };
             if !is_helper(name) {
                 return Err(ExprError::new(format!("unknown function '{name}'")));
@@ -255,11 +223,7 @@ fn vet(node: &Ast, depth: usize, count: &mut usize, c: &mut Compiled) -> Result<
             }
             vet(argument, depth + 1, count, c)
         }
-        Ast::Conditional {
-            test,
-            consequent,
-            alternate,
-        } => {
+        Ast::Conditional { test, consequent, alternate } => {
             vet(test, depth + 1, count, c)?;
             vet(consequent, depth + 1, count, c)?;
             vet(alternate, depth + 1, count, c)
@@ -283,10 +247,7 @@ fn vet(node: &Ast, depth: usize, count: &mut usize, c: &mut Compiled) -> Result<
             Ok(())
         }
         Ast::Compound(_) => Err(ExprError::new("only a single expression is allowed (found ',' or ';')")),
-        other => Err(ExprError::new(format!(
-            "'{}' is not allowed in expressions",
-            other.type_name()
-        ))),
+        other => Err(ExprError::new(format!("'{}' is not allowed in expressions", other.type_name()))),
     }
 }
 
@@ -372,10 +333,7 @@ impl Parser<'_> {
 
     /// `this.char`: the current code unit as a string, or "" at the end.
     fn ch(&self) -> String {
-        self.s
-            .get(self.i)
-            .map(|u| String::from_utf16_lossy(&[*u]))
-            .unwrap_or_default()
+        self.s.get(self.i).map(|u| String::from_utf16_lossy(&[*u])).unwrap_or_default()
     }
 
     fn len(&self) -> usize {
@@ -394,11 +352,7 @@ impl Parser<'_> {
 
     fn parse(&mut self) -> PResult<Ast> {
         let mut nodes = self.gobble_expressions(None)?;
-        Ok(if nodes.len() == 1 {
-            nodes.remove(0)
-        } else {
-            Ast::Compound(nodes)
-        })
+        Ok(if nodes.len() == 1 { nodes.remove(0) } else { Ast::Compound(nodes) })
     }
 
     fn gobble_expressions(&mut self, until: Option<u16>) -> PResult<Vec<Ast>> {
@@ -421,9 +375,7 @@ impl Parser<'_> {
 
     fn nested<T>(&mut self, f: impl FnOnce(&mut Self) -> PResult<T>) -> PResult<T> {
         if self.depth >= MAX_NESTING {
-            return Err(ExprError::new(format!(
-                "expression is nested deeper than {LIMIT_DEPTH}"
-            )));
+            return Err(ExprError::new(format!("expression is nested deeper than {LIMIT_DEPTH}")));
         }
         self.depth += 1;
         let out = f(self);
@@ -491,34 +443,18 @@ impl Parser<'_> {
             return self.error(format!("Expected expression after {biop}"));
         };
         let mut nodes = vec![left, right];
-        let mut ops = vec![OpInfo {
-            right_a: biop == "**",
-            value: biop,
-            prec,
-        }];
+        let mut ops = vec![OpInfo { right_a: biop == "**", value: biop, prec }];
         while let Some((biop, prec)) = self.gobble_binary_op() {
-            let info = OpInfo {
-                right_a: biop == "**",
-                value: biop.clone(),
-                prec,
-            };
+            let info = OpInfo { right_a: biop == "**", value: biop.clone(), prec };
             while let Some(prev) = ops.last() {
-                let reduce = if info.right_a && prev.right_a {
-                    prec > prev.prec
-                } else {
-                    prec <= prev.prec
-                };
+                let reduce = if info.right_a && prev.right_a { prec > prev.prec } else { prec <= prev.prec };
                 if !reduce {
                     break;
                 }
                 let (Some(right), Some(op), Some(left)) = (nodes.pop(), ops.pop(), nodes.pop()) else {
                     break;
                 };
-                nodes.push(Ast::Binary {
-                    operator: op.value,
-                    left: Box::new(left),
-                    right: Box::new(right),
-                });
+                nodes.push(Ast::Binary { operator: op.value, left: Box::new(left), right: Box::new(right) });
             }
             let Some(node) = self.gobble_token()? else {
                 return self.error(format!("Expected expression after {biop}"));
@@ -528,11 +464,7 @@ impl Parser<'_> {
         }
         let mut node = nodes.pop().unwrap_or(Ast::This);
         while let (Some(op), Some(left)) = (ops.pop(), nodes.pop()) {
-            node = Ast::Binary {
-                operator: op.value,
-                left: Box::new(left),
-                right: Box::new(node),
-            };
+            node = Ast::Binary { operator: op.value, left: Box::new(left), right: Box::new(node) };
         }
         Ok(Some(node))
     }
@@ -563,10 +495,7 @@ impl Parser<'_> {
                     return self.error("missing unaryOp argument");
                 };
                 let operator = String::from_utf16_lossy(&[op]);
-                return Ok(Some(Ast::Unary {
-                    operator,
-                    argument: Box::new(argument),
-                }));
+                return Ok(Some(Ast::Unary { operator, argument: Box::new(argument) }));
             }
             if is_identifier_start(ch) {
                 let name = self.gobble_identifier()?;
@@ -613,31 +542,17 @@ impl Parser<'_> {
                     return self.error("Unclosed [");
                 }
                 self.i += 1;
-                node = Ast::Member {
-                    object: Box::new(node),
-                    property: Box::new(property),
-                    computed: true,
-                    optional,
-                };
+                node = Ast::Member { object: Box::new(node), property: Box::new(property), computed: true, optional };
             } else if ch == Some(OPAREN) {
                 let arguments = self.gobble_arguments(CPAREN)?.into_iter().flatten().collect();
-                node = Ast::Call {
-                    callee: Box::new(node),
-                    arguments,
-                    optional,
-                };
+                node = Ast::Call { callee: Box::new(node), arguments, optional };
             } else if ch == Some(PERIOD) || optional {
                 if optional {
                     self.i -= 1;
                 }
                 self.gobble_spaces();
                 let property = Ast::Identifier(self.gobble_identifier()?);
-                node = Ast::Member {
-                    object: Box::new(node),
-                    property: Box::new(property),
-                    computed: false,
-                    optional,
-                };
+                node = Ast::Member { object: Box::new(node), property: Box::new(property), computed: false, optional };
             }
             self.gobble_spaces();
             ch = self.code();
@@ -669,20 +584,13 @@ impl Parser<'_> {
             }
             self.take_digits(&mut number);
             if !is_digit(self.code_at(self.i - 1)) {
-                return self.error(format!(
-                    "Expected exponent ({}{})",
-                    String::from_utf16_lossy(&number),
-                    self.ch()
-                ));
+                return self.error(format!("Expected exponent ({}{})", String::from_utf16_lossy(&number), self.ch()));
             }
         }
         let text = String::from_utf16_lossy(&number);
         let code = self.code();
         if is_identifier_start(code) {
-            return self.error(format!(
-                "Variable names cannot start with a number ({text}{})",
-                self.ch()
-            ));
+            return self.error(format!("Variable names cannot start with a number ({text}{})", self.ch()));
         }
         if code == Some(PERIOD) || text == "." {
             return self.error("Unexpected period");
@@ -809,11 +717,7 @@ impl Parser<'_> {
             self.gobble_spaces();
             let next = self.code();
             if matches!(key, Ast::Identifier(_)) && (next == Some(COMMA) || next == Some(CCURLY)) {
-                props.push(Prop::Property {
-                    key: Some(Box::new(key.clone())),
-                    value: Box::new(key),
-                    computed: false,
-                });
+                props.push(Prop::Property { key: Some(Box::new(key.clone())), value: Box::new(key), computed: false });
             } else if next == Some(COLON) {
                 self.i += 1;
                 let Some(value) = self.gobble_expression()? else {
@@ -823,11 +727,7 @@ impl Parser<'_> {
                     Ast::Array(mut elements) => (if elements.is_empty() { None } else { elements.remove(0) }, true),
                     key => (Some(key), false),
                 };
-                props.push(Prop::Property {
-                    key: key.map(Box::new),
-                    value: Box::new(value),
-                    computed,
-                });
+                props.push(Prop::Property { key: key.map(Box::new), value: Box::new(value), computed });
                 self.gobble_spaces();
             } else {
                 props.push(Prop::Other(Box::new(key)));

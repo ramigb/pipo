@@ -5,8 +5,8 @@
 // sends it again.
 
 use super::{
-    InputAdapter, InputRuntime, Intake, IntakeResult, LocalBoxFuture, Log, Origin, OutputAdapter, Stopper, WriteItem, as_i64,
-    http_client, http_error, resolve_path, string_of,
+    InputAdapter, InputRuntime, Intake, IntakeResult, LocalBoxFuture, Log, Origin, OutputAdapter, Stopper, WriteItem,
+    as_i64, http_client, http_error, resolve_path, string_of,
 };
 use crate::bots::{Bot, Bots, bot_id, pick_bot};
 use crate::duration::{format_duration, parse_duration};
@@ -71,7 +71,12 @@ fn multipart(fields: &[(String, FormValue)]) -> (String, Vec<u8>) {
 }
 
 /// One Bot API call. The URL holds the token, so errors name the method, never the URL.
-pub async fn telegram_call(bot: &Bot, method: &str, params: &Params, timeout: Duration) -> Result<Value, TelegramError> {
+pub async fn telegram_call(
+    bot: &Bot,
+    method: &str,
+    params: &Params,
+    timeout: Duration,
+) -> Result<Value, TelegramError> {
     let url = format!("{}/bot{}/{method}", bot.api, bot.token);
     let req = http_client().post(url).timeout(timeout);
     let req = match params {
@@ -89,19 +94,34 @@ pub async fn telegram_call(bot: &Bot, method: &str, params: &Params, timeout: Du
     let status = res.status().as_u16();
     let body: Option<Value> = res.json().await.ok();
     if let Some(b) = &body
-        && b.get("ok").and_then(|o| o.as_bool()) == Some(true) {
-            return Ok(b.get("result").cloned().unwrap_or(Value::Null));
-        }
-    let why = body.as_ref().and_then(|b| b.get("description")).and_then(|d| d.as_str()).map(str::to_owned).unwrap_or_else(|| format!("HTTP {status}"));
+        && b.get("ok").and_then(|o| o.as_bool()) == Some(true)
+    {
+        return Ok(b.get("result").cloned().unwrap_or(Value::Null));
+    }
+    let why = body
+        .as_ref()
+        .and_then(|b| b.get("description"))
+        .and_then(|d| d.as_str())
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("HTTP {status}"));
     let hint = match status {
-        401 | 404 => "the bot token is wrong or revoked; get a new one from @BotFather and update the bot in the dashboard (Bots)",
-        409 => "another program reads this bot's updates (another pipeline, or a webhook); stop it, or call deleteWebhook",
+        401 | 404 => {
+            "the bot token is wrong or revoked; get a new one from @BotFather and update the bot in the dashboard (Bots)"
+        }
+        409 => {
+            "another program reads this bot's updates (another pipeline, or a webhook); stop it, or call deleteWebhook"
+        }
         403 => "the user blocked the bot, or never pressed Start in its chat",
         429 => "Telegram is rate limiting this bot",
         _ => "see the Telegram Bot API docs for this error",
     };
-    let retry_after = body.as_ref().and_then(|b| b.get("parameters")).and_then(|p| p.get("retry_after")).and_then(|r| r.as_u64());
-    Err(TelegramError { message: format!("telegram {method} answered {status}: {why}; {hint}"), code: status, retry_after })
+    let retry_after =
+        body.as_ref().and_then(|b| b.get("parameters")).and_then(|p| p.get("retry_after")).and_then(|r| r.as_u64());
+    Err(TelegramError {
+        message: format!("telegram {method} answered {status}: {why}; {hint}"),
+        code: status,
+        retry_after,
+    })
 }
 
 // ── input ─────────────────────────────────────────────────────────────────────
@@ -200,7 +220,9 @@ impl Inner {
 
     async fn run(self: Rc<Self>, intake: Intake) {
         while !self.stop.stopped() {
-            let params = Params::Json(json!({ "offset": self.offset.get(), "timeout": self.poll_s, "allowed_updates": ["message"] }));
+            let params = Params::Json(
+                json!({ "offset": self.offset.get(), "timeout": self.poll_s, "allowed_updates": ["message"] }),
+            );
             let wait = Duration::from_secs(self.poll_s + 15);
             let fetched = tokio::select! {
                 r = telegram_call(&self.bot, "getUpdates", &params, wait) => r,
@@ -310,7 +332,12 @@ impl Inner {
         who.insert("username".into(), field(from, "username").unwrap_or(Value::Null));
         who.insert("name".into(), json!(name.join(" ")));
         put("from", Some(Value::Object(who)));
-        let text = m.get("text").filter(|t| !t.is_null()).or(m.get("caption").filter(|t| !t.is_null())).cloned().unwrap_or(json!(""));
+        let text = m
+            .get("text")
+            .filter(|t| !t.is_null())
+            .or(m.get("caption").filter(|t| !t.is_null()))
+            .cloned()
+            .unwrap_or(json!(""));
         put("text", Some(text));
         let file = match (kind, f) {
             (Some(k), Some(f)) => self.file(k, &f).await,
@@ -343,16 +370,18 @@ impl Inner {
 
     async fn download(&self, kind: &str, f: &Value) -> Result<PathBuf, String> {
         let file_id = f.get("file_id").map(string_of).unwrap_or_default();
-        let info = telegram_call(&self.bot, "getFile", &Params::Json(json!({ "file_id": file_id })), Duration::from_secs(30))
-            .await
-            .map_err(|e| e.message)?;
+        let info =
+            telegram_call(&self.bot, "getFile", &Params::Json(json!({ "file_id": file_id })), Duration::from_secs(30))
+                .await
+                .map_err(|e| e.message)?;
         let Some(file_path) = info.get("file_path").and_then(|p| p.as_str()).filter(|p| !p.is_empty()) else {
             return Err("Telegram gave no file path".into());
         };
         let name = match f.get("file_name").and_then(|n| n.as_str()) {
             Some(n) => basename(n),
             None => {
-                let ext = Path::new(file_path).extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+                let ext =
+                    Path::new(file_path).extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
                 format!("{kind}{ext}")
             }
         };
@@ -486,9 +515,13 @@ pub async fn telegram_send(
         } else {
             let path = resolve_path(dir, &reference);
             let Ok(bytes) = std::fs::read(&path) else {
-                return Err(format!("{owner}.with.{media}: no file at {}; give a path or an http(s) URL", path.display()));
+                return Err(format!(
+                    "{owner}.with.{media}: no file at {}; give a path or an http(s) URL",
+                    path.display()
+                ));
             };
-            let mut form: Vec<(String, FormValue)> = common.iter().map(|(k, v)| (k.clone(), FormValue::Text(string_of(v)))).collect();
+            let mut form: Vec<(String, FormValue)> =
+                common.iter().map(|(k, v)| (k.clone(), FormValue::Text(string_of(v)))).collect();
             if !caption.is_empty() {
                 form.push(("caption".into(), FormValue::Text(caption)));
             }
@@ -501,8 +534,11 @@ pub async fn telegram_send(
     loop {
         match telegram_call(&bot, method, &params, Duration::from_secs(30)).await {
             Ok(msg) => {
-                let chat_id = msg.get("chat").and_then(|c| c.get("id")).cloned().filter(|c| !c.is_null()).unwrap_or(chat);
-                return Ok(json!({ "chat_id": chat_id, "message_id": msg.get("message_id").cloned().unwrap_or(Value::Null) }));
+                let chat_id =
+                    msg.get("chat").and_then(|c| c.get("id")).cloned().filter(|c| !c.is_null()).unwrap_or(chat);
+                return Ok(
+                    json!({ "chat_id": chat_id, "message_id": msg.get("message_id").cloned().unwrap_or(Value::Null) }),
+                );
             }
             // Rate limited: wait as Telegram asks, a few times, before the step's own on_error takes over.
             Err(e) if e.code == 429 && attempt < SEND_TRIES => {
@@ -525,13 +561,22 @@ impl OutputAdapter for TelegramOutput {
         Box::pin(async move {
             let mut out = vec![];
             for i in items {
-                out.push(telegram_send(self.bots.as_deref(), &self.dir, &i.with, &i.data, i.origin.as_ref(), "output").await?);
+                out.push(
+                    telegram_send(self.bots.as_deref(), &self.dir, &i.with, &i.data, i.origin.as_ref(), "output")
+                        .await?,
+                );
             }
             Ok(out)
         })
     }
 
-    fn verify<'a>(&'a self, check: &'a str, _: &'a Map<String, Value>, _: &'a WriteItem, _: &'a Value) -> LocalBoxFuture<'a, Result<bool, String>> {
+    fn verify<'a>(
+        &'a self,
+        check: &'a str,
+        _: &'a Map<String, Value>,
+        _: &'a WriteItem,
+        _: &'a Value,
+    ) -> LocalBoxFuture<'a, Result<bool, String>> {
         Box::pin(async move { Err(format!("telegram output does not support delivery check '{check}'")) })
     }
 }
@@ -601,7 +646,13 @@ mod tests {
             if method == "getUpdates" {
                 let offset = body["offset"].as_i64().unwrap();
                 self.offsets.borrow_mut().push(offset);
-                let due: Vec<Value> = self.updates.borrow().iter().filter(|u| u["update_id"].as_i64().unwrap() >= offset).cloned().collect();
+                let due: Vec<Value> = self
+                    .updates
+                    .borrow()
+                    .iter()
+                    .filter(|u| u["update_id"].as_i64().unwrap() >= offset)
+                    .cloned()
+                    .collect();
                 if due.is_empty() {
                     tokio::time::sleep(Duration::from_millis(20)).await;
                 }
@@ -613,10 +664,16 @@ mod tests {
             }
             if self.fail_sends.get() > 0 {
                 self.fail_sends.set(self.fail_sends.get() - 1);
-                return Reply::json(429, &json!({ "ok": false, "error_code": 429, "description": "Too Many Requests", "parameters": { "retry_after": 0 } }));
+                return Reply::json(
+                    429,
+                    &json!({ "ok": false, "error_code": 429, "description": "Too Many Requests", "parameters": { "retry_after": 0 } }),
+                );
             }
             let chat = string_of(&body["chat_id"]).parse::<i64>().unwrap_or(0);
-            Reply::json(200, &json!({ "ok": true, "result": { "message_id": self.calls.borrow().len(), "chat": { "id": chat } } }))
+            Reply::json(
+                200,
+                &json!({ "ok": true, "result": { "message_id": self.calls.borrow().len(), "chat": { "id": chat } } }),
+            )
         }
 
         fn message(&self, chat: i64, extra: Value) -> i64 {
@@ -659,20 +716,37 @@ mod tests {
                 }
             }
             let n = g.borrow().len();
-            Box::pin(async move { if open { accepted(n) } else { IntakeResult::Unavailable { reason: "buffer full".into() } } })
+            Box::pin(async move {
+                if open { accepted(n) } else { IntakeResult::Unavailable { reason: "buffer full".into() } }
+            })
         });
         (intake, got)
     }
 
     fn input(bot: Bot, dir: &TempDir, log: Log) -> TelegramInput {
-        TelegramInput::new(TelegramInputOptions { bot, allow: None, poll_every: None, download: None, files_dir: dir.join("files"), log: Some(log) })
-            .unwrap()
+        TelegramInput::new(TelegramInputOptions {
+            bot,
+            allow: None,
+            poll_every: None,
+            download: None,
+            files_dir: dir.join("files"),
+            log: Some(log),
+        })
+        .unwrap()
     }
 
     #[test]
     fn settings() {
-        let bot = Bot { name: "main".into(), token: MAIN.into(), api: "http://x".into(), allow: vec![1], poll_every: None };
-        let o = |poll: Option<&str>| TelegramInputOptions { bot: bot.clone(), allow: None, poll_every: poll.map(str::to_owned), download: None, files_dir: PathBuf::new(), log: None };
+        let bot =
+            Bot { name: "main".into(), token: MAIN.into(), api: "http://x".into(), allow: vec![1], poll_every: None };
+        let o = |poll: Option<&str>| TelegramInputOptions {
+            bot: bot.clone(),
+            allow: None,
+            poll_every: poll.map(str::to_owned),
+            download: None,
+            files_dir: PathBuf::new(),
+            log: None,
+        };
         assert_eq!(TelegramInput::new(o(Some("500ms"))).err().unwrap(), "telegram poll_every must be at least 1s");
         let i = TelegramInput::new(o(None)).unwrap();
         assert_eq!(i.describe(), "telegram main, long polling (25s)");
@@ -700,7 +774,9 @@ mod tests {
                 json!({"message_id": 2, "date": "2023-11-14T22:13:20.000Z", "chat_id": 42, "chat_type": "private",
                        "from": {"id": 42, "username": "ann", "name": "Ann"}, "text": "hi", "file": null})
             );
-            assert!(lines.borrow().iter().any(|l| l.contains("ignored a message from @ann (user id 7, chat id 7): not in the allow list; add 7")));
+            assert!(lines.borrow().iter().any(|l| {
+                l.contains("ignored a message from @ann (user id 7, chat id 7): not in the allow list; add 7")
+            }));
             wait_for(|| fake.offsets.borrow().last() == Some(&3), 5000, "the next poll").await;
             tg.stop().await;
             tg.stop().await;
@@ -752,10 +828,16 @@ mod tests {
             let doc = got.borrow()[0].0.clone();
             let path = dir.join("files/U1-notes_v1.txt");
             assert_eq!(doc["text"], json!("here"));
-            assert_eq!(doc["file"], json!({"kind": "document", "file_id": "F1", "name": "../notes v1.txt", "mime_type": null, "size": 10, "path": path.display().to_string()}));
+            assert_eq!(
+                doc["file"],
+                json!({"kind": "document", "file_id": "F1", "name": "../notes v1.txt", "mime_type": null, "size": 10, "path": path.display().to_string()})
+            );
             assert_eq!(std::fs::read_to_string(&path).unwrap(), "file-bytes");
             let photo = got.borrow()[1].0["file"].clone();
-            assert_eq!((photo["file_id"].clone(), photo["path"].clone()), (json!("B"), json!(dir.join("files/big-photo.txt").display().to_string())));
+            assert_eq!(
+                (photo["file_id"].clone(), photo["path"].clone()),
+                (json!("B"), json!(dir.join("files/big-photo.txt").display().to_string()))
+            );
         });
     }
 
@@ -771,7 +853,12 @@ mod tests {
             let out = TelegramOutput { bots: Some(Rc::new(bots.clone())), dir: dir.path().to_path_buf() };
             let origin = Origin { trigger: "telegram".into(), source: "42".into() };
             let w = json!({"text": "echo: hi"});
-            let item = WriteItem { packet_id: "p".into(), data: json!({"a": 1}), with: w.as_object().cloned().unwrap(), origin: Some(origin) };
+            let item = WriteItem {
+                packet_id: "p".into(),
+                data: json!({"a": 1}),
+                with: w.as_object().cloned().unwrap(),
+                origin: Some(origin),
+            };
             let r = out.write(vec![item]).await.unwrap();
             assert_eq!(r, vec![json!({"chat_id": 42, "message_id": 1})]);
             let s = fake.sends()[0].clone();
@@ -781,8 +868,17 @@ mod tests {
             // A tap from another bot; a 429 is retried as Telegram asks; data goes as pretty JSON.
             fake.fail_sends.set(1);
             let w = json!({"bot": "alerts", "chat_id": 99, "parse_mode": "HTML"});
-            let tap = crate::connectors::steps::TelegramTap { bots: Some(Rc::new(bots.clone())), dir: dir.path().to_path_buf() };
-            let input = crate::connectors::StepInput { packet_id: "p".into(), node: "ping".into(), data: json!({"a": 1}), with: w.as_object().cloned().unwrap(), origin: None };
+            let tap = crate::connectors::steps::TelegramTap {
+                bots: Some(Rc::new(bots.clone())),
+                dir: dir.path().to_path_buf(),
+            };
+            let input = crate::connectors::StepInput {
+                packet_id: "p".into(),
+                node: "ping".into(),
+                data: json!({"a": 1}),
+                with: w.as_object().cloned().unwrap(),
+                origin: None,
+            };
             crate::connectors::StepAdapter::run(&tap, input).await.unwrap();
             let sends = fake.sends();
             assert_eq!(sends.len(), 3);
@@ -792,13 +888,31 @@ mod tests {
             // Without a chat id, and with a 429 that never ends.
             let none = WriteItem { packet_id: "p".into(), data: json!("x"), with: Map::new(), origin: None };
             let e = out.write(vec![none]).await.unwrap_err();
-            assert_eq!(e, "output.with.chat_id is not set and the packet did not come from a telegram input; set output.with.chat_id");
+            assert_eq!(
+                e,
+                "output.with.chat_id is not set and the packet did not come from a telegram input; set output.with.chat_id"
+            );
             fake.fail_sends.set(5);
             let w = json!({"chat_id": 1});
-            let e = telegram_send(Some(&bots), dir.path(), w.as_object().unwrap(), &json!("x"), None, "output").await.unwrap_err();
-            assert!(e.starts_with("telegram sendMessage answered 429: Too Many Requests; Telegram is rate limiting this bot"), "{e}");
+            let e = telegram_send(Some(&bots), dir.path(), w.as_object().unwrap(), &json!("x"), None, "output")
+                .await
+                .unwrap_err();
+            assert!(
+                e.starts_with(
+                    "telegram sendMessage answered 429: Too Many Requests; Telegram is rate limiting this bot"
+                ),
+                "{e}"
+            );
             assert!(!e.contains(MAIN));
-            let e = out.verify("status", &Map::new(), &WriteItem { packet_id: "p".into(), data: Value::Null, with: Map::new(), origin: None }, &Value::Null).await.unwrap_err();
+            let e = out
+                .verify(
+                    "status",
+                    &Map::new(),
+                    &WriteItem { packet_id: "p".into(), data: Value::Null, with: Map::new(), origin: None },
+                    &Value::Null,
+                )
+                .await
+                .unwrap_err();
             assert_eq!(e, "telegram output does not support delivery check 'status'");
         });
     }
@@ -809,33 +923,57 @@ mod tests {
             let fake = Fake::start().await;
             let dir = TempDir::new();
             std::fs::write(dir.join("notes.txt"), "file-bytes").unwrap();
-            let bots = Bots { telegram: [("main".to_string(), fake.bot("main", MAIN, vec![]))].into(), default: Some("main".into()) };
+            let bots = Bots {
+                telegram: [("main".to_string(), fake.bot("main", MAIN, vec![]))].into(),
+                default: Some("main".into()),
+            };
             let w = json!({"document": "notes.txt", "text": "got notes.txt", "chat_id": "42"});
             telegram_send(Some(&bots), dir.path(), w.as_object().unwrap(), &Value::Null, None, "output").await.unwrap();
             let s = fake.sends()[0].clone();
             assert_eq!(s.method, "sendDocument");
-            assert_eq!(s.body, json!({"chat_id": "42", "caption": "got notes.txt", "document": {"filename": "notes.txt", "content": "file-bytes"}}));
+            assert_eq!(
+                s.body,
+                json!({"chat_id": "42", "caption": "got notes.txt", "document": {"filename": "notes.txt", "content": "file-bytes"}})
+            );
             let w = json!({"photo": "https://example.com/a.png", "text": "", "chat_id": 5});
             telegram_send(Some(&bots), dir.path(), w.as_object().unwrap(), &Value::Null, None, "output").await.unwrap();
             assert_eq!(fake.sends()[1].body, json!({"chat_id": 5, "photo": "https://example.com/a.png"}));
             let w = json!({"photo": "missing.png", "chat_id": 5});
-            let e = telegram_send(Some(&bots), dir.path(), w.as_object().unwrap(), &Value::Null, None, "nodes.n").await.unwrap_err();
-            assert_eq!(e, format!("nodes.n.with.photo: no file at {}; give a path or an http(s) URL", dir.join("missing.png").display()));
+            let e = telegram_send(Some(&bots), dir.path(), w.as_object().unwrap(), &Value::Null, None, "nodes.n")
+                .await
+                .unwrap_err();
+            assert_eq!(
+                e,
+                format!(
+                    "nodes.n.with.photo: no file at {}; give a path or an http(s) URL",
+                    dir.join("missing.png").display()
+                )
+            );
         });
     }
 
     #[test]
     fn bad_tokens_and_unreachable_apis_never_show_the_token() {
         local(async {
-            let s = server(Rc::new(|_| Box::pin(async { Reply::json(401, &json!({"ok": false, "description": "Unauthorized"})) }))).await;
-            let bot = Bot { name: "main".into(), token: MAIN.into(), api: s.base.clone(), allow: vec![], poll_every: None };
+            let s = server(Rc::new(|_| {
+                Box::pin(async { Reply::json(401, &json!({"ok": false, "description": "Unauthorized"})) })
+            }))
+            .await;
+            let bot =
+                Bot { name: "main".into(), token: MAIN.into(), api: s.base.clone(), allow: vec![], poll_every: None };
             let e = telegram_call(&bot, "getMe", &Params::Json(json!({})), Duration::from_secs(5)).await.unwrap_err();
             assert_eq!(e.code, 401);
-            assert!(e.message.starts_with("telegram getMe answered 401: Unauthorized; the bot token is wrong or revoked"));
+            assert!(
+                e.message.starts_with("telegram getMe answered 401: Unauthorized; the bot token is wrong or revoked")
+            );
             let bot = Bot { api: "http://127.0.0.1:1".into(), ..bot };
             let e = telegram_call(&bot, "getMe", &Params::Json(json!({})), Duration::from_secs(5)).await.unwrap_err();
             assert_eq!(e.code, 0);
-            assert!(e.message.starts_with("telegram getMe failed: ") && e.message.ends_with("; check the network"), "{}", e.message);
+            assert!(
+                e.message.starts_with("telegram getMe failed: ") && e.message.ends_with("; check the network"),
+                "{}",
+                e.message
+            );
             assert!(!e.message.contains("main-secret"));
         });
     }
