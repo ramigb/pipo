@@ -46,6 +46,9 @@ a Bun-free deploy aren't goals yet.
   are serialized over a channel. Each version's bundle is loaded as its own module, values cross as JSON, a call is
   stopped after 30 s and the runtime is capped at 256 MB. A module can't use Bun or Node APIs: if its bundle imports
   them or uses their globals, `pipo compile` (and `pipo check`) reports P059.
+- **Budget days use the system's time zone database** (`jiff` over `/usr/share/zoneinfo`; no zone data in the
+  binary). `pipo compile` checks `engine.timezone` against Bun's own list, so a runner with agent nodes refuses to start
+  when that zone isn't in the system's database (install `tzdata`, or use `UTC`, which always works).
 
 ## What stays the same (the contracts)
 

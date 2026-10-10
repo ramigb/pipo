@@ -1,12 +1,24 @@
-// Agent nodes (docs/spec.md §3.4, §3.11, D36, D37, D58, D67): providers, settings and budgets. Port of agents/*.ts.
-// The interface below is what the runner codes against; the bodies are filled in by the agents port.
+// Agent nodes (docs/spec.md §3.4, §3.11, D36, D37, D58, D67): providers, settings and budgets. Port of agents/*.ts;
+// probe.ts and settings.ts stay TypeScript (the CLI and engine use them, and `pipo compile` hands the settings over).
+
+mod budget;
+mod claude;
+mod cli;
+mod home_spend;
+mod runtime;
+mod window;
+
+pub use budget::{AgentBudget, BudgetCap, BudgetError, BudgetState, BudgetStop, EngineCap, packet_stop};
+pub use claude::ClaudeProvider;
+pub use cli::{
+    CLAUDE_MODELS, CLI_AGENTS, CliProvider, Readiness, cli_models, cli_readiness, extract_json, strict_schema,
+};
+pub use home_spend::{EngineSpend, engine_spend, engine_window, home_agent_spend};
+pub use runtime::{AgentRuntime, AgentSettings, AgentSetupError, cost_of, prepare_agents, price_for};
+pub use window::{BudgetWindow, budget_window, is_time_zone, system_time_zone};
 
 use crate::connectors::LocalBoxFuture;
-use crate::journal::Journal;
-use crate::pipeline::{AgentBudget as BudgetLimits, Pipeline};
-use serde_json::{Map, Value};
-use std::cell::RefCell;
-use std::collections::HashMap;
+use serde_json::Value;
 use std::path::PathBuf;
 use std::rc::Rc;
 use tokio::sync::Notify;
@@ -46,157 +58,43 @@ pub struct AgentCallError {
     pub usage: Option<AgentUsage>,
 }
 
+impl AgentCallError {
+    pub fn new(message: impl Into<String>, usage: Option<AgentUsage>) -> AgentCallError {
+        AgentCallError { message: message.into(), usage }
+    }
+}
+
 pub trait AgentProvider {
     fn complete(&self, req: AgentRequest) -> LocalBoxFuture<'_, Result<AgentResult, AgentCallError>>;
-}
-
-/// What `pipo compile` passes on from `<home>/config.yaml` (`agents` key of its output).
-#[derive(Debug, Clone, Default)]
-pub struct AgentSettings {
-    /// The `agents:` map: provider → { pricing, api_key, base_url, command }.
-    pub agents: Map<String, Value>,
-    pub timezone: String,
-    pub engine_budget: Option<f64>,
-}
-
-pub struct AgentRuntime {
-    pub providers: HashMap<String, Rc<dyn AgentProvider>>,
-    /// Provider → model → { input, output } USD per Mtok.
-    pub pricing: Map<String, Value>,
-    /// Resolved API keys: redacted from everything the runner logs or journals.
-    pub hidden: Vec<String>,
-    /// AGENTS from @pipo/spec (`runs`, `timeout`, …), by provider.
-    pub manifests: Map<String, Value>,
-}
-
-impl AgentRuntime {
-    pub fn empty() -> AgentRuntime {
-        AgentRuntime { providers: HashMap::new(), pricing: Map::new(), hidden: vec![], manifests: Map::new() }
-    }
-    pub fn is_cli(&self, provider: &str) -> bool {
-        self.manifests.get(provider).and_then(|m| m.get("runs")).and_then(|r| r.as_str()) == Some("cli")
-    }
-}
-
-/// A start can't set up the agents: a message and a hint.
-#[derive(Debug, Clone, PartialEq)]
-pub struct AgentSetupError {
-    pub message: String,
-    pub hint: String,
-}
-
-/// A provider per `agent:` value and the price table per provider (runtime.ts `prepareAgents`).
-pub async fn prepare_agents(
-    _pipeline: &Pipeline,
-    _settings: &AgentSettings,
-    _manifests: &Map<String, Value>,
-) -> Result<AgentRuntime, AgentSetupError> {
-    todo!("agents port")
-}
-
-/// Price of `model` in a provider's pricing table (priceFor in @pipo/spec): { input, output } USD per Mtok.
-pub fn price_for(_pricing: &Value, _model: &str) -> Option<(f64, f64)> {
-    todo!("agents port")
-}
-
-/// USD for a call (costOf in @pipo/spec).
-pub fn cost_of(price: (f64, f64), input_tokens: u64, output_tokens: u64) -> f64 {
-    (price.0 * input_tokens as f64 + price.1 * output_tokens as f64) / 1_000_000.0
 }
 
 pub fn round(n: f64) -> f64 {
     (n * 1e6).round() / 1e6
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BudgetCap {
-    Pipeline,
-    Engine,
+/// A JSON number as the TS `num` helper reads it: finite, else 0.
+fn num(v: Option<&Value>) -> f64 {
+    v.and_then(Value::as_f64).filter(|n| n.is_finite()).unwrap_or(0.0)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BudgetWindow {
-    pub start: i64,
-    pub end: i64,
+/// Summed token counts as whole tokens.
+fn tokens(n: f64) -> u64 {
+    if n > 0.0 { n.round() as u64 } else { 0 }
 }
 
-/// A budget limit stops the call; never retried.
-#[derive(Debug, Clone, PartialEq)]
-pub struct BudgetStop {
-    /// `packet` or `day`.
-    pub kind: &'static str,
-    pub message: String,
-    pub detail: Map<String, Value>,
-}
-
-pub fn packet_stop(used: u64, per_packet: u64) -> BudgetStop {
-    let mut detail = Map::new();
-    detail.insert("tokens".into(), used.into());
-    detail.insert("per_packet".into(), per_packet.into());
-    BudgetStop {
-        kind: "packet",
-        message: format!("packet used {used} agent tokens, reaching agent_budget.per_packet ({per_packet})"),
-        detail,
+/// `String(v)` for the values a provider's JSON holds.
+fn js_string(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.clone(),
+        Value::Object(_) => "[object Object]".into(),
+        Value::Array(a) => {
+            a.iter().map(|x| if x.is_null() { String::new() } else { js_string(x) }).collect::<Vec<_>>().join(",")
+        }
+        other => crate::expr::js_json(other),
     }
 }
 
-/// The engine-wide cap (D58).
-#[derive(Debug, Clone, PartialEq)]
-pub struct EngineCap {
-    pub home: PathBuf,
-    pub name: String,
-    pub per_day: f64,
-}
-
-/// `agent_budget` (§3.11, D37), every number read from the journal's `agent_spend` rows (budget.ts).
-pub struct AgentBudget {
-    pub journal: Rc<RefCell<Journal>>,
-    /// The limits of the version in force (they change with a live apply).
-    pub limits: Rc<dyn Fn() -> Option<BudgetLimits>>,
-    pub timezone: String,
-    pub now: Rc<dyn Fn() -> i64>,
-    pub engine: Option<EngineCap>,
-    pub state: RefCell<BudgetState>,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct BudgetState {
-    pub override_start: Option<i64>,
-    pub engine_override: Option<i64>,
-    pub warned: Option<i64>,
-}
-
-impl AgentBudget {
-    pub fn new(
-        _journal: Rc<RefCell<Journal>>,
-        _limits: Rc<dyn Fn() -> Option<BudgetLimits>>,
-        _timezone: String,
-        _now: Rc<dyn Fn() -> i64>,
-        _engine: Option<EngineCap>,
-    ) -> AgentBudget {
-        todo!("agents port")
-    }
-    pub fn window(&self) -> BudgetWindow {
-        todo!("agents port")
-    }
-    pub fn spent_today(&self) -> f64 {
-        todo!("agents port")
-    }
-    pub fn check_day(&self) -> Result<(), BudgetStop> {
-        todo!("agents port")
-    }
-    pub fn check_packet(&self, _root: &str, _per_packet: Option<u64>) -> Result<u64, BudgetStop> {
-        todo!("agents port")
-    }
-    pub fn warning(&self) -> Option<Map<String, Value>> {
-        todo!("agents port")
-    }
-    pub fn override_today(&self, _cap: BudgetCap) -> BudgetWindow {
-        todo!("agents port")
-    }
-}
-
-/// The system's own IANA time zone, used when the engine config sets none.
-pub fn system_time_zone() -> String {
-    todo!("agents port")
+/// `a ?? b` over JSON: the value when it is there and not null.
+fn present(v: Option<&Value>) -> Option<&Value> {
+    v.filter(|x| !x.is_null())
 }

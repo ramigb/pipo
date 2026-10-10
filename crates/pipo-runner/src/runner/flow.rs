@@ -1141,8 +1141,12 @@ impl Runner {
             kind: Some(format!("budget.{}", b.kind)),
             detail: Some(Value::Object(b.detail)),
         };
-        budget.check_day().map_err(stop)?;
-        let used = budget.check_packet(&root, per_packet).map_err(stop)?;
+        let refuse = |e: crate::agents::BudgetError| match e {
+            crate::agents::BudgetError::Stop(b) => stop(b),
+            crate::agents::BudgetError::Failed(m) => StepError::new(m),
+        };
+        budget.check_day().map_err(refuse)?;
+        let used = budget.check_packet(&root, per_packet).map_err(refuse)?;
 
         let c = json!({ "data": row.data, "meta": meta, "env": self.env, "secrets": self.secrets.values });
         let w = render(&Value::Object(node.with.clone().unwrap_or_default()), &c).map_err(|e| StepError::new(e.to_string()))?;
@@ -1217,7 +1221,7 @@ impl Runner {
         let result = match tokio::time::timeout(Duration::from_millis(timeout), call).await {
             Ok(r) => r,
             Err(_) => {
-                abort.notify_waiters();
+                abort.notify_one();
                 return Err(StepError::new(format!("agent call timed out after {} (with.timeout)", format_duration(timeout))));
             }
         };
