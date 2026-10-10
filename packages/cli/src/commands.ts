@@ -316,6 +316,18 @@ export const COMMANDS: CommandHelp[] = [
     ],
   },
   {
+    name: "approvals",
+    summary: "List pipelines agents wrote, and approve or reject them (approval lets the agent start them)",
+    usage: 'pipo approvals [approve <name> [--start] | reject <name> [--reason "…"]]',
+    flags: [
+      ["--start", "approve: start the pipeline too"],
+      ["--reason <text>", "reject: why, shown to the agent"],
+      ["--by <who>", "Who is deciding (default the OS user)"],
+      ["--home <dir>", "Pipo home (default ~/.pipo, or PIPO_HOME)"],
+      JSON_FLAG,
+    ],
+  },
+  {
     name: "resolve",
     summary: "Settle packets handed to the agent (then: agent, on_stall: handle): retry, dead-letter or drop them",
     usage: 'pipo resolve <name> <id…> --action retry|dead_letter|drop [--reason "…"]',

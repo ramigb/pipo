@@ -53,6 +53,7 @@ engine:
     per_day: 10.00
   restart: { backoff: 1s, max_backoff: 30s, stable: 1m, max_restarts: 5, window: 10m }
   mcp:
+    auto_approve: false
     tokens:
       - { name: ops-agent, token: env:PIPO_MCP_TOKEN, scope: operate, pipelines: [people-intake] }
 agents:
@@ -68,7 +69,7 @@ Only two top-level keys exist, `engine` and `agents`. **Unknown keys are errors*
 
 | Key | Default | Meaning |
 |---|---|---|
-| `listen` | none | The gateway's port on `127.0.0.1`. `0` picks a free one (recorded in `run/engine.json`). Without it, there's no gateway: no `/api`, `/events`, `/mcp` or `/ui`, and http inputs need their own `listen` port. `pipo engine start --listen` overrides it. |
+| `listen` | 4747 from the CLI | The gateway's port on `127.0.0.1`. `0` picks a free one (recorded in `run/engine.json`). An engine the CLI starts uses 4747 when this is unset (`PIPO_ENGINE_PORT` changes that, and a taken port falls back to a free one with a warning). `pipod` started by hand has no gateway without it: no `/api`, `/events`, `/mcp` or `/ui`. `pipo engine start --listen` overrides it. |
 | `detached` | `false` | Start every runner detached, so it outlives the engine. See [The engine](engine.md). |
 | `idle` | `5m` | How long the engine waits with nothing to do before it sleeps (exits). At least `1s`. The next `pipo` command starts it again. |
 | `ttl` | none | The engine's own lifetime. When it ends, every pipeline that isn't detached drains and the engine stops. `pipo engine start --ttl` overrides it. |
@@ -79,7 +80,7 @@ Only two top-level keys exist, `engine` and `agents`. **Unknown keys are errors*
 | `workspace` | the working directory | An absolute path: where the builder saves new pipelines and looks for `.pipo` files. Set it from the dashboard's **⚙️ Settings** page, or with `pipo ui --workspace`. |
 | `agent_budget` | none | `{per_day: <USD>}`: a cap on the agent spend of every pipeline of this home together, per day in `timezone`. See [Agent nodes](agent-nodes.md#the-engine-wide-cap). |
 | `restart` | see below | How crashed runners are restarted. |
-| `mcp` | no tokens | `{tokens: [...]}`: the agent endpoint's bearer tokens. With none, `/mcp` refuses every request. See [Agents as operators](agent-operators.md#tokens-and-scopes). |
+| `mcp` | no tokens | `{tokens: [...], auto_approve}`: the agent endpoint's bearer tokens (see [Agents as operators](agent-operators.md#tokens-and-scopes)), and whether pipelines agents write run without your approval (`auto_approve`, default `false`; see [Agents that build pipelines](agent-authoring.md#auto-approve)). |
 
 Durations are written like `500ms`, `30s`, `5m`, `1h` or `7d`.
 
@@ -99,7 +100,7 @@ Durations are written like `500ms`, `30s`, `5m`, `1h` or `7d`.
 |---|---|
 | `name` | Letters, digits, `.`, `_`, `-`, up to 64 characters, unique. |
 | `token` | `op://…` or `env:VAR`, never the token itself. Resolved when the engine starts. |
-| `scope` | `read` (default), `operate` or `edit`. |
+| `scope` | `read` (default), `operate`, `edit` or `author`. |
 | `pipelines` | Optional list of the pipelines it may see. |
 
 ### `agents:`

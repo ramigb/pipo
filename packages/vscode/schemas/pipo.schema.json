@@ -2602,7 +2602,9 @@
               "replay",
               "rerun",
               "push",
-              "ack"
+              "ack",
+              "start",
+              "stop"
             ]
           }
         },

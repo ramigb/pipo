@@ -6,7 +6,7 @@ Pipo is agent-first: an agent can write a pipeline, run it, watch it, step in wh
 
 | Role | What the agent does | How |
 |---|---|---|
-| **Author** | Writes `.pipo` files. | The [JSON Schema](../reference/schema.md), [generators](scaffolding.md), `pipo check`, `pipo test`. Every CLI command takes `--json`. |
+| **Author** | Writes `.pipo` files, and runs them once you approve. | Over MCP: `create_pipeline`, `test_pipeline`, `start_pipeline` (see [Agents that build pipelines](agent-authoring.md)). Or the [JSON Schema](../reference/schema.md), [generators](scaffolding.md), `pipo check`, `pipo test`; every CLI command takes `--json`. |
 | **Operator** | Watches pipelines, pauses, resumes and replays them, pushes packets, handles stalled or escalated packets. | The MCP endpoint `/mcp`, REST `/api`, or `pipo … --json`. |
 | **Editor** | Changes a *running* pipeline. | Proposals, within the pipeline's `agent.edit` policy. See [Live changes and proposals](change-protocol.md). |
 | **Node** | Runs inside the graph, on each packet. | [Agent nodes](agent-nodes.md). |
@@ -24,7 +24,7 @@ Agents never change Pipo's own code at runtime. They change `.pipo` files, throu
        tokens:
          - name: ops-agent                # the name its actions are recorded under
            token: env:PIPO_MCP_TOKEN      # a reference, never the token itself
-           scope: operate                 # read | operate | edit
+           scope: operate                 # read | operate | edit | author
            pipelines: [people-intake]     # optional allowlist
    ```
 
@@ -74,21 +74,22 @@ Every request sends `Authorization: Bearer <token>`. A missing or unknown token 
 |---|---|
 | `name` | Who the token is: letters, digits, `.`, `_` and `-`, up to 64, unique. It is recorded as the author of the agent's proposals and the `by` of what it does. |
 | `token` | `op://…` or `env:VAR`. A literal value is a config error, and the error never repeats it. A token that doesn't resolve, or is shorter than 16 characters, is logged and left out. |
-| `scope` | `read` (default), `operate` or `edit`. Each includes the ones before it. |
+| `scope` | `read` (default), `operate`, `edit` or `author`. Each includes the ones before it. |
 | `pipelines` | Optional allowlist. A pipeline outside it doesn't exist for this token (`not_found`). |
 
 | Scope | Tools |
 |---|---|
-| `read` | `list_pipelines`, `get_status`, `get_events`, `inspect_packet`, `list_dlq`, `check_pipo`, `get_proposal`, and every resource |
+| `read` | `list_pipelines`, `get_status`, `get_events`, `inspect_packet`, `list_dlq`, `check_pipo`, `get_proposal`, `test_pipeline`, `list_approvals`, and every resource |
 | `operate` | adds `replay`, `rerun`, `push`, `ack`, `pause`, `resume`, `resolve` |
 | `edit` | adds `propose_change`, `rollback` |
+| `author` | adds `create_pipeline`, `start_pipeline`, `stop_pipeline` (see [Agents that build pipelines](agent-authoring.md)) |
 
 ### What a pipeline allows: the policy
 
 A token's scope is only half of it. The pipeline's `agent:` block (in its version in force) applies on top, checked in this order: the scope, the allowlist, then the policy.
 
 - Every pipeline tool and resource needs `agent.control: true`. Without it, the pipeline is listed by `list_pipelines` with `agent_control: false`, and nothing else works on it.
-- `pause`, `resume`, `replay`, `rerun`, `push` and `ack` also need that action in `agent.actions`.
+- `pause`, `resume`, `replay`, `rerun`, `push` and `ack` also need that action in `agent.actions`. So do `start_pipeline` and `stop_pipeline` (`start`, `stop`) on a pipeline the agent didn't write itself.
 - `propose_change` and `rollback` are checked against `agent.edit` (see [Live changes](change-protocol.md)).
 - `resolve` isn't gated by `agent.actions`: `then: agent` and `agent.on_stall: handle` are the grant, for the packets they hand over.
 
@@ -114,6 +115,8 @@ Every pipeline tool takes `pipeline` (the name). Results are JSON text. A refuse
 | `resolve` | operate | `pipeline`, `action` (`retry` \| `dead_letter` \| `drop`), `ids?` or `packet_id?`, `reason?` | Settles escalated packets (see below). |
 | `propose_change` | edit | `pipeline`, `source`, `base_version`, `reason`, `apply?` | Proposes the whole `.pipo` source as the next version. `apply: false` holds it. |
 | `rollback` | edit | `pipeline`, `version`, `reason?`, `apply?` | Proposes an earlier version's source as the next version. |
+
+The authoring tools, `create_pipeline`, `test_pipeline`, `start_pipeline`, `stop_pipeline` and `list_approvals`, are described in [Agents that build pipelines](agent-authoring.md#the-tools).
 
 Unknown arguments are refused, and `null` counts as absent. An agent's `replay`, `rerun`, `resolve`, proposals and rollbacks are recorded with the token's name, and `author_kind`/`by_kind` `agent`.
 
@@ -163,7 +166,7 @@ agent:
 | Key | Default | Meaning |
 |---|---|---|
 | `control` | `false` | Enables the agent endpoint for this pipeline, and allows `then: agent`, `delivered.stall.then: agent` and `on_stall: handle` (P034 otherwise). |
-| `actions` | none | Operations agents may perform: `pause`, `resume`, `replay`, `rerun`, `push`, `ack`. |
+| `actions` | none | Operations agents may perform: `pause`, `resume`, `replay`, `rerun`, `push`, `ack`, and `start`, `stop` (for pipelines the agent didn't write). |
 | `edit` | none | Paths an agent's proposal may change. See [Live changes](change-protocol.md#what-an-agent-may-change). |
 | `redact` | none | Paths in packet data to hide from agents. |
 | `on_stall` | `notify` | `handle` hands every packet in flight to the agent when a stall fires. Needs `delivered.stall`. |

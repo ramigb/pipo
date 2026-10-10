@@ -89,7 +89,7 @@ function sourceOf(body: Body, key = "source"): string {
 }
 
 /** `path` with symlinks resolved, also when it (or its folders) doesn't exist yet: the nearest existing ancestor's. */
-function realish(path: string): string {
+export function realish(path: string): string {
   let at = path;
   const rest: string[] = [];
   while (!existsSync(at)) {
@@ -105,7 +105,15 @@ function realish(path: string): string {
   }
 }
 
-const within = (root: string, path: string) => path === root || path.startsWith(root.endsWith(sep) ? root : root + sep);
+export const within = (root: string, path: string) =>
+  path === root || path.startsWith(root.endsWith(sep) ? root : root + sep);
+
+/** Write `content` to `file` through a temp file next to it and a rename, so a reader never sees half of it. */
+export function writeAtomic(file: string, content: string) {
+  const tmp = join(dirname(file), `.${basename(file)}.${process.pid}.${Date.now()}.tmp`);
+  writeFileSync(tmp, content);
+  renameSync(tmp, file);
+}
 
 /** How long a probe of the agent CLIs is reused: each one runs a few CLI commands. */
 const AGENT_PROBE_TTL = 5 * 60_000;
@@ -402,9 +410,7 @@ export class Builder {
       if (!pipeline.inside) throw bad(`the folder ${dir} does not exist`, "create it first");
       mkdirSync(dir, { recursive: true });
     }
-    const tmp = join(dir, `.${basename(target)}.${process.pid}.${Date.now()}.tmp`);
-    writeFileSync(tmp, `${JSON.stringify(body.schema, null, 2)}\n`);
-    renameSync(tmp, target);
+    writeAtomic(target, `${JSON.stringify(body.schema, null, 2)}\n`);
     return { file: target, created: !exists };
   }
 
@@ -455,12 +461,15 @@ export class Builder {
       if (!inside) throw bad(`the folder ${dir} does not exist`, "create it first");
       mkdirSync(dir, { recursive: true });
     }
-    const tmp = join(dir, `.${basename(file)}.${process.pid}.${Date.now()}.tmp`);
-    writeFileSync(tmp, source);
-    renameSync(tmp, file);
+    writeAtomic(file, source);
     // A new file belongs in the next listing.
-    if (!exists) this.listing = null;
+    if (!exists) this.forget();
     return { file, created: !exists, diagnostics: this.diagnostics(source, file) };
+  }
+
+  /** Walk the workspace again on the next listing (a pipeline was added). */
+  forget() {
+    this.listing = null;
   }
 
   async test(body: Body) {

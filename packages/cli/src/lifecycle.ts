@@ -5,6 +5,7 @@
 // started.
 import { spawn } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
+import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -25,6 +26,27 @@ import { done, flourish, say, spinner, spinning } from "./tty";
 
 const ENGINE_MAIN = new URL("../../engine/src/main.ts", import.meta.url).pathname;
 const ENGINE_START_TIMEOUT = 20_000;
+/**
+ * The gateway port of an engine the CLI starts when `engine.listen` is unset (§7.1, D83): a stable URL for MCP
+ * clients and their OAuth tokens. `PIPO_ENGINE_PORT` overrides it (0: any free port).
+ */
+export const DEFAULT_ENGINE_PORT = 4747;
+
+/** The port to try first: `PIPO_ENGINE_PORT` when it is a port, else DEFAULT_ENGINE_PORT. */
+export function defaultEnginePort(): number {
+  const raw = process.env.PIPO_ENGINE_PORT;
+  const n = raw !== undefined && /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
+  return n >= 0 && n <= 65535 ? n : DEFAULT_ENGINE_PORT;
+}
+
+/** Whether 127.0.0.1:`port` can be bound right now. */
+function portFree(port: number): Promise<boolean> {
+  return new Promise((done) => {
+    const server = createServer();
+    server.once("error", () => done(false));
+    server.listen({ port, host: "127.0.0.1", exclusive: true }, () => server.close(() => done(true)));
+  });
+}
 
 export const resolveHome = (home?: string) => resolve(home ?? process.env.PIPO_HOME ?? join(homedir(), ".pipo"));
 /** A registry entry's process is still running, and still that process (a reused pid is dead; D27). */
@@ -60,7 +82,9 @@ export async function probe(engine: Engine): Promise<"ready" | "starting" | "sto
   try {
     const r = await fetch(`http://127.0.0.1:${engine.port}/api/engine`, { signal: AbortSignal.timeout(2000) });
     if (!r.ok) return "unreachable";
-    const body = (await r.json()) as { ready?: boolean; stopping?: boolean };
+    const body = (await r.json()) as { ready?: boolean; stopping?: boolean; pid?: number };
+    // Another engine on that port (this one claimed it in engine.json, but hasn't bound it, or couldn't).
+    if (typeof body.pid === "number" && body.pid !== engine.pid) return "unreachable";
     return body.stopping ? "stopping" : body.ready === true ? "ready" : "starting";
   } catch {
     return "unreachable";
@@ -78,12 +102,32 @@ export function configuredListen(home: string): number | null {
 }
 
 /**
- * Start the engine detached, its output in `<home>/logs/engine.log`, with a gateway: `engine.listen` from config.yaml,
- * else `--listen 0` (a free port, recorded in run/engine.json). Returns null once it is up, or why it isn't.
+ * Start the engine detached, its output in `<home>/logs/engine.log`, with a gateway: `--listen`, else `engine.listen`
+ * from config.yaml, else port 4747 (D83; a free port, with a warning, when 4747 is taken). The port is recorded in
+ * run/engine.json. Returns null once it is up, or why it isn't.
  */
 export async function startEngine(
   home: string,
   opts: { ttl?: string; listen?: number; workspace?: string } = {},
+): Promise<string | null> {
+  if (opts.listen !== undefined || configuredListen(home) !== null) return launchEngine(home, opts);
+  const port = defaultEnginePort();
+  if (port !== 0 && (await portFree(port))) {
+    const why = await launchEngine(home, { ...opts, listen: port });
+    // Another process took the port between the check and the engine's bind: fall back to a free one.
+    if (!why || !/can't listen/.test(why)) return why;
+  }
+  if (port !== 0)
+    say(
+      "warn",
+      `port ${port} is taken, so the engine listens on a free port instead; MCP clients set up for 127.0.0.1:${port} won't reach it (set engine.listen in config.yaml to pick another fixed port)`,
+    );
+  return launchEngine(home, { ...opts, listen: 0 });
+}
+
+async function launchEngine(
+  home: string,
+  opts: { ttl?: string; listen?: number; workspace?: string },
 ): Promise<string | null> {
   // A stale or missing runner is built here, in the terminal, rather than inside the engine (D73).
   runnerBinary();
@@ -92,7 +136,6 @@ export async function startEngine(
   const offset = existsSync(logFile) ? statSync(logFile).size : 0;
   const args = [ENGINE_MAIN, "--home", home];
   if (opts.listen !== undefined) args.push("--listen", String(opts.listen));
-  else if (configuredListen(home) === null) args.push("--listen", "0");
   if (opts.ttl !== undefined) args.push("--ttl", opts.ttl);
   if (opts.workspace !== undefined) args.push("--workspace", opts.workspace);
   const log = openSync(logFile, "a");

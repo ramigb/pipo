@@ -1,5 +1,6 @@
-// Dashboard settings (docs/spec.md §8, D72): the builder's workspace, kept as `engine.workspace` in config.yaml, and
-// the folder listing the dashboard's folder picker walks. Saving rewrites only that key and keeps the file's comments.
+// Dashboard settings (docs/spec.md §8, D72, D81): the builder's workspace (`engine.workspace` in config.yaml), whether
+// agent-written pipelines need approval (`engine.mcp.auto_approve`), and the folder listing the dashboard's folder
+// picker walks. Saving rewrites only that key and keeps the file's comments.
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, resolve } from "node:path";
@@ -25,11 +26,16 @@ export function checkWorkspace(path: unknown, create = false): string {
 
 /** Write `engine.workspace` into `<home>/config.yaml`, keeping everything else (and its comments) as it is. */
 export function saveWorkspace(home: string, dir: string) {
+  saveEngineSetting(home, ["engine", "workspace"], dir);
+}
+
+/** Write one key of `<home>/config.yaml` (e.g. `["engine", "mcp", "auto_approve"]`), keeping the rest as it is. */
+export function saveEngineSetting(home: string, path: string[], value: unknown) {
   const file = configPath(home);
   const doc = parseDocument(existsSync(file) ? readFileSync(file, "utf8") : "");
   if (doc.errors.length)
-    throw bad(`${file} is not valid YAML: ${doc.errors[0]?.message}`, "fix the file, then save the workspace again");
-  doc.setIn(["engine", "workspace"], dir);
+    throw bad(`${file} is not valid YAML: ${doc.errors[0]?.message}`, "fix the file, then save the setting again");
+  doc.setIn(path, value);
   const text = doc.toString();
   parseConfig(text, file); // a config the engine couldn't start with is never written
   mkdirSync(dirname(file), { recursive: true });

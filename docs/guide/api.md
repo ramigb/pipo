@@ -237,11 +237,25 @@ Files must be absolute paths to `.pipo` files inside the workspace, or the file 
 | `POST` | `/api/bots/telegram/<name>` | `{token?, allow?, poll_every?, api?, default?, rename?}` | Add or change a bot. Keys left out keep their value; a new bot needs `token`. |
 | `POST` | `/api/bots/telegram/<name>/delete` | `{}` | Remove a bot. The default moves to the next one. |
 | `POST` | `/api/bots/telegram/<name>/test` | `{}` | Calls Telegram's `getMe`: `{ok, id, username, name}` or `{ok: false, error}`. |
-| `GET` | `/api/settings` | | `{workspace, workspace_from, home}`. |
+| `GET` | `/api/settings` | | `{workspace, workspace_from, home, auto_approve}`. |
 | `POST` | `/api/settings/workspace` | `{path, create?}` | Sets the builder's workspace, saved as `engine.workspace` in `config.yaml`. |
+| `POST` | `/api/settings/agents` | `{auto_approve}` | Whether pipelines agents write run without approval, saved as `engine.mcp.auto_approve`. |
 | `GET` | `/api/folders?path=` | | `{path, parent, folders}`: a folder's sub-folders, for the folder picker. |
 
 See [Telegram bots](telegram.md).
+
+## Agent approvals
+
+Pipelines agents wrote with `create_pipeline`, and a human's decision on them (see [Agents that build pipelines](agent-authoring.md#approval)).
+
+| Method | Path | Body | Answer |
+|---|---|---|---|
+| `GET` | `/api/approvals` | | `{auto_approve, approvals: [...]}`. Each approval is `{name, file, files, by, reason, hash, state, requested_at, decided_at, decided_by, note, current_hash, changed, effective, pipeline_state, contents}`. `effective` is `pending` again when the files changed since they were approved, and `contents` lists each file with its text (up to 64 KiB). |
+| `GET` | `/api/approvals/<name>` | | One approval, as above. |
+| `POST` | `/api/approvals/<name>/approve` | `{start?, by?}` | Approves the files as they are now; with `start: true`, also starts the pipeline. `{approval, pipeline}`. |
+| `POST` | `/api/approvals/<name>/reject` | `{reason?, by?}` | Rejects it; the agent sees the reason. `{approval}`. |
+
+Starting a pipeline any other way as a human (`POST /api/pipelines`, `…/start`, `…/restart`) approves it too.
 
 ## MCP: `/mcp`
 

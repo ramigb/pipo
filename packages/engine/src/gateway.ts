@@ -15,11 +15,12 @@
 // `/api`, `/events` and `/mcp` only answer requests addressed to a loopback host, and POSTs must be JSON, so a web page
 // can't drive the engine through the browser (DNS rebinding, cross-site form posts).
 
-import { existsSync } from "node:fs";
-import { isAbsolute } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { dirname, isAbsolute, join } from "node:path";
 import { ControlError, homeAgentBudget, offlineRead, type ReadOp, readRegistryEntry } from "@pipo/runner";
 import { serveUi } from "@pipo/ui";
 import type { Server } from "bun";
+import type { ApprovalView } from "./approvals";
 import { deleteBot, listBots, saveBot, testBot } from "./bots";
 import { Builder } from "./builder";
 import { activityEvents, chainOf, lifetimeOf, logPage, statsOf } from "./dashboard";
@@ -31,7 +32,7 @@ import { journalPath, logPath } from "./home";
 import { HttpError } from "./http-error";
 import { McpServer } from "./mcp";
 import { resourcesOf } from "./resources";
-import { listFolders } from "./settings";
+import { listFolders, saveEngineSetting } from "./settings";
 import type { RunnerInfo, Supervisor } from "./supervisor";
 
 /** Recent events kept for `/api/events` and SSE replay across all pipelines. */
@@ -63,7 +64,12 @@ const ROUTES = [
   "GET  /api/agent-budget",
   "GET  /api/settings",
   "POST /api/settings/workspace {path, create?}",
+  "POST /api/settings/agents {auto_approve}",
   "GET  /api/folders?path=",
+  "GET  /api/approvals",
+  "GET  /api/approvals/<name>",
+  "POST /api/approvals/<name>/approve {start?, by?}",
+  "POST /api/approvals/<name>/reject {reason?, by?}",
   "GET  /api/bots",
   "POST /api/bots/telegram/<name> {token?, allow?, poll_every?, api?, default?, rename?}",
   "POST /api/bots/telegram/<name>/delete",
@@ -117,6 +123,10 @@ const ROUTES = [
 
 const LIVE_STATES = new Set(["starting", "running", "backoff", "stopping", "unreachable"]);
 const START_KEYS = ["listen", "detached", "ttl"];
+/** Set by the MCP endpoint's in-process calls: the agent a request is made for (a start by it approves nothing). */
+const AGENT_HEADER = "x-pipo-agent";
+/** Agent-written files larger than this are listed without their text. */
+const MAX_SHOWN = 64 * 1024;
 const PROPOSE_KEYS = ["source", "base_version", "reason", "by", "by_kind", "apply"];
 const RESOLVE_KEYS = ["ids", "packet_id", "action", "by", "by_kind", "reason"];
 const RERUN_KEYS = ["from", "ids", "last", "since", "all", "current", "dry", "by"];
@@ -228,7 +238,8 @@ export class Gateway {
     this.mcp = new McpServer({
       engine,
       tokens: engine.config.mcp?.tokens ?? [],
-      api: (method, path, body) => this.internal(method, path, body),
+      api: (method, path, body, agent) => this.internal(method, path, body, agent),
+      base: this.url,
     });
     this.unsubscribe.push(
       engine.subscribe((e) => this.onEvent(e)),
@@ -576,10 +587,29 @@ export class Gateway {
       return json(200, homeAgentBudget(engine.home));
     }
     if (route === "settings") {
-      // Dashboard settings (§8, D72).
+      // Dashboard settings (§8, D72, D81).
       only("GET");
-      return json(200, { workspace: engine.workspace, workspace_from: engine.workspaceFrom, home: engine.home });
+      return json(200, {
+        workspace: engine.workspace,
+        workspace_from: engine.workspaceFrom,
+        home: engine.home,
+        auto_approve: engine.config.mcp.auto_approve,
+      });
     }
+    if (route === "settings/agents") {
+      // Whether pipelines agents write run without a human's approval (§9.4, D81): saved as engine.mcp.auto_approve.
+      only("POST");
+      const body = await readBody(req);
+      const unknown = Object.keys(body).filter((k) => k !== "auto_approve");
+      if (unknown.length) throw unknownKeys(unknown, "auto_approve");
+      const value = optional(body, "auto_approve", "boolean");
+      if (value === undefined)
+        throw new HttpError(400, "send `auto_approve`", 'for example {"auto_approve": false}', "bad_request");
+      saveEngineSetting(engine.home, ["engine", "mcp", "auto_approve"], value);
+      engine.config.mcp.auto_approve = value;
+      return json(200, { auto_approve: value });
+    }
+    if (parts[0] === "approvals") return await this.approvals(req, url, parts);
     if (route === "settings/workspace") {
       only("POST");
       const body = await readBody(req);
@@ -639,7 +669,7 @@ export class Gateway {
           "bad_request",
         );
       }
-      return json(201, await engine.start(file, startOptions(body, ["file", ...START_KEYS])));
+      return json(201, await engine.start(file, { ...startOptions(body, ["file", ...START_KEYS]), ...agentOf(req) }));
     }
     if (parts[0] === "builder" && parts.length === 2) {
       // The dashboard builder (§8, D62).
@@ -759,7 +789,10 @@ export class Gateway {
     const body = await readBody(req);
     switch (action) {
       case "start":
-        return json(200, await engine.start(this.need(name).file, startOptions(body, START_KEYS)));
+        return json(
+          200,
+          await engine.start(this.need(name).file, { ...startOptions(body, START_KEYS), ...agentOf(req) }),
+        );
       case "stop": {
         const now = optional(body, "now", "boolean");
         this.need(name);
@@ -770,7 +803,7 @@ export class Gateway {
         return json(200, await engine.drain(name));
       case "restart": {
         // As `pipo restart`: a deliberate stop (unless already stopped or halted), then a start (D57, D68).
-        const opts = startOptions(body, START_KEYS);
+        const opts = { ...startOptions(body, START_KEYS), ...agentOf(req) };
         const info = this.need(name);
         if (info.state !== "stopped" && info.state !== "failed") await engine.stop(name);
         return json(200, await engine.start(info.file, opts));
@@ -867,12 +900,62 @@ export class Gateway {
     }
   }
 
+  /**
+   * `/approvals`: what agents wrote and whether a human approved it (§9.4, D81). Approving with `start: true` starts
+   * the pipeline as the human; a start by a human anywhere else approves it too.
+   */
+  private async approvals(req: Request, url: URL, parts: string[]): Promise<Response> {
+    const engine = this.engine;
+    const get = req.method === "GET" || req.method === "HEAD";
+    if (parts.length === 1) {
+      if (!get) throw notAllowed("GET");
+      return json(200, {
+        auto_approve: engine.config.mcp.auto_approve,
+        approvals: engine.approvals.list().map((a) => approvalDetail(a, engine.get(a.name)?.state ?? null)),
+      });
+    }
+    const name = decode(parts[1] as string);
+    const found = NAME.test(name) ? engine.approvals.get(name) : null;
+    const missing = () =>
+      new HttpError(
+        404,
+        `no agent-written pipeline named '${name}'`,
+        "GET /api/approvals lists what agents wrote",
+        "not_found",
+      );
+    if (parts.length === 2) {
+      if (!get) throw notAllowed("GET");
+      if (!found) throw missing();
+      return json(200, approvalDetail(found, engine.get(name)?.state ?? null));
+    }
+    const verb = parts[2];
+    if (parts.length > 3 || (verb !== "approve" && verb !== "reject")) throw noRoute(url.pathname);
+    if (req.method !== "POST") throw notAllowed("POST");
+    const body = await readBody(req);
+    if (!found) throw missing();
+    const by = optional(body, "by", "string") ?? "api";
+    if (verb === "reject") {
+      const unknown = Object.keys(body).filter((k) => k !== "reason" && k !== "by");
+      if (unknown.length) throw unknownKeys(unknown, "reason and by");
+      const reason = optional(body, "reason", "string") ?? null;
+      const decided = engine.approvals.decide(name, "rejected", by, reason);
+      return json(200, { approval: decided && approvalDetail(decided, engine.get(name)?.state ?? null) });
+    }
+    const unknown = Object.keys(body).filter((k) => k !== "start" && k !== "by");
+    if (unknown.length) throw unknownKeys(unknown, "start and by");
+    const start = optional(body, "start", "boolean") ?? false;
+    engine.approvals.decide(name, "approved", by);
+    const pipeline = start ? await engine.start(found.file) : null;
+    const now = engine.approvals.get(name) as ApprovalView;
+    return json(200, { approval: approvalDetail(now, engine.get(name)?.state ?? null), pipeline });
+  }
+
   /** A REST call made in-process for the MCP endpoint, answered exactly as over HTTP (same checks, reads, errors). */
-  private async internal(method: "GET" | "POST", path: string, body?: Record<string, unknown>) {
+  private async internal(method: "GET" | "POST", path: string, body?: Record<string, unknown>, agent?: string) {
     const url = new URL(path, this.url);
     const req = new Request(url.href, {
       method,
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...(agent !== undefined && { [AGENT_HEADER]: agent }) },
       ...(method === "POST" && { body: JSON.stringify(body ?? {}) }),
     });
     let res: Response;
@@ -1172,6 +1255,27 @@ function unknownKeys(unknown: string[], takes: string): HttpError {
     `this request takes ${takes}`,
     "bad_request",
   );
+}
+
+/** The agent a start is made for (the MCP endpoint's in-process calls), so it doesn't count as a human's approval. */
+function agentOf(req: Request): { agent?: string } {
+  const agent = req.headers.get(AGENT_HEADER);
+  return agent ? { agent } : {};
+}
+
+/** An approval with what the agent wrote, for a human to review: each file's text (up to MAX_SHOWN). */
+function approvalDetail(a: ApprovalView, state: string | null) {
+  const dir = dirname(a.file);
+  const contents = a.files.map((path) => {
+    const abs = join(dir, path);
+    try {
+      const size = statSync(abs).size;
+      return { path, size, text: size <= MAX_SHOWN ? readFileSync(abs, "utf8") : null };
+    } catch {
+      return { path, size: null, text: null, missing: true };
+    }
+  });
+  return { ...a, pipeline_state: state, contents };
 }
 
 function startOptions(body: Record<string, unknown>, allowed: string[]) {

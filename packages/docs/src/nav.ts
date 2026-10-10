@@ -51,6 +51,7 @@ export const NAV: Section[] = [
     pages: [
       guide("agent-nodes", "Agent nodes"),
       guide("agent-operators", "Agents as operators"),
+      guide("agent-authoring", "Agents that build pipelines"),
       guide("change-protocol", "Live changes and proposals"),
     ],
   },

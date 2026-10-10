@@ -16,6 +16,7 @@ import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { entryAlive, procStart, readRegistryEntry, ulid } from "@pipo/runner";
 import { formatDuration, inputsOf, type Pipeline, parseDuration } from "@pipo/spec";
+import { Approvals } from "./approvals";
 import { type EngineConfig, loadConfig } from "./config";
 import { EngineError } from "./errors";
 import type { EngineEvent } from "./events";
@@ -66,6 +67,8 @@ export class Supervisor extends SupervisorDiscovery {
   private lastBusy = Date.now();
   /** Set when the engine ends itself (idle sleep or TTL); shutdown then forgets the pipelines it gave up on. */
   private endReason?: EndReason;
+  /** Pipelines agents wrote, and whether a human approved them (§9.4, D81). */
+  readonly approvals: Approvals;
 
   private constructor(
     home: string,
@@ -75,6 +78,7 @@ export class Supervisor extends SupervisorDiscovery {
     opts: SupervisorOptions,
   ) {
     super(home, config, engineId, startedAt, opts);
+    this.approvals = new Approvals(home);
   }
 
   /**
@@ -249,6 +253,13 @@ export class Supervisor extends SupervisorDiscovery {
         this.changed(s);
       }
       throw e;
+    }
+    if (opts.agent === undefined) {
+      try {
+        this.approvals.startedByHuman(file);
+      } catch (e) {
+        this.log("warn", `could not record the approval of '${name}': ${(e as Error).message}`);
+      }
     }
     return this.info(s);
   }

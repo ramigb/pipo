@@ -14,7 +14,8 @@
 
 import { timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { Journal, Secrets } from "@pipo/runner";
+import { dirname, join } from "node:path";
+import { FixtureError, Journal, loadFixtures, Secrets } from "@pipo/runner";
 import {
   AGENTS,
   buildSchema,
@@ -28,8 +29,11 @@ import {
   TAPS,
   TRANSFORMS,
 } from "@pipo/spec";
+import type { ApprovalView } from "./approvals";
+import { createPipeline } from "./authoring";
 import { MCP_SCOPES, type McpScope, type McpTokenConfig } from "./config";
 import { journalPath } from "./home";
+import { HttpError } from "./http-error";
 import type { Supervisor } from "./supervisor";
 
 /** Protocol revisions this server speaks, newest first (Streamable HTTP, 2025-06-18 or later). */
@@ -48,12 +52,16 @@ export type ApiCall = (
   method: "GET" | "POST",
   path: string,
   body?: Record<string, unknown>,
+  /** The agent the call is made for (a start it makes approves nothing, D81). */
+  agent?: string,
 ) => Promise<{ status: number; body: any }>;
 
 export interface McpOptions {
   engine: Supervisor;
   tokens: McpTokenConfig[];
   api: ApiCall;
+  /** The gateway's own URL, for links in hints (the dashboard's Agents page). */
+  base?: string;
   /** Engine log line (token problems at start). */
   log?: (level: string, message: string) => void;
 }
@@ -402,15 +410,18 @@ const TOOLS: Tool[] = [
       },
       ["pipeline", "source", "base_version", "reason"],
     ),
-    run({ args, token }) {
-      return this.call("POST", `${at(args.pipeline)}/proposals`, {
+    async run({ args, token }) {
+      const held = this.held(args.pipeline);
+      const apply = held ? false : args.apply;
+      const result = await this.call("POST", `${at(args.pipeline)}/proposals`, {
         source: args.source,
         base_version: args.base_version,
         reason: args.reason,
         by: token.name,
         by_kind: "agent",
-        ...(args.apply !== undefined && { apply: args.apply }),
+        ...(apply !== undefined && { apply }),
       });
+      return held ? { ...result, ...this.heldNote(args.pipeline) } : result;
     },
   },
   {
@@ -458,18 +469,208 @@ const TOOLS: Tool[] = [
           "list the versions with the resource pipo://pipelines/<name>/versions and pick an earlier one",
         );
       const target = await this.call("GET", `${at(args.pipeline)}/versions/${args.version}`);
+      const held = this.held(args.pipeline);
+      const apply = held ? false : args.apply;
       const proposal = await this.call("POST", `${at(args.pipeline)}/proposals`, {
         source: target.definition,
         base_version: latest,
         reason: args.reason ?? `rollback to v${args.version}`,
         by: token.name,
         by_kind: "agent",
-        ...(args.apply !== undefined && { apply: args.apply }),
+        ...(apply !== undefined && { apply }),
       });
-      return { rollback_to: args.version, ...proposal };
+      return { rollback_to: args.version, ...proposal, ...(held && this.heldNote(args.pipeline)) };
+    },
+  },
+  {
+    name: "create_pipeline",
+    title: "Create a pipeline",
+    description:
+      "Write a new pipeline into the engine's workspace as <workspace>/<pipeline>/<pipeline>.pipo, with `files` next to it (an fn module, JSON schemas, fixtures/<case>.json for test_pipeline; relative paths, text). It is checked first: with errors nothing is written and the diagnostics come back. A human then approves it (the dashboard's Agents page, or `pipo approvals approve`) unless the engine auto-approves; start_pipeline waits for that. Rewriting is allowed for a stopped pipeline this agent wrote (it needs approval again); change a running one with propose_change. Add `agent: { control: true, actions: [stop] }` so you can watch and stop it.",
+    scope: "author",
+    pipeline: false,
+    readOnly: false,
+    inputSchema: input(
+      {
+        pipeline: { type: "string", description: "The new pipeline's name (its `name:`)" },
+        source: { type: "string", description: "The whole .pipo file" },
+        files: {
+          type: "object",
+          additionalProperties: { type: "string" },
+          description: 'Other files by relative path, e.g. {"fn.ts": "…", "fixtures/one.json": "{…}"}',
+        },
+        reason: { type: "string", description: "What it is for, shown to the human who approves it" },
+      },
+      ["pipeline", "source"],
+    ),
+    async run({ args, token }) {
+      this.allow(token, args.pipeline);
+      const created = authoring(() =>
+        createPipeline(this.engine, {
+          name: args.pipeline,
+          source: args.source,
+          files: args.files ?? {},
+          by: token.name,
+          reason: args.reason ?? null,
+        }),
+      );
+      const { approval, ...rest } = created;
+      return { ...rest, approval: this.approvalSummary(approval) };
+    },
+  },
+  {
+    name: "test_pipeline",
+    title: "Test a pipeline",
+    description:
+      "Dry-run a pipeline against fixture packets and return each packet's trace through every node. Nothing is called, sent or written: outputs and taps are mocked, exec, http and agent steps answer from `stubs` (or a fixture's stubs), fn steps run for real in the sandbox. Give `pipeline` (one this agent wrote, or one with agent.control; its fixtures/ folder is used when `fixtures` is left out) or a draft `source`. Safe before approval.",
+    scope: "read",
+    pipeline: false,
+    readOnly: true,
+    inputSchema: input({
+      pipeline: PIPELINE,
+      source: { type: "string", description: "A draft .pipo source (instead of `pipeline`)" },
+      fixtures: {
+        type: "array",
+        items: { type: "object" },
+        description: 'Packets to run: [{"name": "one", "data": {…}, "stubs": {"<node>": …}}]',
+      },
+      stubs: { type: "object", description: "Answers of exec, http and agent steps by node id, for every fixture" },
+    }),
+    async run({ args, token }) {
+      if ((args.pipeline === undefined) === (args.source === undefined))
+        throw new ToolError("bad_request", "give `pipeline` or `source`, not both", "test_pipeline takes one of them");
+      let source = args.source as string | undefined;
+      let file: string | undefined;
+      let view: View | null = null;
+      if (args.pipeline !== undefined) {
+        const own = this.own(args.pipeline, token);
+        if (!own) view = this.gate(args.pipeline, token);
+        file = own?.file ?? this.engine.get(args.pipeline)?.file;
+        if (!file)
+          throw new ToolError("not_found", `'${args.pipeline}' has no file here`, "test a draft with `source` instead");
+        source = readFileSync(file, "utf8");
+      }
+      let fixtures = args.fixtures as unknown[] | undefined;
+      if (fixtures === undefined && file) {
+        try {
+          fixtures = loadFixtures(join(dirname(file), "fixtures")).map(({ name, data, meta, stubs }) => ({
+            name,
+            data,
+            ...(meta !== undefined && { meta }),
+            ...(stubs !== undefined && { stubs }),
+          }));
+        } catch (e) {
+          if (!(e instanceof FixtureError)) throw e;
+          throw new ToolError("bad_request", e.message, e.hint ?? "fix the fixture file");
+        }
+      }
+      if (!fixtures?.length)
+        throw new ToolError(
+          "bad_request",
+          "no fixtures to run",
+          'pass `fixtures` ([{"name": "one", "data": {…}}]), or write fixtures/<case>.json with create_pipeline',
+        );
+      const result = await this.call("POST", "/api/builder/test", {
+        source,
+        ...(file && { file }),
+        fixtures,
+        ...(args.stubs !== undefined && { stubs: args.stubs }),
+      });
+      return view ? this.redact(result, view) : result;
+    },
+  },
+  {
+    name: "start_pipeline",
+    title: "Start a pipeline",
+    description:
+      "Start a pipeline. One this agent wrote starts once a human approved it (or the engine auto-approves); until then it answers approval_pending. Any other pipeline needs agent.control and `start` in its agent.actions.",
+    scope: "author",
+    pipeline: false,
+    readOnly: false,
+    inputSchema: input(
+      { pipeline: PIPELINE, ttl: { type: "string", description: "Stop it after this long, e.g. 30m (lifetime.ttl)" } },
+      ["pipeline"],
+    ),
+    async run({ args, token }) {
+      const name = args.pipeline as string;
+      const own = this.own(name, token);
+      let file: string | undefined;
+      if (own) {
+        if (own.effective === "pending" && this.engine.config.mcp.auto_approve)
+          this.engine.approvals.decide(name, "approved", "auto_approve");
+        else if (own.effective !== "approved") {
+          const summary = this.approvalSummary(own);
+          throw new ToolError(
+            own.effective === "rejected" ? "approval_rejected" : "approval_pending",
+            own.effective === "rejected"
+              ? `'${name}' was rejected by ${own.decided_by}${own.note ? `: ${own.note}` : ""}`
+              : `'${name}' is waiting for a human's approval${own.changed ? " (its files changed since it was approved)" : ""}`,
+            summary.hint,
+            { approval: summary },
+          );
+        }
+        file = own.file;
+      } else {
+        this.gate(name, token, "start");
+        file = this.engine.get(name)?.file;
+        if (!file)
+          throw new ToolError("not_found", `no pipeline named '${name}' in this engine`, "list_pipelines lists them");
+      }
+      return this.call(
+        "POST",
+        "/api/pipelines",
+        { file, ...(args.ttl !== undefined && { ttl: args.ttl }) },
+        token.name,
+      );
+    },
+  },
+  {
+    name: "stop_pipeline",
+    title: "Stop a pipeline",
+    description:
+      "Stop a pipeline: drain it (in-flight packets finish), or stop at once with `now: true`. Allowed for pipelines this agent wrote, and for others with agent.control and `stop` in their agent.actions.",
+    scope: "author",
+    pipeline: false,
+    readOnly: false,
+    inputSchema: input({ pipeline: PIPELINE, now: { type: "boolean" } }, ["pipeline"]),
+    run({ args, token }) {
+      const name = args.pipeline as string;
+      if (!this.own(name, token)) this.gate(name, token, "stop");
+      if (!this.engine.get(name))
+        throw new ToolError("not_found", `'${name}' has never run in this engine`, "there is nothing to stop");
+      return this.call("POST", `${at(name)}/${args.now === true ? "stop" : "drain"}`, {}, token.name);
+    },
+  },
+  {
+    name: "list_approvals",
+    title: "My pipelines and their approval",
+    description:
+      "The pipelines this agent wrote with create_pipeline: approval state (pending, approved, rejected; pending again when the files changed since approval), who decided and when, and whether each runs.",
+    scope: "read",
+    pipeline: false,
+    readOnly: true,
+    inputSchema: input({}),
+    async run({ token }) {
+      return {
+        auto_approve: this.engine.config.mcp.auto_approve,
+        approvals: this.engine.approvals
+          .list()
+          .filter((a) => a.by === token.name && (!token.pipelines || token.pipelines.includes(a.name)))
+          .map((a) => ({ ...this.approvalSummary(a), state_now: this.engine.get(a.name)?.state ?? "never started" })),
+      };
     },
   },
 ];
+
+/** Run an authoring step; its HttpError becomes the tool's error with the same message, hint and code. */
+function authoring<T>(fn: () => T): T {
+  try {
+    return fn();
+  } catch (e) {
+    if (e instanceof HttpError) throw new ToolError(e.code, e.message, e.hint, e.extra);
+    throw e;
+  }
+}
 
 /** Check `args` against a tool's input schema (the subset the tools use). */
 function validate(tool: Tool, raw: unknown): Record<string, any> {
@@ -485,22 +686,31 @@ function validate(tool: Tool, raw: unknown): Record<string, any> {
   for (const key of Object.keys(args)) if (!takes.includes(key)) throw bad(`unknown argument \`${key}\``);
   for (const key of schema.required) if (args[key] === undefined) throw bad(`${tool.name} needs \`${key}\``);
   for (const [key, value] of Object.entries(args)) {
-    const s = schema.properties[key] as { type?: string; enum?: string[]; minimum?: number; maximum?: number };
+    const s = schema.properties[key] as {
+      type?: string;
+      enum?: string[];
+      minimum?: number;
+      maximum?: number;
+      items?: { type?: string };
+    };
     if (!s.type) continue;
     const n = value as number;
+    const item = s.items?.type ?? "string";
     const ok =
       s.type === "array"
-        ? Array.isArray(value) && value.every((v) => typeof v === "string")
-        : s.type === "integer"
-          ? Number.isInteger(value) &&
-            (s.minimum === undefined || n >= s.minimum) &&
-            (s.maximum === undefined || n <= s.maximum)
-          : typeof value === s.type;
+        ? Array.isArray(value) && value.every((v) => (item === "object" ? isMap(v) : typeof v === item))
+        : s.type === "object"
+          ? isMap(value)
+          : s.type === "integer"
+            ? Number.isInteger(value) &&
+              (s.minimum === undefined || n >= s.minimum) &&
+              (s.maximum === undefined || n <= s.maximum)
+            : typeof value === s.type;
     if (!ok) {
       const range =
         s.minimum !== undefined ? ` from ${s.minimum}${s.maximum !== undefined ? ` to ${s.maximum}` : " up"}` : "";
       throw bad(
-        `\`${key}\` must be ${s.type === "array" ? "a list of strings" : `a${s.type === "integer" ? "n" : ""} ${s.type}${range}`}, got ${JSON.stringify(value)}`,
+        `\`${key}\` must be ${s.type === "array" ? `a list of ${item}s` : `a${s.type === "integer" || s.type === "object" ? "n" : ""} ${s.type}${range}`}, got ${JSON.stringify(value)}`,
       );
     }
     if (s.enum && !s.enum.includes(value as string)) throw bad(`\`${key}\` must be one of ${s.enum.join(", ")}`);
@@ -612,10 +822,12 @@ export class McpServer {
   private readonly ready: Promise<void>;
   readonly engine: Supervisor;
   private readonly api: ApiCall;
+  private readonly base: string;
 
   constructor(opts: McpOptions) {
     this.engine = opts.engine;
     this.api = opts.api;
+    this.base = opts.base ?? "";
     const log =
       opts.log ??
       ((level, message) =>
@@ -783,7 +995,7 @@ export class McpServer {
             typeof asked === "string" && MCP_PROTOCOL_VERSIONS.includes(asked) ? asked : MCP_PROTOCOL_VERSIONS[0],
           capabilities: { tools: { listChanged: false }, resources: { subscribe: false, listChanged: false } },
           serverInfo: { name: "pipo", title: "Pipo engine", version: "0.0.0" },
-          instructions: `Pipo pipelines (spec: resource pipo://docs/spec.md). This token is '${token.name}' with scope ${token.scope} (read < operate < edit). A pipeline takes agents only with agent.control: true; pause, resume, replay, rerun, push and ack need the pipeline's agent.actions; changes go through propose_change (agent.edit paths). Results are redacted.`,
+          instructions: `Pipo pipelines (spec: resource pipo://docs/spec.md; guides: pipo://docs/guide/*). This token is '${token.name}' with scope ${token.scope} (read < operate < edit < author). A pipeline takes agents only with agent.control: true; pause, resume, replay, rerun, push and ack need the pipeline's agent.actions; changes go through propose_change (agent.edit paths). To build a pipeline (scope author): write it and check it with check_pipo, create it with create_pipeline (with fixtures), dry-run it with test_pipeline, wait for a human to approve it (list_approvals), start it with start_pipeline, then watch it with get_status and inspect_packet. Results are redacted.`,
         };
       }
       case "ping":
@@ -837,8 +1049,8 @@ export class McpServer {
   }
 
   /** A REST call in-process; an error answer becomes a ToolError with the same message, hint and code. */
-  async call(method: "GET" | "POST", path: string, body?: Record<string, unknown>): Promise<any> {
-    const res = await this.api(method, path, body);
+  async call(method: "GET" | "POST", path: string, body?: Record<string, unknown>, agent?: string): Promise<any> {
+    const res = await this.api(method, path, body, agent);
     if (res.status >= 400) {
       const { error, hint, code, routes: _routes, ...extra } = (res.body ?? {}) as Record<string, unknown>;
       throw new ToolError(String(code ?? "error"), String(error ?? `HTTP ${res.status}`), String(hint ?? ""), extra);
@@ -912,6 +1124,63 @@ export class McpServer {
         `a human adds ${action} to agent.actions (spec §9.3); agent.actions is [${(agent.actions ?? []).join(", ")}]`,
       );
     return view;
+  }
+
+  /** A pipeline name the token may use (its allowlist); `forbidden` otherwise. */
+  allow(token: Token, name: unknown): void {
+    if (typeof name !== "string" || !NAME.test(name))
+      throw new ToolError(
+        "bad_request",
+        `'${String(name)}' is not a pipeline name`,
+        "use lowercase letters, digits and '-', starting with a letter or digit",
+      );
+    if (token.pipelines && !token.pipelines.includes(name))
+      throw new ToolError(
+        "forbidden",
+        `'${token.name}' may only use the pipelines ${token.pipelines.join(", ")}`,
+        "pick one of those names, or ask for a token without a pipeline allowlist",
+      );
+  }
+
+  /** The approval of a pipeline this token wrote (create_pipeline), or null. Checks the allowlist. */
+  own(name: unknown, token: Token): ApprovalView | null {
+    this.allow(token, name);
+    const a = this.engine.approvals.get(name as string);
+    return a && a.by === token.name ? a : null;
+  }
+
+  /** Agent proposals to a pipeline an agent wrote wait for a human, unless the engine auto-approves (§9.4, D81). */
+  held(name: string): boolean {
+    return !this.engine.config.mcp.auto_approve && this.engine.approvals.get(name) !== null;
+  }
+
+  heldNote(name: string) {
+    return {
+      held_for_approval: true,
+      hint: `'${name}' was written by an agent, so agent proposals to it are stored, not applied: a human applies it (the dashboard's Agents page${this.base ? `, ${this.base}/ui/#/agents` : ""}, or pipo proposals ${name} apply <id>)`,
+    };
+  }
+
+  /** What an agent sees of an approval: its state and what to do next. */
+  approvalSummary(a: ApprovalView) {
+    const where = `the dashboard's Agents page${this.base ? ` (${this.base}/ui/#/agents)` : ""}`;
+    const hint =
+      a.effective === "approved"
+        ? `approved: start it with start_pipeline (${a.name})`
+        : a.effective === "rejected"
+          ? `rejected${a.note ? `: ${a.note}` : ""}; change it and create it again to ask once more`
+          : `a human approves it on ${where} or with 'pipo approvals approve ${a.name}'; list_approvals shows its state`;
+    return {
+      pipeline: a.name,
+      file: a.file,
+      state: a.effective,
+      changed_since_approval: a.changed,
+      by: a.by,
+      requested_at: a.requested_at,
+      decided_by: a.decided_by,
+      decided_at: a.decided_at,
+      hint,
+    };
   }
 
   /**

@@ -430,6 +430,11 @@ describe("engine.mcp config and token resolution", () => {
       { name: "b", token: "env:B_TOKEN", scope: "read", pipelines: null },
     ]);
     expect(DEFAULT_CONFIG.mcp.tokens).toEqual([]);
+    expect(ok.mcp.auto_approve).toBe(false);
+    expect(parseConfig("engine:\n  mcp:\n    auto_approve: true\n").mcp).toEqual({ tokens: [], auto_approve: true });
+    expect(() => parseConfig("engine:\n  mcp:\n    auto_approve: yes please\n")).toThrow(
+      "engine.mcp.auto_approve must be true or false",
+    );
     const literal = "sk-live-0123456789abcdef0123";
     const err = (() => {
       try {
@@ -443,7 +448,7 @@ describe("engine.mcp config and token resolution", () => {
     expect(err).toBeInstanceOf(EngineError);
     expect(err?.message).toContain("must be a secret reference");
     expect(err?.message).not.toContain(literal);
-    expect(err?.message).toContain("scope must be one of read, operate, edit");
+    expect(err?.message).toContain("scope must be one of read, operate, edit, author");
     expect(err?.message).toContain("unknown key 'extra'");
     expect(err?.message).toContain("is used by another token");
   });

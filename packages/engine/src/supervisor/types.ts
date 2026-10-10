@@ -40,6 +40,11 @@ export interface StartOptions {
    * `listen` and `detached` it does not stick: a later start without it goes back to the file's ttl.
    */
   ttl?: string;
+  /**
+   * The agent (MCP token or grant name) that asked for the start. Any other start is a human's, and approves a
+   * pipeline an agent wrote (§9.4, D81).
+   */
+  agent?: string;
 }
 
 export interface StopOptions {

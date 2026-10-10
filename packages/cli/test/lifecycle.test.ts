@@ -1,7 +1,7 @@
 // `pipo start|stop|pause|resume|restart|status|logs` (docs/spec.md §6, §7.2) in-process against a real engine started
 // on demand in a sandbox home (found through run/engine.json), and with --no-engine against a runner started directly.
 // Subprocess output goes to files, never a pipe. An engine or runner that never comes up is retried once.
-// The engine is started with --listen 0 (config.yaml is never written); once it sleeps (§7.5, D31) the next command
+// The engine is started on its default port (config.yaml is never written); once it sleeps (§7.5, D31) the next command
 // starts a new one.
 import { afterAll, expect, test } from "bun:test";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -180,7 +180,7 @@ test("logs prints a pipeline's log, filters by node and follows", async () => {
   expect(missing.stderr).toContain("no log for 'ghost'");
 });
 
-test("the CLI starts the engine with --listen 0 (config.yaml untouched); after it sleeps the next command starts it again", async () => {
+test("the CLI starts the engine on its default port (config.yaml untouched); after it sleeps the next command starts it again", async () => {
   const home = sleepyHome;
   mkdirSync(home, { recursive: true });
   const cfg = "engine:\n  idle: 1s\n";

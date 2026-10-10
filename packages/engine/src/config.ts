@@ -27,8 +27,8 @@ export interface RestartConfig {
   window: number;
 }
 
-/** What an MCP token may do (§9.2, D53); each scope includes the ones before it. */
-export const MCP_SCOPES = ["read", "operate", "edit"] as const;
+/** What an MCP token may do (§9.2, D53, D81); each scope includes the ones before it. */
+export const MCP_SCOPES = ["read", "operate", "edit", "author"] as const;
 export type McpScope = (typeof MCP_SCOPES)[number];
 
 /** One `engine.mcp.tokens` entry: a secret reference (never the value), its scope and an optional allowlist. */
@@ -67,8 +67,11 @@ export interface EngineConfig {
   agent_budget: { per_day: number } | null;
   /** Top-level `agents:` (§3.11, D36): price tables, API key references and base URLs, merged over the defaults. */
   agents: AgentsConfig;
-  /** The MCP endpoint `/mcp` (§9.2, D53): with no tokens it refuses every request. */
-  mcp: { tokens: McpTokenConfig[] };
+  /**
+   * The MCP endpoint `/mcp` (§9.2, D53): static tokens, and whether what agents write runs without a human's
+   * approval (§9.4, D81). OAuth grants (D82) live in `<home>/mcp-grants.json`.
+   */
+  mcp: { tokens: McpTokenConfig[]; auto_approve: boolean };
   /** Where the builder saves new pipelines (§8, D72), an absolute path; `--workspace` wins. Null: the working directory. */
   workspace: string | null;
 }
@@ -85,7 +88,7 @@ export const DEFAULT_CONFIG: EngineConfig = {
   timezone: null,
   agent_budget: null,
   agents: AGENT_DEFAULTS,
-  mcp: { tokens: [] },
+  mcp: { tokens: [], auto_approve: false },
   workspace: null,
 };
 
@@ -220,17 +223,27 @@ export function parseConfig(source: string, file = "config.yaml"): EngineConfig 
     const seen = new Set<string>();
     if (!isMap(mcp)) {
       problems.push(`${at(["engine", "mcp"])} engine.mcp must be a mapping such as { tokens: [...] }`);
-      return { tokens: out };
+      return { tokens: out, auto_approve: false };
     }
     for (const key of Object.keys(mcp))
-      if (key !== "tokens")
-        problems.push(`${at(["engine", "mcp", key], true)} unknown key 'engine.mcp.${key}' (known: tokens)`);
+      if (key !== "tokens" && key !== "auto_approve")
+        problems.push(
+          `${at(["engine", "mcp", key], true)} unknown key 'engine.mcp.${key}' (known: tokens, auto_approve)`,
+        );
+    let autoApprove = false;
+    if (mcp.auto_approve !== undefined && mcp.auto_approve !== null) {
+      if (typeof mcp.auto_approve !== "boolean")
+        problems.push(
+          `${at(["engine", "mcp", "auto_approve"])} engine.mcp.auto_approve must be true or false, got ${JSON.stringify(mcp.auto_approve)}`,
+        );
+      else autoApprove = mcp.auto_approve;
+    }
     const tokens = mcp.tokens ?? [];
     if (!Array.isArray(tokens)) {
       problems.push(
         `${at(["engine", "mcp", "tokens"])} engine.mcp.tokens must be a list, for example:\n${MCP_EXAMPLE}`,
       );
-      return { tokens: out };
+      return { tokens: out, auto_approve: autoApprove };
     }
     tokens.forEach((t, i) => {
       const path = ["engine", "mcp", "tokens", i];
@@ -280,7 +293,7 @@ export function parseConfig(source: string, file = "config.yaml"): EngineConfig 
           pipelines: pipelines === null ? null : [...(pipelines as string[])],
         });
     });
-    return { tokens: out };
+    return { tokens: out, auto_approve: autoApprove };
   }
 
   function readFields(

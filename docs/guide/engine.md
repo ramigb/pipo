@@ -52,7 +52,7 @@ pid 8485 · gateway 127.0.0.1:41985 · uptime 24s
 pipelines 1 · idle no · ttl none
 ```
 
-When the CLI starts the engine on demand, the gateway gets a free port (`--listen 0`) unless `engine.listen` is set in `config.yaml`. The port is recorded in `<home>/run/engine.json`, which is how the CLI and other tools find the engine. Only one engine runs per Pipo home: a second one refuses to start.
+When the CLI starts the engine on demand, the gateway listens on port **4747** unless `engine.listen` is set in `config.yaml` (or `--listen` is given), so MCP clients can keep one URL, `http://127.0.0.1:4747/mcp`. Set `PIPO_ENGINE_PORT` to change that default (`0` picks a free port). When 4747 is taken, the CLI warns and starts the engine on a free port instead. The port is recorded in `<home>/run/engine.json`, which is how the CLI and other tools find the engine. Only one engine runs per Pipo home: a second one refuses to start.
 
 `pipod` itself takes `--home`, `--listen`, `--ttl` and `--workspace` (the folder the builder saves new pipelines in). You normally use it through `pipo engine start` or `pipo ui`.
 
