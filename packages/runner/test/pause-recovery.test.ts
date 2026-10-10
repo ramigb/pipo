@@ -19,19 +19,17 @@ afterAll(() => {
 });
 
 const MARKER = join(box.root, "down.marker");
-box.write(
-  "fns.ts",
-  `import { existsSync } from "node:fs";
-export const flaky = (d) => { if (existsSync(${JSON.stringify(MARKER)})) throw new Error("service down"); return d; };
-`,
-);
 
 const pipeline = (name: string, onError = "{ retry: 0, then: dead_letter }") => `pipo: 1
 name: ${name}
-fn: ./fns.ts
 input: { via: push }
 nodes:
-  flaky: { from: input, transform: fn.flaky, on_error: ${onError} }
+  # Fails ("service down") while the marker file exists.
+  flaky:
+    from: input
+    tap: exec
+    with: { command: sh, args: ["-c", "test ! -e ${MARKER}"] }
+    on_error: ${onError}
 output:
   from: flaky
   to: sqlite

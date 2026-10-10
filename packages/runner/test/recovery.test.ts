@@ -48,7 +48,7 @@ function states(): Record<string, number> {
 }
 
 test("SIGKILL mid-flight: every accepted packet is delivered exactly once after restart", async () => {
-  box.write("fns.ts", "export const slow = async (d) => { await Bun.sleep(80); return d; };");
+  box.write("fns.ts", "export const slow = async (d) => { await new Promise((r) => setTimeout(r, 80)); return d; };");
   const file = box.write("crashy.pipo", PIPELINE);
 
   const first = await spawnRunner(file, 1);
@@ -75,6 +75,14 @@ test("SIGKILL mid-flight: every accepted packet is delivered exactly once after 
   const written = rows(join(box.root, "out.db"), "SELECT packet_id, n FROM items ORDER BY n");
   expect(written.map((r) => r.packet_id).sort()).toEqual([...ids].sort());
   expect(written.map((r) => r.n)).toEqual(Array.from({ length: 20 }, (_, i) => i));
+  // Exactly one terminal transition per packet in the journal too.
+  const journal = join(box.home, "pipelines", "crashy", "journal.db");
+  const delivered = rows(
+    journal,
+    "SELECT packet_id, COUNT(*) AS n FROM events WHERE type = 'packet.delivered' GROUP BY packet_id",
+  );
+  expect(delivered.length).toBe(20);
+  expect(delivered.every((r) => r.n === 1)).toBe(true);
 
   second.proc.kill("SIGTERM");
   expect(await second.proc.exited).toBe(0);

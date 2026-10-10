@@ -1,28 +1,34 @@
 // delivered.stall: detection, notify (jammed) and pause, unjam, once per episode (docs/spec.md §3.10, D23).
 // `then: agent` and `agent.on_stall: handle` (D50) are in escalation.test.ts.
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { sandbox, settled, startRunner, waitFor } from "./helpers";
+import { post, suite } from "./core";
+import { waitFor } from "./helpers";
+import type { RustRunner } from "./rust";
 
-const boxes: ReturnType<typeof sandbox>[] = [];
+setDefaultTimeout(30_000);
+const { box, start } = suite();
+
+const servers: { stop: (force?: boolean) => unknown }[] = [];
 afterEach(() => {
-  for (const b of boxes.splice(0)) b.cleanup();
+  for (const s of servers.splice(0)) s.stop(true);
 });
 
+let n = 0;
 /** The output is an http endpoint that fails while `down` holds, so packets retry and pile up. */
-function setup(stall: string) {
-  const box = sandbox();
-  boxes.push(box);
+async function setup(stall: string) {
   const state = { down: true };
   const server = Bun.serve({
     port: 0,
     fetch: () => (state.down ? new Response("down", { status: 500 }) : new Response("ok")),
   });
-  const file = box.write(
-    "s.pipo",
+  servers.push(server);
+  const name = `stalls${++n}`;
+  const r = await start(
+    name,
     `pipo: 1
-name: stalls
+name: ${name}
 input: { via: http }
 errors: { retry: 100, backoff: fixed, delay: 100ms, then: pause }
 output:
@@ -34,77 +40,57 @@ delivered:
 ${stall}
 `,
   );
-  return { box, file, state, server };
+  return { r, state };
 }
 
-const events = (runner: { journal: { db?: unknown } } & any, type: string) =>
-  (runner.journal.db.query("SELECT detail FROM events WHERE type = ?").all(type) as { detail: string }[]).map((e) =>
-    JSON.parse(e.detail),
-  );
+const events = (r: RustRunner, type: string) =>
+  r.query<{ detail: string }>("SELECT detail FROM events WHERE type = ?", type).map((e) => JSON.parse(e.detail));
+const status = async (r: RustRunner) => (await r.status()) as { state: string; status: string };
 
 test("notify: jams, journals the rendered message once, unjams after a delivery", async () => {
-  const { box, file, state, server } = setup(`    after: 300ms
+  const { r, state } = await setup(`    after: 300ms
     then: notify
     message: "jammed \${stall.pending} for \${stall.duration}; oldest \${stall.oldest.packet_id} at \${stall.oldest.node} attempt \${stall.oldest.attempt} err \${stall.oldest.last_error} accepted \${stats.accepted}"`);
-  const { runner, post } = await startRunner(file, box.home);
-  try {
-    const res = await post("", { a: 1 });
-    const id = ((await res.json()) as { packet_id: string }).packet_id;
-    await waitFor(() => runner.status === "jammed", 5000, "jammed");
-    expect(runner.state).toBe("active");
-    const reg = JSON.parse(readFileSync(join(box.home, "run", "stalls.json"), "utf8"));
-    expect(reg.state).toBe("jammed");
-    await Bun.sleep(700);
-    const fired = events(runner, "pipeline.stall");
-    expect(fired.length).toBe(1);
-    expect(fired[0].message).toContain(`jammed 1 for`);
-    expect(fired[0].message).toContain(`oldest ${id} at`);
-    expect(fired[0].message).toContain("accepted 1");
-    expect(fired[0].message).toMatch(/err .*500/);
-    state.down = false;
-    await settled(runner, id);
-    await waitFor(() => runner.status === "active", 5000, "unjam");
-    expect(events(runner, "pipeline.unjammed").length).toBe(1);
-  } finally {
-    await runner.stop();
-    server.stop(true);
-  }
+  const id = await post(r, { a: 1 });
+  await waitFor(async () => (await status(r)).status === "jammed", 5000, "jammed");
+  expect((await status(r)).state).toBe("active");
+  const reg = JSON.parse(readFileSync(join(box.home, "run", `${r.name}.json`), "utf8"));
+  expect(reg.state).toBe("jammed");
+  expect((await r.status()).note).toContain("stalled at");
+  await Bun.sleep(700);
+  const fired = events(r, "pipeline.stall");
+  expect(fired.length).toBe(1);
+  expect(fired[0].message).toContain("jammed 1 for");
+  expect(fired[0].message).toContain(`oldest ${id} at`);
+  expect(fired[0].message).toContain("accepted 1");
+  expect(fired[0].message).toMatch(/err .*500/);
+  state.down = false;
+  await r.settled(id, 10_000);
+  await waitFor(async () => (await status(r)).status === "active", 5000, "unjam");
+  expect(events(r, "pipeline.unjammed").length).toBe(1);
 });
 
 test("pause: pauses with reason stall; resume processes the backlog", async () => {
-  const { box, file, state, server } = setup(`    after: 300ms
+  const { r, state } = await setup(`    after: 300ms
     then: pause`);
-  const { runner, post } = await startRunner(file, box.home);
-  try {
-    const res = await post("", { a: 1 });
-    const id = ((await res.json()) as { packet_id: string }).packet_id;
-    await waitFor(() => runner.state === "paused", 5000, "paused");
-    expect(events(runner, "pipeline.paused").map((e) => e.reason)).toEqual(["stall"]);
-    expect(events(runner, "pipeline.stall")[0].message).toContain("jammed");
-    state.down = false;
-    runner.resume();
-    expect(runner.state).toBe("active");
-    await settled(runner, id);
-  } finally {
-    await runner.stop();
-    server.stop(true);
-  }
+  const id = await post(r, { a: 1 });
+  await waitFor(async () => (await status(r)).state === "paused", 5000, "paused");
+  expect((await r.status()).paused_reason).toBe("stall");
+  expect(events(r, "pipeline.paused").map((e) => e.reason)).toEqual(["stall"]);
+  expect(events(r, "pipeline.stall")[0].message).toContain("jammed");
+  state.down = false;
+  expect(await r.request("resume")).toMatchObject({ state: "active" });
+  await r.settled(id, 10_000);
 });
 
 test("does not fire with nothing pending or while paused", async () => {
-  const { box, file, server } = setup(`    after: 200ms
+  const { r } = await setup(`    after: 200ms
     then: notify`);
-  const { runner, post } = await startRunner(file, box.home);
-  try {
-    await Bun.sleep(600);
-    expect(events(runner, "pipeline.stall").length).toBe(0);
-    runner.pause("manual");
-    await post("", { a: 1 });
-    await Bun.sleep(700);
-    expect(runner.status).toBe("paused");
-    expect(events(runner, "pipeline.stall").length).toBe(0);
-  } finally {
-    await runner.stop();
-    server.stop(true);
-  }
+  await Bun.sleep(600);
+  expect(events(r, "pipeline.stall").length).toBe(0);
+  await r.request("pause", { reason: "manual" });
+  await post(r, { a: 1 });
+  await Bun.sleep(700);
+  expect((await status(r)).status).toBe("paused");
+  expect(events(r, "pipeline.stall").length).toBe(0);
 });

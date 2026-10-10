@@ -1650,6 +1650,71 @@ mod tests {
         assert_eq!(calls, 1);
     }
 
+    fn temp_journal_path(name: &str) -> (PathBuf, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("pipo-journal-{name}-{}", crate::ids::ulid().to_lowercase()));
+        std::fs::create_dir_all(&dir).unwrap();
+        (dir.join("journal.db"), dir)
+    }
+
+    #[test]
+    fn a_journal_from_before_fan_out_gains_the_branch_columns_and_keeps_its_packets() {
+        let (path, dir) = temp_journal_path("fanout");
+        let db = Connection::open(&path).unwrap();
+        db.execute_batch(
+            r#"CREATE TABLE versions (version INTEGER PRIMARY KEY, hash TEXT NOT NULL UNIQUE, source TEXT NOT NULL,
+              author TEXT NOT NULL DEFAULT 'human', created_at INTEGER NOT NULL);
+            CREATE TABLE packets (id TEXT PRIMARY KEY, version INTEGER NOT NULL REFERENCES versions(version), state TEXT NOT NULL,
+              cursor TEXT, data TEXT, trigger TEXT NOT NULL, source TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 0,
+              iteration INTEGER NOT NULL DEFAULT 0, hops INTEGER NOT NULL DEFAULT 0, error TEXT, result TEXT,
+              received_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+            INSERT INTO versions VALUES (1, 'h', 'src', 'human', 0);
+            INSERT INTO packets (id, version, state, cursor, data, trigger, source, received_at, updated_at)
+              VALUES ('P1', 1, 'processing', 'n', '{"n":1}', 'http', 'x', 0, 0), ('P2', 1, 'delivered', NULL, '{}', 'http', 'x', 0, 0);"#,
+        )
+        .unwrap();
+        drop(db);
+        let j = Journal::open(&path).unwrap();
+        let p1 = j.get("P1").unwrap().unwrap();
+        assert_eq!((p1.state.as_str(), p1.cursor.as_deref(), p1.branch.as_str()), ("processing", Some("n"), ""));
+        assert_eq!((p1.root.as_deref(), p1.parent.as_deref()), (None, None));
+        assert_eq!(j.in_flight().unwrap().iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["P1"]);
+        let counts = j.counts().unwrap();
+        assert_eq!((counts.get("processing"), counts.get("delivered")), (Some(&1), Some(&1)));
+        assert_eq!(j.count_in_flight().unwrap(), 1);
+        j.close().unwrap();
+        // Opening again is a no-op.
+        Journal::open(&path).unwrap().close().unwrap();
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_journal_from_before_latency_gets_the_ms_column_and_index_keeping_its_events() {
+        let (path, dir) = temp_journal_path("ms");
+        Journal::open(&path).unwrap().close().unwrap();
+        let raw = Connection::open(&path).unwrap();
+        raw.execute_batch(
+            "DROP INDEX events_node_ms; ALTER TABLE events DROP COLUMN ms;
+             INSERT INTO events (at, packet_id, type, node, detail, patch) VALUES (1, NULL, 'old.event', 'a', NULL, NULL);",
+        )
+        .unwrap();
+        drop(raw);
+        let j = Journal::open(&path).unwrap();
+        assert!(j.columns("events").unwrap().contains("ms"));
+        let index: Option<String> = j
+            .db()
+            .query_row("SELECT name FROM sqlite_master WHERE name = 'events_node_ms'", [], |r| r.get(0))
+            .optional()
+            .unwrap();
+        assert!(index.is_some());
+        let (kind, ms): (String, Option<i64>) =
+            j.db().query_row("SELECT type, ms FROM events", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!((kind.as_str(), ms), ("old.event", None));
+        assert!(j.step_durations("a", 10).unwrap().is_empty());
+        j.close().unwrap();
+        Journal::open(&path).unwrap().close().unwrap();
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn journal_is_send() {
         fn send<T: Send>() {}

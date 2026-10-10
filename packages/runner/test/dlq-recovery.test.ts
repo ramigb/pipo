@@ -20,19 +20,17 @@ afterAll(() => {
 const NAME = "replayed";
 const flag = join(box.root, "fail.flag");
 box.write(
-  "fns.ts",
-  `import { existsSync } from "node:fs";
-export const flaky = (d) => { if (existsSync(${JSON.stringify(flag)})) throw new Error("flaky is failing"); return d; };
-`,
-);
-box.write(
   `${NAME}.pipo`,
   `pipo: 1
 name: ${NAME}
-fn: ./fns.ts
 input: { via: push }
 nodes:
-  check: { from: input, transform: fn.flaky, on_error: { retry: 0, then: dead_letter } }
+  # Fails while the flag file exists.
+  check:
+    from: input
+    tap: exec
+    with: { command: sh, args: ["-c", "test ! -e ${flag}"] }
+    on_error: { retry: 0, then: dead_letter }
 output:
   from: check
   to: sqlite
