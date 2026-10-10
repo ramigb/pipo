@@ -120,6 +120,25 @@ mod tests {
     }
 
     #[test]
+    fn in_per_min_is_the_last_60_s_and_last_delivery_at_outlives_the_window() {
+        let dir = crate::connectors::test_util::TempDir::new();
+        let (mut j, v) = journal(&dir);
+        let now = crate::time::now_ms();
+        let s = compute_stats(&j, now, now).unwrap();
+        assert_eq!((s.in_per_min, s.last_delivery_at.clone()), (0, None));
+        for (i, state) in ["delivered", "delivered", "rejected", "processing"].iter().enumerate() {
+            add(&mut j, v, &format!("p{i}"), state, now - 1000);
+        }
+        let s = compute_stats(&j, now - 5000, now).unwrap();
+        assert_eq!((s.accepted, s.delivered, s.pending, s.uptime, s.in_per_min), (3, 2, 1, 5, 3));
+        let delivered = s.last_delivery_at.clone().unwrap();
+        // A minute later the window is empty, but the last delivery is still known.
+        let later = compute_stats(&j, now - 5000, now + 61_000).unwrap();
+        assert_eq!(later.in_per_min, 0);
+        assert_eq!(later.last_delivery_at, Some(delivered));
+    }
+
+    #[test]
     fn latency_covers_the_latest_window_of_completed_steps_per_node_and_output_is_the_output_step() {
         use crate::journal::PacketPatch;
         let dir = crate::connectors::test_util::TempDir::new();
