@@ -1,4 +1,4 @@
-// `pipo compile` (docs/rust-runner.md; docs/spec.md §3.6, §5): a pipeline's checked, compiled form for the runner.
+// `pipo compile` (docs/spec.md §3.6, §5, D73): a pipeline's checked, compiled form for the runner.
 // The `fn` module is bundled here, so P059 lives in the CLI rather than in the pure `check()`.
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { builtinModules } from "node:module";

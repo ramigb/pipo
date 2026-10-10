@@ -1,4 +1,4 @@
-// The real `pipo compile` (through bun) on examples/people-intake, then its bundle in JsFns (docs/rust-runner.md).
+// The real `pipo compile` (through bun) on examples/people-intake, then its bundle in JsFns (docs/spec.md §7.1, D73).
 
 use std::path::PathBuf;
 

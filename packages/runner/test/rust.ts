@@ -1,4 +1,4 @@
-// End-to-end harness for the Rust runner binary (docs/rust-runner.md): start it the way the engine does, find it
+// End-to-end harness for the Rust runner binary (docs/spec.md §7.1, D73): start it the way the engine does, find it
 // through its registry entry (never stdout), drive it over its control socket, and read its journal read-only.
 // Output goes to log files, never pipes: awaiting a pipe inside `bun test` sometimes never wakes up.
 import { Database } from "bun:sqlite";

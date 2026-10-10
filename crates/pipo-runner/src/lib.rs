@@ -1,4 +1,4 @@
-// The Pipo runner: the data plane for one pipeline (docs/spec.md §7.1, docs/rust-runner.md).
+// The Pipo runner: the data plane for one pipeline (docs/spec.md §7.1, D73).
 
 pub mod agents;
 pub mod bots;

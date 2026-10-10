@@ -130,7 +130,7 @@ CREATE TABLE IF NOT EXISTS input_state (
 );
 ";
 
-/// Audit columns added to `versions` after it first shipped: D49, D60, and the compiled form (docs/rust-runner.md).
+/// Audit columns added to `versions` after it first shipped: D49, D60, and the compiled form (D73).
 const VERSION_AUDIT_COLUMNS: [&str; 4] = ["author_kind", "proposal", "files", "compiled"];
 
 const BRANCH_COLUMNS: [(&str, &str); 3] =

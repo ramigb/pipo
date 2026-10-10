@@ -1,4 +1,4 @@
-// The QuickJS host for `fn` modules (docs/spec.md §3.6, docs/rust-runner.md). One runtime per runner, owned by a
+// The QuickJS host for `fn` modules (docs/spec.md §3.6, D73). One runtime per runner, owned by a
 // dedicated OS thread that runs an event loop: tokio tasks send it requests over a channel at any time, each call runs
 // until its promise settles, and calls waiting on timers interleave as in Bun. Each version's bundle is its own
 // module, so packets pinned to different versions run their own code. Values cross as JSON text.

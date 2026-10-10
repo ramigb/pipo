@@ -1,4 +1,4 @@
-// Calls `pipo compile`, the only checker (docs/rust-runner.md "The boundary"): its JSON reply is a version's compiled
+// Calls `pipo compile`, the only checker (docs/spec.md D73): its JSON reply is a version's compiled
 // form (the definition, the bundled `fn` module, schemas, D60 file hashes, agent settings), stored per version.
 
 use std::path::Path;

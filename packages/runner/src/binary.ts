@@ -1,4 +1,4 @@
-// The runner binary (docs/rust-runner.md): the data plane is the Rust `pipo-runner` (crates/pipo-runner). The engine,
+// The runner binary (docs/spec.md §7.1, D73): the data plane is the Rust `pipo-runner` (crates/pipo-runner). The engine,
 // `pipo run` and `pipo test` start it through these helpers, so each finds the same binary and hands it the same
 // compiler: the runner calls `pipo compile` (TypeScript) to check a definition, found through PIPO_COMPILE.
 import { existsSync } from "node:fs";
