@@ -611,6 +611,7 @@ async fn agent_verify_requires_a_verified_dry_run_before_apply() {
     })
     .unwrap_err();
     assert!(refused.message.contains("needs a dry run"), "{}", refused.message);
+    assert!(refused.hint.as_deref().unwrap().contains(&format!("pipo proposals demo apply {}", p.id)));
     assert_eq!(t.latest(), 1);
     // Nothing was delivered yet, so the dry run has nothing to replay and passes.
     let v = t.store.dry_run_if_required(&p.id).await.unwrap();
@@ -618,6 +619,9 @@ async fn agent_verify_requires_a_verified_dry_run_before_apply() {
     assert_eq!(v.decision.as_deref(), Some("dry run passed (last 5): no delivered packets to replay"));
     assert_eq!(v.verification["replayed"], json!(0));
     assert_eq!(t.store.dry_run_if_required(&p.id).await.unwrap().state, "verified");
+    let again = t.store.dry_run(&p.id, "dry-run").await.unwrap_err();
+    assert_eq!(again.code, "invalid_state");
+    assert!(again.hint.as_deref().unwrap().contains(&format!("pipo proposals demo apply {}", p.id)));
     let twice = t.store.mark_verified(&p.id, "runner", None, None).unwrap_err();
     assert!(twice.message.contains("is verified"));
     let r = t.store.mark_rejected(&p.id, "cli", "not now", None).unwrap();
@@ -633,6 +637,25 @@ async fn agent_verify_requires_a_verified_dry_run_before_apply() {
         t.store.propose(&input(&src(Opts { tag: Some("x"), ..with_agent(&policy) }), json!(1), "human")).await.unwrap();
     assert_eq!(human.verify, None);
     assert_eq!(t.store.dry_run_if_required(&human.id).await.unwrap().id, human.id);
+    let direct = t.store.dry_run(&human.id, "dry-run").await.unwrap_err();
+    assert_eq!((direct.code, direct.hint.as_deref()), ("invalid_state", Some("apply it directly")));
+}
+
+#[tokio::test]
+async fn a_dry_run_whose_base_went_stale_rejects_without_a_report() {
+    if !compiler() {
+        return;
+    }
+    let policy = format!("{AGENT}  verify: last 5\n");
+    let t = setup(&src(with_agent(&policy))).await;
+    let p = t.store.propose(&agent(&src(Opts { message: Some("hello"), ..with_agent(&policy) }))).await.unwrap();
+    assert_eq!((p.state.as_str(), p.verify.as_deref()), ("validated", Some("last 5")));
+    t.add_version(&src(Opts { tag: Some("two"), ..with_agent(&policy) }));
+    let r = t.store.dry_run(&p.id, "dry-run").await.unwrap();
+    assert_eq!((r.state.as_str(), r.verification.clone()), ("rejected", Value::Null));
+    assert!(r.decision.as_deref().unwrap().starts_with("stale base: the proposal is against v1"), "{:?}", r.decision);
+    let kinds: Vec<String> = t.events().into_iter().map(|e| e.0).collect();
+    assert_eq!(kinds, ["proposal.validated", "proposal.rejected"]);
 }
 
 #[tokio::test]
