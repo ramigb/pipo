@@ -87,7 +87,10 @@ async function kill(proc: ReturnType<typeof Bun.spawn>) {
 }
 
 test("SIGKILL repeatedly during fan-out: one row per (packet, branch), every packet terminal", async () => {
-  box.write("fns.ts", "export const slow = async (d) => { await Bun.sleep(40); return { n: d.n }; };");
+  box.write(
+    "fns.ts",
+    "export const slow = async (d) => { await new Promise((r) => setTimeout(r, 40)); return { n: d.n }; };",
+  );
   const file = box.write(`${NAME}.pipo`, PIPELINE);
   const ids: string[] = [];
 
