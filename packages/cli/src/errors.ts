@@ -40,6 +40,7 @@ let jsonMode = false;
 export function setJsonMode(on: boolean) {
   jsonMode = on;
 }
+export const isJsonMode = () => jsonMode;
 
 let currentCommand: string | undefined;
 /** The command being run, so usage errors can point at its `--help`. */

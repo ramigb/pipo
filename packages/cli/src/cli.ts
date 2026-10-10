@@ -18,19 +18,21 @@ import { cmdProposals, cmdResolve } from "./proposals";
 import { listTemplates } from "./templates";
 import { cmdTest } from "./test-cmd";
 import { trust } from "./trust";
+import { clearSpinner, say, setPlain } from "./tty";
 import { cmdUi } from "./ui";
 import { cmdDiff, cmdHistory, cmdRollback } from "./versions";
 
 /** `main`, with a thrown error reported: text on stderr, or `{ok:false,error,hint,code}` on stdout under `--json`. */
 export async function runCli(argv: string[]): Promise<number> {
+  // --plain turns terminal decoration off (D74); any command takes it.
+  setPlain(argv.includes("--plain"));
+  const args = argv.filter((a) => a !== "--plain");
   try {
-    return await main(argv);
+    return await main(args);
   } catch (e) {
-    if (argv.includes("--json")) console.log(JSON.stringify(errorJson(e)));
-    else {
-      console.error(`pipo: ${(e as Error).message}`);
-      if (e instanceof CliError && e.hint) console.error(`  hint: ${e.hint}`);
-    }
+    clearSpinner();
+    if (args.includes("--json")) console.log(JSON.stringify(errorJson(e)));
+    else say("error", (e as Error).message, e instanceof CliError ? e.hint : undefined);
     return 1;
   }
 }

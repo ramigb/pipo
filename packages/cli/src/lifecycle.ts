@@ -20,6 +20,7 @@ import { parseDuration } from "@pipo/spec";
 import { parse as parseYaml } from "yaml";
 import { CliError, cliHint, usageError } from "./errors";
 import { renderAgentBudget, renderDetail, renderStatus, type StatusRow } from "./status";
+import { done, flourish, say, spinner, spinning } from "./tty";
 
 const ENGINE_MAIN = new URL("../../engine/src/main.ts", import.meta.url).pathname;
 const ENGINE_START_TIMEOUT = 20_000;
@@ -100,17 +101,24 @@ export async function startEngine(
     closeSync(log);
   }
   const deadline = Date.now() + ENGINE_START_TIMEOUT;
-  while (Date.now() < deadline) {
-    const e = findEngine(home);
-    if (e && (await probe(e)) === "ready") return null;
-    // It exited: a bad config.yaml, a taken port, or another engine got the home first (that one is used then).
-    if (child.exitCode !== null || child.signalCode !== null) {
-      const other = findEngine(home);
-      if (other && other.pid !== child.pid) return null;
-      const said = logLines(logFile, offset);
-      return `the engine exited (${child.exitCode ?? child.signalCode})${said ? `: ${said}` : ""} (see ${logFile})`;
+  const spin = spinner("starting the engine");
+  try {
+    while (Date.now() < deadline) {
+      const e = findEngine(home);
+      const state = e ? await probe(e) : "unreachable";
+      if (state === "ready") return null;
+      if (e && state === "starting") spin.text(`the engine (pid ${e.pid}) is reattaching its runners`);
+      // It exited: a bad config.yaml, a taken port, or another engine got the home first (that one is used then).
+      if (child.exitCode !== null || child.signalCode !== null) {
+        const other = findEngine(home);
+        if (other && other.pid !== child.pid) return null;
+        const said = logLines(logFile, offset);
+        return `the engine exited (${child.exitCode ?? child.signalCode})${said ? `: ${said}` : ""} (see ${logFile})`;
+      }
+      await Bun.sleep(100);
     }
-    await Bun.sleep(100);
+  } finally {
+    spin.stop();
   }
   return `the engine did not come up within ${ENGINE_START_TIMEOUT / 1000}s (see ${logFile})`;
 }
@@ -174,34 +182,45 @@ export async function connect(home: string, noEngine: boolean, start: { workspac
   const deadline = Date.now() + ENGINE_START_TIMEOUT;
   let why: string | undefined;
   let started = false;
-  for (;;) {
-    const engine = findEngine(home);
-    if (engine) {
-      const state = await probe(engine);
-      if (state === "ready") return { home, json, api: new Api(engine.port) };
-      why =
-        state === "stopping"
-          ? `the engine (pid ${engine.pid}) is shutting down; try again once it stopped`
-          : state === "starting"
-            ? `the engine (pid ${engine.pid}) is still reattaching its runners`
-            : `the engine (pid ${engine.pid}) does not answer on port ${engine.port}`;
-    } else {
-      const entry = readJson<EngineEntry>(join(home, "run", "engine.json"));
-      if (entry && alive(entry) && !entry.listen) {
-        why = `the engine (pid ${entry.pid}) runs without a gateway, so the CLI can't reach it; restart it with engine.listen set in config.yaml, or pipod --listen 0`;
-        break;
+  const spin = spinner("connecting to the engine");
+  try {
+    for (;;) {
+      const engine = findEngine(home);
+      if (engine) {
+        const state = await probe(engine);
+        if (state === "ready") {
+          spin.stop();
+          if (started) flourish("ok", `started the engine (pid ${engine.pid}, gateway 127.0.0.1:${engine.port})`);
+          return { home, json, api: new Api(engine.port) };
+        }
+        why =
+          state === "stopping"
+            ? `the engine (pid ${engine.pid}) is shutting down; try again once it stopped`
+            : state === "starting"
+              ? `the engine (pid ${engine.pid}) is still reattaching its runners`
+              : `the engine (pid ${engine.pid}) does not answer on port ${engine.port}`;
+        spin.text(state === "stopping" ? `the engine (pid ${engine.pid}) is shutting down; waiting it out` : why);
+      } else {
+        const entry = readJson<EngineEntry>(join(home, "run", "engine.json"));
+        if (entry && alive(entry) && !entry.listen) {
+          why = `the engine (pid ${entry.pid}) runs without a gateway, so the CLI can't reach it; restart it with engine.listen set in config.yaml, or pipod --listen 0`;
+          break;
+        }
+        if (started) {
+          why ??= "the engine is not reachable";
+          break;
+        }
+        started = true;
+        spin.stop(); // startEngine may build the runner first, with cargo's output on stderr
+        why = (await startEngine(home, start)) ?? undefined;
+        if (why) break;
+        continue;
       }
-      if (started) {
-        why ??= "the engine is not reachable";
-        break;
-      }
-      started = true;
-      why = (await startEngine(home, start)) ?? undefined;
-      if (why) break;
-      continue;
+      if (Date.now() >= deadline) break;
+      await Bun.sleep(200);
     }
-    if (Date.now() >= deadline) break;
-    await Bun.sleep(200);
+  } finally {
+    spin.stop();
   }
   return { home, json, api: null, why: why ?? "the engine is not reachable" };
 }
@@ -214,7 +233,7 @@ export const COMMON = {
 
 export async function context(values: { home?: string; json?: boolean; "no-engine"?: boolean }): Promise<Ctx> {
   const ctx = await connect(resolveHome(values.home), values["no-engine"] === true);
-  if (!ctx.api && ctx.why) console.error(`pipo: ${ctx.why}; talking to the runners directly (engine: down)`);
+  if (!ctx.api && ctx.why) say("warn", `${ctx.why}; talking to the runners directly (engine: down)`);
   return { ...ctx, json: values.json === true };
 }
 
@@ -450,10 +469,11 @@ const START_OPTIONS = {
 
 async function doStart(ctx: Ctx, target: string, body: Record<string, unknown>) {
   const api = needEngine(ctx, "start a pipeline");
-  const r = isFileArg(target)
-    ? await api.call("POST", "/api/pipelines", { file: isAbsolute(target) ? target : resolve(target), ...body })
-    : await api.call("POST", `/api/pipelines/${encodeURIComponent(target)}/start`, body);
-  return r;
+  return spinning(`starting ${target}`, () =>
+    isFileArg(target)
+      ? api.call("POST", "/api/pipelines", { file: isAbsolute(target) ? target : resolve(target), ...body })
+      : api.call("POST", `/api/pipelines/${encodeURIComponent(target)}/start`, body),
+  );
 }
 
 export async function cmdStart(args: string[]): Promise<number> {
@@ -465,7 +485,7 @@ export async function cmdStart(args: string[]): Promise<number> {
   const r = await doStart(ctx, target, body);
   const info = r.pipeline ?? r;
   const name = info.name ?? target;
-  out(ctx, { pipeline: name, result: r }, `started ${name}${info.pid ? ` (pid ${info.pid})` : ""}`);
+  out(ctx, { pipeline: name, result: r }, done(`started ${name}${info.pid ? ` (pid ${info.pid})` : ""}`));
   return 0;
 }
 
@@ -478,13 +498,16 @@ export async function cmdStop(args: string[]): Promise<number> {
   const name = positionals[0];
   if (!name) return usage("pipo stop <name> [--now]");
   const ctx = await context(values);
-  const r = ctx.api
-    ? await ctx.api.call("POST", `/api/pipelines/${encodeURIComponent(name)}/${values.now ? "stop" : "drain"}`, {})
-    : await direct(ctx.home, name, (c) => c.request(values.now ? "stop" : "drain"));
+  const api = ctx.api;
+  const r = await spinning(`${values.now ? "stopping" : "draining"} ${name}`, () =>
+    api
+      ? api.call("POST", `/api/pipelines/${encodeURIComponent(name)}/${values.now ? "stop" : "drain"}`, {})
+      : direct(ctx.home, name, (c) => c.request(values.now ? "stop" : "drain")),
+  );
   out(
     ctx,
     { pipeline: name, result: r },
-    values.now ? `stopped ${name}` : `draining ${name}; it stops when its packets are done`,
+    done(values.now ? `stopped ${name}` : `draining ${name}; it stops when its packets are done`),
   );
   return 0;
 }
@@ -494,10 +517,13 @@ async function pauseResume(op: "pause" | "resume", args: string[]): Promise<numb
   const name = positionals[0];
   if (!name) return usage(`pipo ${op} <name>`);
   const ctx = await context(values);
-  const r = ctx.api
-    ? await ctx.api.call("POST", `/api/pipelines/${encodeURIComponent(name)}/${op}`, {})
-    : await direct(ctx.home, name, (c) => c.request(op));
-  out(ctx, { pipeline: name, result: r }, `${op === "pause" ? "paused" : "resumed"} ${name}`);
+  const api = ctx.api;
+  const r = await spinning(`${op === "pause" ? "pausing" : "resuming"} ${name}`, () =>
+    api
+      ? api.call("POST", `/api/pipelines/${encodeURIComponent(name)}/${op}`, {})
+      : direct(ctx.home, name, (c) => c.request(op)),
+  );
+  out(ctx, { pipeline: name, result: r }, done(`${op === "pause" ? "paused" : "resumed"} ${name}`));
   return 0;
 }
 export const cmdPause = (args: string[]) => pauseResume("pause", args);
@@ -514,10 +540,10 @@ export async function cmdRestart(args: string[]): Promise<number> {
   // A restart is a deliberate stop, then a start: the stop settles a crashed pipeline too and journals its end, so
   // the ttl anchor resets (§7.4, D46, D57). Stopped and failed (halted) pipelines have nothing to stop.
   if (info.state !== "stopped" && info.state !== "failed") {
-    await api.call("POST", `/api/pipelines/${encodeURIComponent(name)}/stop`, {});
+    await spinning(`stopping ${name}`, () => api.call("POST", `/api/pipelines/${encodeURIComponent(name)}/stop`, {}));
   }
   const r = await doStart(ctx, name, body);
-  out(ctx, { pipeline: name, result: r }, `restarted ${name}`);
+  out(ctx, { pipeline: name, result: r }, done(`restarted ${name}`));
   return 0;
 }
 

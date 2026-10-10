@@ -22,6 +22,7 @@ import {
   usage,
 } from "./lifecycle";
 import { formatUptime } from "./status";
+import { done, paint, spinner } from "./tty";
 
 type RunnerState = "attached" | "detached" | "stale" | "unreachable";
 
@@ -248,8 +249,11 @@ function report(json: boolean, home: string, what: string, e: EngineEntry | null
       }),
     );
   else {
+    const p = paint(process.stdout);
     console.log(
-      `engine ${what} (pid ${e?.pid ?? "?"}${e?.listen ? `, gateway 127.0.0.1:${e.listen}` : ", no gateway"})${note}`,
+      done(
+        `engine ${what} ${p.dim(`(pid ${e?.pid ?? "?"}${e?.listen ? `, gateway 127.0.0.1:${e.listen}` : ", no gateway"})`)}${note}`,
+      ),
     );
   }
   return 0;
@@ -271,7 +275,12 @@ async function engineStop(args: string[]): Promise<number> {
     const now = readJson<EngineEntry>(join(home, "run", "engine.json"));
     return !now || now.pid !== entry.pid || !alive(entry);
   };
-  while (!gone() && Date.now() < deadline) await Bun.sleep(100);
+  const spin = spinner(`stopping the engine (pid ${entry.pid}): draining its pipelines`);
+  try {
+    while (!gone() && Date.now() < deadline) await Bun.sleep(100);
+  } finally {
+    spin.stop();
+  }
   if (!gone()) {
     throw new CliError(
       `the engine (pid ${entry.pid}) did not stop within ${ENGINE_STOP_TIMEOUT / 1000}s`,
@@ -281,7 +290,7 @@ async function engineStop(args: string[]): Promise<number> {
   }
   const note = "pipelines were drained; detached runners keep running (check 'pipo runners')";
   if (values.json) console.log(JSON.stringify({ ok: true, engine: "down", stopped: true, pid: entry.pid, note }));
-  else console.log(`engine stopped (pid ${entry.pid}); ${note}`);
+  else console.log(done(`engine stopped ${paint(process.stdout).dim(`(pid ${entry.pid})`)}; ${note}`));
   return 0;
 }
 
@@ -290,9 +299,10 @@ async function engineStatus(args: string[]): Promise<number> {
   if (positionals.length) return usage("pipo engine status");
   const home = resolveHome(values.home);
   const entry = readEngineEntry(home);
+  const p = paint(process.stdout);
   const down = () => {
     if (values.json) console.log(JSON.stringify({ ok: true, engine: "down" }));
-    else console.log("engine: down");
+    else console.log(p.dim("engine: down"));
     return 0;
   };
   if (!entry) return down();
@@ -335,11 +345,14 @@ async function engineStatus(args: string[]): Promise<number> {
     );
     return 0;
   }
+  const tint = phase === "ready" ? p.green : p.yellow;
   console.log(
     [
-      `engine: up (${phase})`,
-      `pid ${info.pid} · gateway 127.0.0.1:${info.listen} · uptime ${formatUptime(uptime)}`,
-      `pipelines ${info.pipelines ?? "-"} · idle ${info.idle === undefined ? "-" : info.idle ? "yes" : "no"} · ttl ${info.ttl_expires_at ? `expires ${info.ttl_expires_at}` : "none"}`,
+      `engine: ${tint(`up (${phase})`)}`,
+      p.dim(`pid ${info.pid} · gateway 127.0.0.1:${info.listen} · uptime ${formatUptime(uptime)}`),
+      p.dim(
+        `pipelines ${info.pipelines ?? "-"} · idle ${info.idle === undefined ? "-" : info.idle ? "yes" : "no"} · ttl ${info.ttl_expires_at ? `expires ${info.ttl_expires_at}` : "none"}`,
+      ),
     ].join("\n"),
   );
   return 0;

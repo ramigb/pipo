@@ -380,5 +380,6 @@ export function renderHelp(): string {
     ...COMMANDS.flatMap((c) => [`  ${c.usage}`, ...wrap(c.summary, 94).map((l) => `      ${l}`)]),
     "",
     "Run 'pipo help <command>' or 'pipo <command> --help' for details.",
+    "On a terminal, output has colour and spinners; --plain (or PIPO_PLAIN=1, NO_COLOR) turns them off.",
   ].join("\n");
 }

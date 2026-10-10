@@ -7,6 +7,7 @@ import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { CliError } from "./errors";
 import { connect, findEngine, resolveHome } from "./lifecycle";
+import { banner, fancy, flourish, paint, say } from "./tty";
 
 function openBrowser(url: string): void {
   const candidates = process.platform === "darwin" ? ["open"] : ["wslview", "xdg-open"];
@@ -35,6 +36,7 @@ export async function cmdUi(args: string[]): Promise<number> {
   const home = resolveHome(values.home);
   const workspace = values.workspace === undefined ? undefined : resolve(values.workspace);
   const before = findEngine(home)?.pid;
+  if (!values.json) await banner();
   const ctx = await connect(home, false, { workspace });
   if (!ctx.api) {
     throw new CliError(
@@ -60,18 +62,25 @@ export async function cmdUi(args: string[]): Promise<number> {
       ),
     );
   } else {
-    if (started) console.error(`pipo: started the engine (pid ${info.pid})`);
+    // On a terminal, connect() already said it started the engine.
+    if (started && !fancy()) say("ok", `started the engine (pid ${info.pid})`);
+    if (!started) flourish("ok", `engine running (pid ${info.pid}, gateway 127.0.0.1:${ctx.api.port})`);
     if (outdated) {
-      console.error(
-        `pipo: the running engine (pid ${info.pid}${info.started_at ? `, started ${info.started_at}` : ""}) is older than Pipo's code here, so the dashboard may miss features; restart it: pipo engine stop, then pipo ui`,
+      say(
+        "warn",
+        `the running engine (pid ${info.pid}${info.started_at ? `, started ${info.started_at}` : ""}) is older than Pipo's code here, so the dashboard may miss features; restart it: pipo engine stop, then pipo ui`,
       );
     }
     if (elsewhere) {
-      console.error(
-        `pipo: the running engine saves new pipelines under ${info.workspace}, not ${workspace}; restart it from there ('pipo engine stop', then 'pipo ui --workspace ${workspace}')`,
+      say(
+        "warn",
+        `the running engine saves new pipelines under ${info.workspace}, not ${workspace}; restart it from there ('pipo engine stop', then 'pipo ui --workspace ${workspace}')`,
       );
     }
-    console.log(url);
+    if (info.workspace) flourish("info", `workspace ${paint().dim(info.workspace)}`);
+    // The URL alone on stdout, for scripts; dressed only when stdout is a terminal.
+    const p = paint(process.stdout);
+    console.log(fancy(process.stdout) ? `${p.cyan("➜")} ${p.bold("dashboard")}  ${p.underline(p.cyan(url))}\n` : url);
   }
   if (!values["no-open"]) openBrowser(url);
   return 0;
