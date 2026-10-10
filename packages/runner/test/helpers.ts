@@ -13,6 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Journal, type PacketRow, Runner } from "../src";
+import { runnerBinary, runnerEnv } from "../src/binary";
 
 /** A throwaway project folder plus Pipo home, both on the Linux filesystem. */
 export function sandbox() {
@@ -89,8 +90,6 @@ export function openJournal(home: string, pipeline: string) {
   return new Journal(join(home, "pipelines", pipeline, "journal.db"));
 }
 
-const MAIN = join(import.meta.dir, "../src/main.ts");
-
 const linux = process.platform === "linux";
 
 /** True once `pid` has `file` open (e.g. it got into Runner.open, or started its first flush). /proc, else lsof. */
@@ -133,12 +132,10 @@ export function pidsWith(text: string): number[] {
 }
 
 /**
- * Start a runner process and find it through its registry entry (spec §7.2), the way the engine
- * and CLI do; output goes to log files, never pipes (awaiting a pipe inside `bun test` sometimes
- * never wakes up). Under WSL, Bun occasionally spins forever loading modules from /mnt (~3% of
- * spawns), before any runner code ran. Such a process never opened its journal, so it is killed by
- * pid and started again; a runner that hangs after opening its journal fails the test.
- * Every process is pushed onto `spawned` so the suite can kill leftovers.
+ * Start a runner process (the Rust binary) and find it through its registry entry (spec §7.2), the way the engine and
+ * CLI do; output goes to log files, never pipes (awaiting a pipe inside `bun test` sometimes never wakes up). The
+ * runner retries a `pipo compile` that hangs, so a start can take a while under WSL. Every process is pushed onto
+ * `spawned` so the suite can kill leftovers.
  */
 export async function spawnRunner(
   box: { root: string; home: string },
@@ -147,42 +144,34 @@ export async function spawnRunner(
   file: string,
   n: number,
   args: string[] = ["--listen", "0"],
-  timeoutMs = 10_000,
-  /** Extra environment for the runner (e.g. `PIPO_TEST_CRASH_AT`, crashpoint.ts). */
+  timeoutMs = 30_000,
+  /** Extra environment for the runner (e.g. `PIPO_TEST_CRASH_AT`, crashpoint.rs). */
   env: Record<string, string> = {},
 ) {
   const registry = join(box.home, "run", `${name}.json`);
-  const journal = join(box.home, "pipelines", name, "journal.db");
-  for (let tries = 1; ; tries++) {
-    const log = join(box.root, `${name}-runner-${n}.${tries}.log`);
-    const proc = Bun.spawn(["bun", MAIN, file, ...args, "--home", box.home], {
-      stdout: Bun.file(log),
-      stderr: Bun.file(`${log}.err`),
-      ...(Object.keys(env).length && { env: { ...process.env, ...env } }),
-    });
-    spawned.push(proc);
-    try {
-      const entry = await waitFor(
-        () => {
-          if (proc.exitCode !== null) {
-            throw new Error(`runner exited (${proc.exitCode}):\n${readFileSync(`${log}.err`, "utf8")}`);
-          }
-          if (!existsSync(registry)) return null;
-          const e = JSON.parse(readFileSync(registry, "utf8"));
-          return e.pid === proc.pid ? (e as { listen: number }) : null;
-        },
-        timeoutMs,
-        `${name} runner ${n} registry entry`,
-      );
-      return { proc, port: entry.listen, log };
-    } catch (e) {
-      if (proc.exitCode !== null || holds(proc.pid, journal) || tries === 3) {
-        proc.kill("SIGKILL");
-        throw e;
-      }
-      console.warn(`${name} runner ${n} stuck loading modules (try ${tries}); restarting it`);
-      proc.kill("SIGKILL");
-      await proc.exited;
-    }
+  const log = join(box.root, `${name}-runner-${n}.log`);
+  const proc = Bun.spawn([runnerBinary(), file, ...args, "--home", box.home], {
+    stdout: Bun.file(log),
+    stderr: Bun.file(`${log}.err`),
+    env: runnerEnv(env),
+  });
+  spawned.push(proc);
+  try {
+    const entry = await waitFor(
+      () => {
+        if (proc.exitCode !== null) {
+          throw new Error(`runner exited (${proc.exitCode}):\n${readFileSync(`${log}.err`, "utf8")}`);
+        }
+        if (!existsSync(registry)) return null;
+        const e = JSON.parse(readFileSync(registry, "utf8"));
+        return e.pid === proc.pid ? (e as { listen: number }) : null;
+      },
+      timeoutMs,
+      `${name} runner ${n} registry entry`,
+    );
+    return { proc, port: entry.listen, log };
+  } catch (e) {
+    proc.kill("SIGKILL");
+    throw e;
   }
 }

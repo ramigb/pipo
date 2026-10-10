@@ -2,14 +2,13 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { type RegistryEntry, readRegistryEntry } from "@pipo/runner";
+import { type RegistryEntry, readRegistryEntry, runnerBinary, runnerEnv } from "@pipo/runner";
 import { cmdline, holds } from "../../runner/test/helpers";
 import { DEFAULT_CONFIG, type EngineConfig, type RestartConfig } from "../src";
 
 export { holds };
 
 const PIPOD = join(import.meta.dir, "../src/main.ts");
-const RUNNER = join(dirname(Bun.resolveSync("@pipo/runner", import.meta.dir)), "main.ts");
 type Proc = ReturnType<typeof Bun.spawn>;
 
 /** A throwaway project folder plus Pipo home, both on the Linux filesystem (sockets don't work on /mnt). */
@@ -58,7 +57,7 @@ function killEntry(file: string) {
     const pid = JSON.parse(readFileSync(file, "utf8")).pid;
     if (!Number.isInteger(pid) || pid <= 1) return;
     const cmd = cmdline(pid);
-    if (/packages\/(engine|runner)\/src\/main\.ts/.test(cmd)) process.kill(pid, "SIGKILL");
+    if (/packages\/engine\/src\/main\.ts|pipo-runner /.test(cmd)) process.kill(pid, "SIGKILL");
   } catch {
     // unreadable entry or already dead
   }
@@ -145,47 +144,40 @@ export async function spawnPipod<T>(
   }
 }
 
-/**
- * Start a runner without an engine (as `pipo run` would) and find it through its registry entry. A process stuck
- * loading modules (it never opened its journal) is killed and started again.
- */
+/** Start a runner without an engine (as `pipo run` would) and find it through its registry entry. */
 export async function spawnRunner(
   root: string,
   spawned: Proc[],
   home: string,
   name: string,
   file: string,
-  timeoutMs = 15_000,
+  timeoutMs = 30_000,
   /** Extra environment variables (a spawned process sees the environment Bun started with, not later changes). */
   env: Record<string, string> = {},
 ): Promise<{ proc: Proc; entry: RegistryEntry }> {
-  const journal = join(home, "pipelines", name, "journal.db");
-  for (let tries = 1; ; tries++) {
-    const log = join(root, `${name}-runner.${tries}.log`);
-    const proc = Bun.spawn(["bun", RUNNER, file, "--home", home], {
-      cwd: dirname(file),
-      env: { ...process.env, ...env },
-      stdout: Bun.file(log),
-      stderr: Bun.file(`${log}.err`),
-    });
-    spawned.push(proc);
-    try {
-      const entry = await waitFor(
-        () => {
-          if (proc.exitCode !== null) throw new Error(`runner exited (${proc.exitCode}): ${readFileSync(log, "utf8")}`);
-          const e = readRegistryEntry(home, name);
-          return e?.pid === proc.pid ? e : null;
-        },
-        timeoutMs,
-        `${name} runner registry entry`,
-      );
-      return { proc, entry };
-    } catch (e) {
-      const got = proc.exitCode !== null || holds(proc.pid, journal);
-      proc.kill("SIGKILL");
-      if (got || tries === 3) throw e;
-      await proc.exited;
-      console.warn(`${name} runner stuck loading modules (try ${tries}); restarting it`);
-    }
+  const log = join(root, `${name}-runner.log`);
+  const proc = Bun.spawn([runnerBinary(), file, "--home", home], {
+    cwd: dirname(file),
+    env: runnerEnv(env),
+    stdout: Bun.file(log),
+    stderr: Bun.file(`${log}.err`),
+  });
+  spawned.push(proc);
+  try {
+    const entry = await waitFor(
+      () => {
+        if (proc.exitCode !== null) {
+          throw new Error(`runner exited (${proc.exitCode}): ${readFileSync(`${log}.err`, "utf8")}`);
+        }
+        const e = readRegistryEntry(home, name);
+        return e?.pid === proc.pid ? e : null;
+      },
+      timeoutMs,
+      `${name} runner registry entry`,
+    );
+    return { proc, entry };
+  } catch (e) {
+    proc.kill("SIGKILL");
+    throw e;
   }
 }
