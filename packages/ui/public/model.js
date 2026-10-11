@@ -625,3 +625,15 @@ export function rerunFrom(step) {
   if (!RAN.has(step?.event) || typeof step.node !== "string") return null;
   return step.node.startsWith("$") ? "output" : step.node;
 }
+
+/** Pipeline names typed into a list ("a, b c"): the valid ones (deduplicated) and the ones that aren't names (D82). */
+export function pipelineNames(text) {
+  const names = [];
+  const bad = [];
+  for (const raw of String(text ?? "").split(/[\s,]+/)) {
+    if (!raw) continue;
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(raw)) bad.push(raw);
+    else if (!names.includes(raw)) names.push(raw);
+  }
+  return { names, bad };
+}

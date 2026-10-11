@@ -215,6 +215,11 @@ header.top {
   color: var(--muted);
   white-space: nowrap;
 }
+/* a chip that holds a sentence: it wraps instead of running off a narrow screen */
+.chip.wrap {
+  white-space: normal;
+  border-radius: 12px;
+}
 .chip.ok {
   color: var(--ok);
   background: var(--ok-soft);
@@ -892,7 +897,8 @@ input.code {
   font: 12.5px / 1.5 var(--mono);
   resize: vertical;
 }
-input[type="checkbox"] {
+input[type="checkbox"],
+input[type="radio"] {
   width: auto;
   accent-color: var(--accent);
 }

@@ -10,7 +10,7 @@ pipo ui --workspace ~/pipes   # where the builder saves new pipelines (when it s
 
 `pipo ui --json` prints `{url, started, pid, workspace}`. An open dashboard keeps the engine awake: the idle clock only starts once the last tab closes.
 
-The top bar has **🏠 Pipelines**, **🧮 Tasks**, **🛠️ Builder**, **🤖 Bots** and **⚙️ Settings**, the engine's status, the live event stream's status, and **🌗** to switch between the light and dark themes (it follows your system until you pick one). Animations respect your system's reduced-motion setting.
+The top bar has **🏠 Pipelines**, **🧮 Tasks**, **🛠️ Builder**, **🔑 Agents**, **🤖 Bots** and **⚙️ Settings**, the engine's status, the live event stream's status, and **🌗** to switch between the light and dark themes (it follows your system until you pick one). Animations respect your system's reduced-motion setting.
 
 ## Pipelines
 
@@ -71,6 +71,20 @@ On a delivered or filtered packet, each node step has **🔁 Rerun from here**. 
 ## 🧮 Tasks
 
 The task manager (`#/top`) lists every pipeline with its state, runner pid, CPU, memory, process count, throughput and pending count. It refreshes every 2 seconds and sorts by CPU. CPU and memory cover the runner's whole process tree, including agent CLIs it runs: CPU is a percentage of one core, summed, so it can pass 100. Each row has the pipeline's controls. Stop, drain and restart ask first.
+
+## 🔑 Agents
+
+What agents do on this engine (`#/agents`), and what waits for you:
+
+- **Waiting for your approval**: pipelines agents wrote with `create_pipeline`. Each shows the agent, its reason, what the pipeline reaches outside its folder (runs programs, sends data out, spends on agents, listens for requests, reads or writes files), and every file it wrote, the `.pipo` source open. **✅ Approve**, **▶️ Approve & start** or **❌ Reject** (with a reason the agent sees). See [Agents that build pipelines](agent-authoring.md).
+- **Changes waiting for you**: proposals agents made to pipelines agents wrote, which are held for you. **🚀 Apply** or reject them.
+- **Connected agents**: OAuth grants, with their scope, pipelines and when each was last used, and **🔌 Disconnect** to revoke one. Static tokens from `config.yaml` are listed too.
+- **Pipelines agents wrote**: the ones you already approved or rejected.
+- **Auto-approve agent pipelines**: a toggle for `engine.mcp.auto_approve`, saved to `config.yaml`.
+
+### Connecting an agent
+
+When an MCP client connects over OAuth (see [Agents as operators](agent-operators.md#oauth)), your browser opens **Connect an agent** (`#/connect/<id>`). It shows the client's name (its own claim, which Pipo can't check) and where the token goes, a program on this machine or a website. You choose the scope (the one the client asked for is preselected; `author` is flagged), all pipelines or a list, and the name its actions are recorded under. **✅ Approve** sends your browser back to the client with a one-time code; **🚫 Deny** tells the client no. A request waits 10 minutes.
 
 ## 🤖 Bots
 

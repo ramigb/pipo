@@ -22,7 +22,7 @@ import { dirname, isAbsolute, join } from "node:path";
 import { ControlError, homeAgentBudget, offlineRead, type ReadOp, readRegistryEntry } from "@pipo/runner";
 import { serveUi } from "@pipo/ui";
 import type { Server } from "bun";
-import type { ApprovalView } from "./approvals";
+import { type ApprovalView, effectsOf } from "./approvals";
 import { deleteBot, listBots, saveBot, testBot } from "./bots";
 import { Builder } from "./builder";
 import { activityEvents, chainOf, lifetimeOf, logPage, statsOf } from "./dashboard";
@@ -1383,7 +1383,8 @@ function approvalDetail(a: ApprovalView, state: string | null) {
       return { path, size: null, text: null, missing: true };
     }
   });
-  return { ...a, pipeline_state: state, contents };
+  const source = contents[0]?.text;
+  return { ...a, pipeline_state: state, effects: source ? effectsOf(source) : {}, contents };
 }
 
 function startOptions(body: Record<string, unknown>, allowed: string[]) {

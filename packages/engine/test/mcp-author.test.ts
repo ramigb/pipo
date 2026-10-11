@@ -257,6 +257,7 @@ describe("agent-written pipelines", () => {
     });
     expect(entry.contents.map((c: any) => c.path)).toEqual(["greeter.pipo", "fn.ts", "fixtures/ada.json"]);
     expect(entry.contents[1].text).toBe(FILES["fn.ts"]);
+    expect(entry.effects).toEqual({ writes_files: ["output"] });
 
     const approved = await rest("POST", "/api/approvals/greeter/approve", { by: "me" });
     expect(approved.status).toBe(200);

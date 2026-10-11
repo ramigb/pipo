@@ -1,5 +1,6 @@
 // Pipo dashboard (docs/spec.md §8). Hash routes: #/ pipeline cards, #/p/<name> graph, logs, agent feed, DLQ and
-// versions tabs, #/p/<name>/<packet id> inspector, #/build… the builder (builder.js). Live through /events (SSE),
+// versions tabs, #/p/<name>/<packet id> inspector, #/agents and the OAuth consent page #/connect/<id> (§9.2, §9.4),
+// #/build… the builder (builder.js). Live through /events (SSE),
 // which also keeps the engine awake (D61); falls back to polling /api every 2 s when the stream is down, and to the
 // "napping" screen when the engine can't be reached. Everything from the API is rendered as text nodes, never HTML.
 import { ApiError, api, clean, EngineDown, h, morph, s, toast } from "./dom.js";
@@ -17,7 +18,7 @@ import {
   mascot,
   plural,
 } from "./look.js";
-import { rerunFrom } from "./model.js";
+import { pipelineNames, rerunFrom } from "./model.js";
 
 const app = document.getElementById("app");
 const $live = document.getElementById("live");
@@ -1872,6 +1873,448 @@ async function settingsView(browse) {
   );
 }
 
+// ---- agents (§9.2, §9.4, D81, D82): who is connected, what agents wrote and are waiting on, held changes ----
+const SCOPES = {
+  read: "👀 read: watch pipelines, check and dry-run drafts",
+  operate: "🕹️ operate: also pause, resume, replay, push and resolve",
+  edit: "✏️ edit: also propose changes to running pipelines",
+  author: "🏗️ author: also write new pipelines, and start them once you approve",
+};
+const EFFECTS = {
+  runs_programs: ["bad", "⚙️ runs programs"],
+  calls_out: ["warn", "📡 sends data out"],
+  spends: ["warn", "💸 spends on agents"],
+  listens: ["warn", "👂 listens for requests"],
+  writes_files: ["", "📝 writes files"],
+  reads_files: ["", "📂 reads files"],
+};
+const APPROVAL_CHIP = { pending: "warn", approved: "ok", rejected: "bad" };
+
+async function agentAct(label, path, body, okText) {
+  try {
+    const res = await api(path, body ?? {});
+    toast(okText ?? `${label}: done`);
+    render();
+    return res;
+  } catch (e) {
+    if (e instanceof EngineDown) return napping();
+    toast(`${label} failed: ${e.message}`, "bad", e.hint);
+  }
+}
+
+/** Agent proposals still waiting (validated or verified) on the pipelines agents wrote: they are held for a human. */
+async function heldProposals(names) {
+  const lists = await Promise.all(
+    names.map((n) =>
+      api(`/pipelines/${encodeURIComponent(n)}/proposals?limit=50`)
+        .then((r) => r.proposals.map((p) => ({ ...p, pipeline: n })))
+        .catch(() => []),
+    ),
+  );
+  return lists.flat().filter((p) => p.author_kind === "agent" && (p.state === "validated" || p.state === "verified"));
+}
+
+function approvalCard(a) {
+  const base = `/approvals/${encodeURIComponent(a.name)}`;
+  const effects = Object.entries(a.effects ?? {});
+  const decided = a.decided_by ? ` · ${a.state} by ${a.decided_by}` : "";
+  return h(
+    "div",
+    { class: "card" },
+    h(
+      "div",
+      { class: "toolbar" },
+      h("b", null, `📝 ${a.name}`),
+      h("span", { class: `chip ${APPROVAL_CHIP[a.effective] ?? ""}` }, a.effective),
+      a.changed && a.decided_by ? h("span", { class: "chip warn" }, "changed since approval") : null,
+      a.pipeline_state ? h("span", { class: "chip" }, a.pipeline_state) : null,
+      h("span", { class: "spacer" }),
+      a.effective === "approved"
+        ? null
+        : h(
+            "button",
+            {
+              class: "btn small primary",
+              type: "button",
+              onclick: () => agentAct("Approve", `${base}/approve`, { by: "dashboard" }, `✅ Approved ${a.name}`),
+            },
+            "✅ Approve",
+          ),
+      a.pipeline_state === "running"
+        ? null
+        : h(
+            "button",
+            {
+              class: "btn small",
+              type: "button",
+              onclick: () =>
+                agentAct(
+                  "Start",
+                  `${base}/approve`,
+                  { by: "dashboard", start: true },
+                  `▶️ Approved and started ${a.name}`,
+                ),
+            },
+            a.effective === "approved" ? "▶️ Start" : "▶️ Approve & start",
+          ),
+      a.effective === "rejected"
+        ? null
+        : h(
+            "button",
+            {
+              class: "btn small danger",
+              type: "button",
+              onclick: () => {
+                const reason = prompt(`Why reject ${a.name}? The agent sees this.`);
+                if (reason !== null)
+                  agentAct(
+                    "Reject",
+                    `${base}/reject`,
+                    { by: "dashboard", reason: reason || undefined },
+                    `Rejected ${a.name}`,
+                  );
+              },
+            },
+            "❌ Reject",
+          ),
+    ),
+    h(
+      "p",
+      { class: "muted small" },
+      `by ${a.by} · ${fmtAge(Date.now() - Date.parse(a.requested_at))} ago${decided}`,
+      a.note ? ` · “${a.note}”` : "",
+    ),
+    a.reason ? h("p", null, a.reason) : null,
+    effects.length
+      ? h(
+          "div",
+          { class: "toolbar" },
+          ...effects.map(([kind, where]) => {
+            const [cls, label] = EFFECTS[kind] ?? ["", kind];
+            return h("span", { class: `chip ${cls}`, title: where.join(", ") }, `${label} (${where.join(", ")})`);
+          }),
+        )
+      : h("p", { class: "muted small" }, "🫧 reaches nothing outside its own folder"),
+    ...a.contents.map((f, i) =>
+      h(
+        "details",
+        { class: "fold", ...(i === 0 && a.effective !== "approved" ? { open: true } : {}) },
+        h(
+          "summary",
+          null,
+          `📄 ${f.path}`,
+          h("span", { class: "muted small" }, f.missing ? " · missing" : ` · ${f.size} B`),
+        ),
+        f.text === null
+          ? h("p", { class: "muted small" }, f.missing ? "The file is gone." : "Too large to show here.")
+          : h("pre", { class: "mono" }, f.text),
+      ),
+    ),
+    h("p", { class: "muted small mono" }, a.file),
+  );
+}
+
+async function agentsView() {
+  const [grants, approvals] = await Promise.all([api("/mcp/grants"), api("/approvals")]);
+  const held = await heldProposals(approvals.approvals.map((a) => a.name));
+  const waiting = approvals.approvals.filter((a) => a.effective === "pending");
+  const others = approvals.approvals.filter((a) => a.effective !== "pending");
+  const auto = h("input", {
+    type: "checkbox",
+    checked: approvals.auto_approve,
+    onchange: (ev) => {
+      const on = ev.target.checked;
+      if (
+        on &&
+        !confirm("Run what agents write without asking you first? Their pipelines can run programs and send data out.")
+      ) {
+        ev.target.checked = false;
+        return;
+      }
+      agentAct(
+        "Auto-approve",
+        "/settings/agents",
+        { auto_approve: on },
+        on ? "🚦 Auto-approve is on" : "🛑 Auto-approve is off",
+      );
+    },
+  });
+  const engineUrl = `${location.origin}/mcp`;
+  const grantRow = (g) =>
+    h(
+      "div",
+      { class: "card" },
+      h(
+        "div",
+        { class: "toolbar" },
+        h("b", null, `🤖 ${g.name}`),
+        h("span", { class: "chip" }, g.scope),
+        h("span", { class: "spacer" }),
+        h(
+          "button",
+          {
+            class: "btn small danger",
+            type: "button",
+            onclick: () =>
+              confirm(`Disconnect ${g.name}? Its tokens stop working now; its client asks you again next time.`) &&
+              agentAct("Revoke", `/mcp/grants/${encodeURIComponent(g.id)}/revoke`, {}, `🔌 Disconnected ${g.name}`),
+          },
+          "🔌 Disconnect",
+        ),
+      ),
+      h(
+        "p",
+        { class: "muted small" },
+        `${g.client_name} (OAuth) · ${g.pipelines ? `pipelines ${g.pipelines.join(", ")}` : "all pipelines"} · `,
+        g.last_used_at ? `last used ${fmtAge(Date.now() - Date.parse(g.last_used_at))} ago` : "not used yet",
+      ),
+    );
+  const tokenRow = (t) =>
+    h(
+      "div",
+      { class: "card" },
+      h("div", { class: "toolbar" }, h("b", null, `🔑 ${t.name}`), h("span", { class: "chip" }, t.scope)),
+      h(
+        "p",
+        { class: "muted small" },
+        `static token in config.yaml · ${t.pipelines ? `pipelines ${t.pipelines.join(", ")}` : "all pipelines"}`,
+      ),
+    );
+  show(
+    h(
+      "section",
+      { class: "hero" },
+      mascot(waiting.length ? "wow" : "happy", 72),
+      h(
+        "div",
+        { class: "hero-text" },
+        h("h1", null, "Agents 🔑"),
+        h(
+          "p",
+          { class: "muted" },
+          waiting.length
+            ? `${plural(waiting.length, "pipeline")} written by agents ${waiting.length === 1 ? "is" : "are"} waiting for you.`
+            : "Agents connected to this engine, and the pipelines they wrote.",
+        ),
+      ),
+    ),
+    waiting.length ? section("📬 Waiting for your approval", ...waiting.map(approvalCard)) : null,
+    held.length
+      ? section(
+          "✋ Changes waiting for you",
+          wrap(
+            h(
+              "table",
+              null,
+              thead(["Pipeline", "Proposal", "Agent", "Reason", ""]),
+              h(
+                "tbody",
+                null,
+                ...held.map((p) =>
+                  h(
+                    "tr",
+                    null,
+                    h("td", null, h("a", { href: `#/p/${encodeURIComponent(p.pipeline)}` }, p.pipeline)),
+                    h("td", { class: "mono" }, `${p.id} (v${p.base_version})`),
+                    h("td", null, p.author),
+                    h("td", null, p.reason),
+                    h(
+                      "td",
+                      null,
+                      h(
+                        "button",
+                        {
+                          class: "btn small primary",
+                          type: "button",
+                          onclick: () =>
+                            agentAct(
+                              "Apply",
+                              `/pipelines/${encodeURIComponent(p.pipeline)}/proposals/${encodeURIComponent(p.id)}/apply`,
+                              { by: "dashboard" },
+                              `🚀 Applied ${p.id}`,
+                            ),
+                        },
+                        "🚀 Apply",
+                      ),
+                      " ",
+                      h(
+                        "button",
+                        {
+                          class: "btn small danger",
+                          type: "button",
+                          onclick: () => {
+                            const reason = prompt(`Why reject ${p.id}?`);
+                            if (reason)
+                              agentAct(
+                                "Reject",
+                                `/pipelines/${encodeURIComponent(p.pipeline)}/proposals/${encodeURIComponent(p.id)}/reject`,
+                                { reason, by: "dashboard" },
+                                `Rejected ${p.id}`,
+                              );
+                          },
+                        },
+                        "❌",
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        )
+      : null,
+    section(
+      "🔌 Connected agents",
+      ...grants.grants.map(grantRow),
+      ...grants.tokens.map(tokenRow),
+      grants.grants.length || grants.tokens.length
+        ? null
+        : empty("No agents connected yet.", "Add this engine to an MCP client (below), and approve it here.", "sleepy"),
+    ),
+    others.length ? section("🗂️ Pipelines agents wrote", ...others.map(approvalCard)) : null,
+    section(
+      "🚦 Approval",
+      h(
+        "div",
+        { class: "card" },
+        h("label", { class: "toolbar" }, auto, h("b", null, " Auto-approve agent pipelines")),
+        h(
+          "p",
+          { class: "muted small" },
+          approvals.auto_approve
+            ? "On: what agents write runs without asking you, and their changes to it apply at once."
+            : "Off: you approve every pipeline an agent writes before it runs, and every change an agent proposes to one.",
+        ),
+      ),
+    ),
+    section(
+      "Connect one",
+      h(
+        "pre",
+        { class: "card mono" },
+        `claude mcp add --transport http pipo ${engineUrl}\n# then /mcp in Claude Code: your browser opens a page here to approve it`,
+      ),
+    ),
+  );
+}
+
+async function connectView(id) {
+  let req;
+  try {
+    req = await api(`/oauth/requests/${encodeURIComponent(id)}`);
+  } catch (e) {
+    if (e instanceof EngineDown) throw e;
+    return show(errorCard(e), h("p", null, h("a", { class: "btn", href: "#/agents" }, "🔑 Agents")));
+  }
+  const scope = h(
+    "select",
+    { class: "mono" },
+    ...req.scopes.map((s) => h("option", { value: s, ...(s === req.scope ? { selected: true } : {}) }, SCOPES[s] ?? s)),
+  );
+  scope.value = req.scope;
+  const note = h("p", { class: "small" });
+  const noteFor = () => {
+    note.replaceChildren(
+      scope.value === "author"
+        ? h(
+            "span",
+            { class: "chip warn wrap" },
+            "⚠️ It can write pipelines into your workspace; they run once you approve them on the Agents page.",
+          )
+        : "",
+    );
+  };
+  scope.onchange = noteFor;
+  noteFor();
+  const all = h("input", { type: "radio", name: "pipes", checked: true });
+  const some = h("input", { type: "radio", name: "pipes" });
+  const list = h("input", {
+    class: "mono",
+    placeholder: req.pipelines.slice(0, 3).join(", ") || "people-intake, invoices",
+    autocomplete: "off",
+    onfocus: () => {
+      some.checked = true;
+    },
+  });
+  const name = h("input", { class: "mono", value: req.suggested_name, autocomplete: "off", spellcheck: "false" });
+  const decide = async (verb) => {
+    let body = {};
+    if (verb === "approve") {
+      const picked = pipelineNames(list.value);
+      if (some.checked && (picked.bad.length || !picked.names.length))
+        return toast(
+          picked.bad.length ? `Not pipeline names: ${picked.bad.join(", ")}` : "Name at least one pipeline",
+          "bad",
+          "lowercase letters, digits and -, separated by commas",
+        );
+      body = { scope: scope.value, pipelines: some.checked ? picked.names : null, name: name.value.trim() };
+    }
+    try {
+      const res = await api(`/oauth/requests/${encodeURIComponent(id)}/${verb}`, body);
+      toast(verb === "approve" ? "🔑 Approved: back to your agent" : "Denied");
+      location.href = res.redirect;
+    } catch (e) {
+      if (e instanceof EngineDown) return napping();
+      toast(e.message, "bad", e.hint);
+    }
+  };
+  show(
+    h(
+      "section",
+      { class: "hero" },
+      mascot("wow", 72),
+      h(
+        "div",
+        { class: "hero-text" },
+        h("h1", null, "Connect an agent 🔑"),
+        h("p", null, h("b", null, req.client_name), " wants to use this engine over MCP."),
+        h(
+          "p",
+          { class: "muted small" },
+          "That name is the client's own claim; Pipo can't check it. Approve only if you just started this from your agent.",
+        ),
+      ),
+    ),
+    section(
+      "Where the token goes",
+      h(
+        "div",
+        { class: "card" },
+        h("p", { class: "mono" }, req.redirect_host),
+        req.redirect_local
+          ? h("p", { class: "muted small" }, "A program on this machine.")
+          : h("p", null, h("span", { class: "chip warn wrap" }, "⚠️ A website, not a program on this machine.")),
+      ),
+    ),
+    section(
+      "What it may do",
+      h(
+        "form",
+        {
+          class: "card",
+          onsubmit: (ev) => {
+            ev.preventDefault();
+            decide("approve");
+          },
+        },
+        botField("Scope", scope, `it asked for ${req.scope}; you decide`),
+        note,
+        h("label", { class: "toolbar" }, all, " All pipelines"),
+        h("label", { class: "toolbar" }, some, " Only these:"),
+        list,
+        botField("Name", name, "its actions are recorded under this name; reconnecting under it keeps its pipelines"),
+        h(
+          "div",
+          { class: "toolbar" },
+          h("button", { class: "btn primary", type: "submit" }, "✅ Approve"),
+          h("button", { class: "btn danger", type: "button", onclick: () => decide("deny") }, "🚫 Deny"),
+        ),
+        h("p", { class: "muted small" }, `This request expires at ${fmtTime(Date.parse(req.expires_at))}.`),
+      ),
+    ),
+  );
+}
+
 async function builderRoute(rest) {
   const { builderView } = await import("./builder.js");
   return builderView({ app, rest, show, setFresh: () => (fresh = true), napping, onEngine: setEngine });
@@ -1880,8 +2323,9 @@ async function builderRoute(rest) {
 function navActive(kind) {
   document
     .getElementById("nav-home")
-    .classList.toggle("on", kind !== "build" && kind !== "top" && kind !== "bots" && kind !== "settings");
+    .classList.toggle("on", !["build", "top", "bots", "settings", "agents", "connect"].includes(kind));
   document.getElementById("nav-bots").classList.toggle("on", kind === "bots");
+  document.getElementById("nav-agents").classList.toggle("on", kind === "agents" || kind === "connect");
   document.getElementById("nav-settings").classList.toggle("on", kind === "settings");
   document.getElementById("nav-top").classList.toggle("on", kind === "top");
   document.getElementById("nav-build").classList.toggle("on", kind === "build");
@@ -1901,16 +2345,20 @@ async function render() {
         ? () => botsView(name && decodeURIComponent(name))
         : kind === "settings"
           ? () => settingsView(name && decodeURIComponent(name))
-          : kind === "top"
-            ? topView
-            : kind === "p" && name
-              ? id
-                ? () => packetView(name, decodeURIComponent(id))
-                : () => pipelineView(name)
-              : listView;
+          : kind === "agents"
+            ? agentsView
+            : kind === "connect" && name
+              ? () => connectView(decodeURIComponent(name))
+              : kind === "top"
+                ? topView
+                : kind === "p" && name
+                  ? id
+                    ? () => packetView(name, decodeURIComponent(id))
+                    : () => pipelineView(name)
+                  : listView;
   // The builder manages its own DOM; live refreshes only re-render the dashboard views.
-  // The bots and settings pages hold forms: no live refresh under the user's typing.
-  const still = kind === "build" || kind === "bots" || kind === "settings";
+  // The bots, settings, agents and consent pages hold forms: no live refresh under the user's typing.
+  const still = ["build", "bots", "settings", "agents", "connect"].includes(kind);
   refresh = still
     ? null
     : async () => {

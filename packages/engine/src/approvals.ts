@@ -5,6 +5,7 @@
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
+import { inputsOf, load, type Pipeline } from "@pipo/spec";
 
 export type ApprovalState = "pending" | "approved" | "rejected";
 
@@ -50,6 +51,34 @@ export function folderHash(dir: string, files: string[]): string {
     h.update("\0");
   }
   return h.digest("hex");
+}
+
+/** What a pipeline reaches outside itself, for the human reading it before approval: kind → the places it does. */
+export function effectsOf(source: string): Record<string, string[]> {
+  let p: Pipeline | undefined;
+  try {
+    p = load(source).value as Pipeline | undefined;
+  } catch {}
+  if (!p || typeof p !== "object") return {};
+  const out: Record<string, string[]> = {};
+  const add = (kind: string, where: string) => {
+    out[kind] = [...(out[kind] ?? []), where];
+  };
+  for (const [name, i] of inputsOf(p)) {
+    if (i.via === "http") add("listens", p.inputs ? `inputs.${name}` : "input");
+    if (i.via === "watch") add("reads_files", p.inputs ? `inputs.${name}` : "input");
+  }
+  for (const [id, n] of Object.entries(p.nodes ?? {})) {
+    const step = n.tap ?? n.transform;
+    if (step === "exec") add("runs_programs", `nodes.${id}`);
+    if (step === "http" || step === "telegram") add("calls_out", `nodes.${id}`);
+    if (step === "file" || step === "sqlite") add("writes_files", `nodes.${id}`);
+    if (n.agent !== undefined) add("spends", `nodes.${id}`);
+  }
+  const to = p.output?.to;
+  if (to === "http" || to === "telegram" || to === "pipeline") add("calls_out", "output");
+  if (to === "file" || to === "sqlite") add("writes_files", "output");
+  return out;
 }
 
 export class Approvals {

@@ -1,8 +1,10 @@
 // Screenshots of every dashboard view (docs/spec.md §8) at 375 and 1440 px, light and dark, into /tmp/pipo-ui-shots/.
+// View names as arguments shoot only those (bun scripts/ui-shots.ts agents connect).
 // Starts an engine in a temp home with two example pipelines and some packets, drives headless Chrome over the
 // DevTools protocol (tabs need clicks; the theme is the UI's own localStorage "pipo-theme"), and kills everything by pid.
 //   bun scripts/ui-shots.ts
 import { type ChildProcess, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   cpSync,
   existsSync,
@@ -23,6 +25,7 @@ const OUT = "/tmp/pipo-ui-shots";
 const WORK = mkdtempSync("/tmp/pipo-ui-shots-work-");
 const HOME = join(WORK, "home");
 const PROJECT = join(WORK, "examples");
+const ONLY = process.argv.slice(2);
 const SIZES = [
   { width: 375, height: 812 },
   { width: 1440, height: 900 },
@@ -141,7 +144,10 @@ async function main() {
   const port = await freePort();
   const engine = spawn(
     "bun",
-    [join(ROOT, "packages/engine/src/main.ts"), "--home", HOME, "--listen", String(port), "--ttl", "1h"],
+    [
+      join(ROOT, "packages/engine/src/main.ts"),
+      ...["--home", HOME, "--listen", String(port), "--ttl", "1h", "--workspace", join(WORK, "pipes")],
+    ],
     { env, stdio: ["ignore", log("engine"), log("engine")] },
   );
   children.push(engine);
@@ -249,6 +255,85 @@ agent: { control: true }
   const dlq = await api(base, "/pipelines/people-intake/dlq");
   const dlqId: string = (dlq.items ?? dlq.packets ?? dlq.dlq ?? [])[0]?.packet_id;
   if (!dlqId) fail("find a dead-lettered packet", "people-intake's DLQ is empty");
+  // Agents (D81, D82): a grant made through OAuth, a pipeline it wrote that waits for approval, and a second
+  // connection request waiting on the consent page.
+  const redirect = "http://localhost:39017/callback";
+  const authorize = async (scope: string) => {
+    const reg = (await (
+      await fetch(`${base}/oauth/register`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ client_name: "Claude Code", redirect_uris: [redirect] }),
+      })
+    ).json()) as { client_id: string };
+    const verifier = "v".repeat(50);
+    const challenge = createHash("sha256").update(verifier).digest("base64url");
+    const query = new URLSearchParams({
+      response_type: "code",
+      client_id: reg.client_id,
+      redirect_uri: redirect,
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+      scope,
+      state: "shots",
+    });
+    const res = await fetch(`${base}/oauth/authorize?${query}`, { redirect: "manual" });
+    const id = (res.headers.get("location") ?? "").split("/connect/")[1] ?? fail("authorize", "no consent page");
+    return { client: reg.client_id, verifier, id };
+  };
+  const first = await authorize("author");
+  const approved = await api(base, `/oauth/requests/${first.id}/approve`, {
+    scope: "author",
+    pipelines: null,
+    name: "claude-code",
+  });
+  const tokens = (await (
+    await fetch(`${base}/oauth/token`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: new URL(approved.redirect).searchParams.get("code") ?? "",
+        client_id: first.client,
+        code_verifier: first.verifier,
+      }),
+    })
+  ).json()) as { access_token: string };
+  const created = (await (
+    await fetch(`${base}/mcp`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${tokens.access_token}` },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "create_pipeline",
+          arguments: {
+            pipeline: "weather-digest",
+            reason: "Every morning: fetch the forecast and keep a one-line digest.",
+            source: `pipo: 1
+name: weather-digest
+description: The morning forecast as a one-line digest.
+fn: ./digest.ts
+input: { via: schedule, with: { cron: "0 7 * * *" } }
+nodes:
+  forecast: { from: input, transform: http, with: { url: "https://api.example.com/forecast" } }
+  digest: { from: forecast, transform: fn.digest }
+output: { from: digest, to: file, with: { path: ./digests.jsonl, format: jsonl } }
+agent: { control: true, actions: [stop] }
+`,
+            files: {
+              "digest.ts": "export function digest(data) {\n  return { line: `${data.summary}, ${data.high}°` };\n}\n",
+            },
+          },
+        },
+      }),
+    })
+  ).json()) as { result?: { isError?: boolean; content: { text: string }[] } };
+  if (!created.result || created.result.isError) fail("create_pipeline", JSON.stringify(created).slice(0, 400));
+  const consent = await authorize("read operate edit author");
+
   await sleep(6000); // heartbeat ticks
 
   const dbgPort = await freePort();
@@ -280,7 +365,7 @@ agent: { control: true }
 
   const clickTab = (t: string) =>
     cdp.js(
-      `(async()=>{const b=[...document.querySelectorAll("button.tab")].find(x=>x.textContent===${JSON.stringify(t)});` +
+      `(async()=>{const b=[...document.querySelectorAll("button.tab")].find(x=>x.textContent.toLowerCase().endsWith(${JSON.stringify(t.toLowerCase())}));` +
         `if(!b)throw new Error("no tab ${t}");b.click();await new Promise(r=>setTimeout(r,800));})()`,
     );
   const hold = (path: string) => () => api(base, path, {}).then(() => sleep(1000));
@@ -317,6 +402,8 @@ agent: { control: true }
     { name: "packet-dlq", hash: `#/p/people-intake/${encodeURIComponent(dlqId)}`, contains: "Packet" },
     { name: "hostile-list", hash: "#/p/shots-lab", tab: "overview", contains: "Recent packets" },
     { name: "hostile-packet", hash: `#/p/shots-lab/${encodeURIComponent(hostileId)}`, contains: "Packet" },
+    { name: "agents", hash: "#/agents", contains: "Waiting for your approval" },
+    { name: "connect", hash: `#/connect/${consent.id}`, contains: "Connect an agent" },
   ];
 
   let count = 0;
@@ -326,12 +413,13 @@ agent: { control: true }
       await cdp.send("Emulation.setDeviceMetricsOverride", metrics);
       await cdp.send("Page.navigate", { url: `${base}/ui/` });
       await sleep(800);
-      // Click the UI's own toggle until its label names the theme, so label, storage and colours agree.
+      // Click the UI's own toggle until the page is in the theme, so its icon, storage and colours agree.
       await cdp.js(
-        `(()=>{const b=document.getElementById("theme");for(let i=0;i<3&&b.textContent.toLowerCase()!==${JSON.stringify(theme)};i++)b.click();` +
-          `if(b.textContent.toLowerCase()!==${JSON.stringify(theme)})throw new Error("theme toggle did not reach ${theme}");})()`,
+        `(()=>{const b=document.getElementById("theme");const at=()=>document.documentElement.dataset.theme??"auto";` +
+          `for(let i=0;i<3&&at()!==${JSON.stringify(theme)};i++)b.click();` +
+          `if(at()!==${JSON.stringify(theme)})throw new Error("theme toggle did not reach ${theme}");})()`,
       );
-      for (const v of views) {
+      for (const v of views.filter((x) => !ONLY.length || ONLY.includes(x.name))) {
         await v.before?.();
         await cdp.js(`location.hash = ${JSON.stringify(v.hash)}`);
         await sleep(600);

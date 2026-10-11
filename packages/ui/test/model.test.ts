@@ -13,6 +13,12 @@ const L: any = await import(layoutPath);
 const errors = (p: unknown) => check(JSON.stringify(p)).filter((d) => d.severity === "error" && d.code !== "P014");
 
 describe("model", () => {
+  test("pipelineNames: valid names once each, the rest reported", () => {
+    expect(M.pipelineNames("a, b  a\nc-1")).toEqual({ names: ["a", "b", "c-1"], bad: [] });
+    expect(M.pipelineNames("Bad, ok, -x")).toEqual({ names: ["ok"], bad: ["Bad", "-x"] });
+    expect(M.pipelineNames("")).toEqual({ names: [], bad: [] });
+  });
+
   test("rerunFrom: the node a trace step ran, `output` for the write, nothing for the input or markers", () => {
     const at = (event: string, node: string | null) => M.rerunFrom({ event, node });
     expect(at("node.done", "stamp")).toBe("stamp");
