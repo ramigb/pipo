@@ -38,12 +38,13 @@ For another static host, upload the contents of `site/` directly and set `og:ima
 
 ## Content and interactions
 
-- The downloadable `heartbeat.pipo` is the exact compact example shown in the homepage and root README, derived from `examples/heartbeat`. Validate it with `bun pipo check site/heartbeat.pipo`. Its relative output path resolves beside the downloaded file.
-- The file/graph comparison highlights corresponding YAML blocks on hover or keyboard focus.
-- Delivery stages can be selected to read their meaning. The lifecycle uses the spec's `accepted`, `processing`, `writing`, `verifying` and `delivered` states; journaling is an acceptance boundary, not a new state.
-- The crash/recovery demonstration is a finite client-side simulation. It shows recovery from the last committed node, followed by pending work. It does not execute Pipo or demonstrate exactly-once side effects.
-- Dashboard and builder previews are explicitly illustrative, with selectable views. They reflect existing capabilities; they are not screenshots or a functional pipeline editor.
-- Packet motion is decorative and can be paused. Reduced motion disables animation; the recovery simulation switches immediately to its completed state.
-- Copy controls require the clipboard API; if unavailable, they select the command text for manual copying. Core content, links, commands, previews and the static recovery state remain readable without JavaScript.
+The page pitches Pipo as it is today: small, local pipelines for personal and small-team glue, one file each, that an agent can write. Keep claims to what works now; anything planned is marked as such (dashed chips, the "isn't" list).
 
-For factual updates, check `docs/spec.md`, `docs/roadmap.md`, the connector/provider implementations and `examples/`. Keep planned features in the separately labelled roadmap area. CLI agent USD budgets depend on reported cost or configured token pricing; repeated side effects remain possible under at-least-once delivery.
+- **Manifold** (hero): four example pipelines side by side. Packets flow on their own while it's on screen; clicking or pressing Enter on a source sends one. Decorative.
+- **Playground**: four pipelines (`telegram-echo`, `ticket-triage`, `audio-to-video`, `heartbeat`). The YAML is in `app.js` (`RECIPES`), and each must pass `pipo check`: extract the `source:` strings (unescape `\${`) into a folder with a `triage.schema.json` and run `bun pipo check` on it. The runner beside it is a toy that mirrors the real semantics: journal before ack, one commit per step, resume from the last commit after "Pull the plug" (the uncommitted step runs again; a Telegram send can repeat, idempotent writes don't), what each input does while the runner is down, a failed write dead-lettered under the default `retry: 0`, and DLQ replay at the output. It is labelled as simulated.
+- **Ask Claude**: a scripted Claude Code session using the real MCP tool names (`check_pipo`, `create_pipeline`, `test_pipeline`, `list_approvals`, `start_pipeline`). It stops at the approval step until the visitor approves or rejects. The `invoice-ping` pipeline it shows must pass `pipo check` too.
+- **What plugs in** lists the connectors and steps in `packages/spec/src/manifests.ts`; dashed chips are roadmap items from `docs/roadmap.md`.
+- Reduced motion turns the animations off (the manifold counts without moving; the session prints at once). Copy buttons fall back to selecting the text. Nothing is fetched: no fonts, APIs or libraries. Without JavaScript, the playground shows a link to `examples/`.
+- `social-card.png` is 1200 × 630 and repeats the hero headline.
+
+For factual updates, check `docs/spec.md`, `docs/roadmap.md`, `docs/guide/install.md` and `examples/`.
