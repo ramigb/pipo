@@ -262,7 +262,11 @@ Read the runner's log with `pipo logs hello` (`-f` to follow).
 pipo ui
 ```
 
-This prints the dashboard's address (for example `http://127.0.0.1:4747/ui`) and opens it in your browser. The dashboard shows the pipeline list, a live graph with packets moving along its edges, the packet inspector, logs, the dead-letter queue and version history. Its builder (**✏️ Edit**) opens `hello.pipo` on a canvas. See [Dashboard](dashboard.md) and [Builder](builder.md).
+This prints the dashboard's address (for example `http://127.0.0.1:4747/ui`) and opens it in your browser.
+
+The first time, the dashboard asks you to create its **owner**: the one account that runs this engine. `pipo ui` fills in the one-time setup code for you, so you only choose a username and a password (the email is optional, for reset links). After that the dashboard asks you to log in, while the `pipo` CLI keeps working without one. See [Owner and remote access](owner.md).
+
+The dashboard shows the pipeline list, a live graph with packets moving along its edges, the packet inspector, logs, the dead-letter queue and version history. Its builder (**✏️ Edit**) opens `hello.pipo` on a canvas. See [Dashboard](dashboard.md) and [Builder](builder.md).
 
 ## 10. Stop
 

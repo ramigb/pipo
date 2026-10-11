@@ -138,9 +138,11 @@ CLI agents (`claude_code`, `codex`, `pi`, `opencode`) use the account the CLI is
 
 ## The security model
 
-- **Local by default.** The engine binds to `127.0.0.1`. Exposing an http input to a network is your explicit choice (a reverse proxy, a tunnel). Protect such inputs with `auth`: a shared header token (`header` + `equals`), or an HMAC signature of the raw body (`hmac: {header, secret, algorithm}`), checked in constant time before anything is journaled. See [Inputs](inputs.md).
+- **Local by default.** The engine binds to `127.0.0.1`. Exposing it is your explicit choice (`engine.host` with `engine.public_url`, behind a reverse proxy that terminates TLS), and needs the owner's login. Even then, an http input takes requests from the network only with `auth` or `public: true`. See [Owner and remote access](owner.md).
+- **One owner.** The dashboard and the API need the owner's login, or the engine key in the Pipo home, which the CLI sends. The password is hashed with argon2id, sessions are kept as digests only, and failed logins are rate-limited.
+- **Inputs check their callers.** Protect an exposed input with `auth`: a shared header token (`header` + `equals`), or an HMAC signature of the raw body (`hmac: {header, secret, algorithm}`), checked in constant time before anything is journaled. See [Inputs](inputs.md).
 - **Secrets by reference.** Never in `.pipo` files, the journal, logs or agent responses.
-- **Agents are scoped.** MCP access uses named bearer tokens, from `config.yaml` or from OAuth grants you approved on the local dashboard, with a scope (`read`, `operate`, `edit`, `author`) and an optional pipeline allowlist, on top of each pipeline's own `agent:` policy. A pipeline an agent writes doesn't start until you approve it, and approval is tied to its files' hash. Agents can never change `secrets`, `output`, `delivered`, `agent` or `agent_budget` through a proposal. Every change is versioned with its author.
+- **Agents are scoped.** MCP access uses named bearer tokens, from `config.yaml` or from OAuth grants the owner approved on the dashboard, with a scope (`read`, `operate`, `edit`, `author`) and an optional pipeline allowlist, on top of each pipeline's own `agent:` policy. A pipeline an agent writes doesn't start until you approve it, and approval is tied to its files' hash. Agents can never change `secrets`, `output`, `delivered`, `agent` or `agent_budget` through a proposal. Every change is versioned with its author.
 - **Code is trusted.** `fn` modules, exec steps and connectors run as you. `fn` modules run in QuickJS without system APIs, and each pipeline is its own process, but neither is a reviewed sandbox. Templates from outside your project are untrusted until `pipo trust` records their content hash, and again after they change (P052). Sandboxing `fn` modules is planned.
 - **Isolation.** Each pipeline runs in its own process with its own journal. A crash, or a misbehaving function, affects only that pipeline.
 
@@ -148,4 +150,5 @@ CLI agents (`claude_code`, `codex`, `pi`, `opencode`) use the account the CLI is
 
 - [Configuration](configuration.md): `config.yaml` and the Pipo home
 - [Inputs](inputs.md): http authentication
+- [Owner and remote access](owner.md): the login, the engine key and exposing the engine
 - Spec: [§3.7 secrets](../spec.md#37-secrets), [§11 security](../spec.md#11-security)

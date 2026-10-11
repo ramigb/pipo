@@ -5,7 +5,7 @@ description: Build, test, run and operate Pipo pipelines (.pipo files) through t
 
 # Pipo
 
-Pipo runs **pipelines**: one `.pipo` YAML file each, from an input, through nodes, to exactly one output. Every packet is journaled, so each step is traceable and nothing is lost in a crash. You work through the `pipo` MCP server (the engine at `http://127.0.0.1:4747/mcp`). If its tools are missing, the engine isn't running or isn't connected: ask the user to run `pipo engine start`, then `/mcp` to connect (their browser opens a Pipo page to approve you; building pipelines needs the **author** scope).
+Pipo runs **pipelines**: one `.pipo` YAML file each, from an input, through nodes, to exactly one output. Every packet is journaled, so each step is traceable and nothing is lost in a crash. You work through the `pipo` MCP server (the engine at `http://127.0.0.1:4747/mcp`). If its tools are missing, the engine isn't running or isn't connected: ask the user to run `pipo engine start`, then `/mcp` to connect (their browser opens a Pipo page where they log in as the engine's owner and approve you; building pipelines needs the **author** scope).
 
 ## Building a pipeline
 

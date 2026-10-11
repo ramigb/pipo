@@ -139,7 +139,7 @@ Pipo never picks a port for an HTTP input by itself, except behind the gateway:
 
 Before a start, the engine checks that the port is free. If it isn't, the start is refused with the pipeline or the process (pid and command line) that holds it, and a hint to stop it or pass another `--listen`. `pipo check` on several files warns when two pipelines declare the same port (P039).
 
-Everything binds to `127.0.0.1`. Exposing an input to a network is your choice: put a reverse proxy in front of it.
+Everything binds to `127.0.0.1`. To reach inputs from other machines, expose the engine (`engine.host` and `engine.public_url`, behind a reverse proxy) and give each input `auth`, or mark it `public: true`. Inputs without either refuse requests from the network. See [Owner and remote access](owner.md#exposing-the-engine).
 
 ## Finding runners: `pipo runners` and `pipo attach`
 

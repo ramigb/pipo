@@ -54,6 +54,8 @@ bun install
 bun pipo ui                      # starts the engine and opens the dashboard and builder
 ```
 
+The first visit asks you to create the engine's **owner**, its one account: `pipo ui` fills in the one-time setup code, and you choose a username and password. The CLI needs no login, because it reads the engine key from the Pipo home. See [Owner and remote access](docs/guide/owner.md).
+
 Or from the terminal:
 
 ```sh
@@ -74,7 +76,7 @@ The engine is an MCP server at `http://127.0.0.1:4747/mcp`. Install the Pipo plu
 /plugin install pipo --marketplace ramigb/pipo
 ```
 
-Then run `bun pipo engine start` and `/mcp` in Claude Code: your browser opens a Pipo page where you approve the connection. Whatever Claude writes waits for your approval on the dashboard's **🔑 Agents** page before it runs. See [Agents that build pipelines](docs/guide/agent-authoring.md).
+Then run `bun pipo engine start` and `/mcp` in Claude Code: your browser opens a Pipo page where, logged in as the owner, you approve the connection. Whatever Claude writes waits for your approval on the dashboard's **🔑 Agents** page before it runs. See [Agents that build pipelines](docs/guide/agent-authoring.md).
 
 ## Why Pipo?
 
@@ -112,6 +114,7 @@ Phase 1 (the MVP in spec §12) is done, and Phase 2 has started: the visual buil
 - Agent nodes, through the Anthropic API or a local CLI (see [Agents](#agents)), with schemas, timeouts and `agent_budget` (per packet, per day, and engine-wide).
 - The MCP endpoint `/mcp` and the change protocol for agents (proposals, validation, dry run, apply as a new version).
 - Agents that build pipelines (spec §9.4): an `author` scope, human approval on the dashboard's **🔑 Agents** page (or auto-approve), OAuth sign-in for MCP clients, and a Claude Code plugin.
+- One owner per Pipo home (spec D84–D86): a dashboard login, the engine key for the CLI, password reset with `pipo owner reset` or a link by email, and an engine that can be exposed beyond loopback (`engine.host`, `engine.public_url`), where http inputs take requests from the network only with `auth` or `public: true`.
 - The engine (`pipod`): supervisor, gateway, SSE events, detached runners and reattach, per-node latency and oldest-pending metrics, and CPU and memory per pipeline.
 - The CLI (including `pipo test` and `pipo proposals`), the dashboard with its drag-and-drop builder, and the VS Code extension.
 
@@ -136,7 +139,8 @@ A detached runner keeps running when the engine dies; the next engine (or `pipo 
 - **Dashboard:** the pipeline list with stats (pipelines in the workspace that aren't running are listed under 🧰 Ready to run, with a ▶️ Run button), a live graph where packets travel along the edges, a packet inspector that shows what each step changed, a log tail, the agent feed, the dead-letter queue with replay, version history with diffs, and pause, resume, drain, stop, restart and start controls. Each pipeline's page has a 🧪 card to send it a test packet and an ✏️ Edit button that opens it in the builder.
 - **🧮 Tasks** (`#/top`): a task manager with every pipeline's state, runner pid, CPU, memory, process count, throughput and pending count, refreshed every 2 s, with the controls on each row.
 - **🤖 Bots** (`#/bots`): add, edit, test and remove Telegram bots, and pick the default one.
-- **⚙️ Settings** (`#/settings`): the workspace, the folder the builder saves new pipelines in. Walk folders or type a path. The choice applies at once and is saved as `engine.workspace` in `config.yaml`.
+- **⚙️ Settings** (`#/settings`): the workspace, the folder the builder saves new pipelines in. Walk folders or type a path. The choice applies at once and is saved as `engine.workspace` in `config.yaml`. The 👤 Owner section changes the password and email and logs out.
+- **Owner pages**: first-run setup (`#/setup`), login, and password reset by email (`#/forgot`) when `engine.mail` is set. Without mail, `pipo owner reset` on the engine's machine sets a new password.
 - **Builder** (`#/build`): drag blocks from a palette onto a canvas, wire them port to port, and fill them in with forms generated from each connector's schema. `pipo check` runs live, with badges on the blocks and one-click fixes for some problems. 🧪 Test dry-runs the draft against sample packets (nothing is called or written). Save writes the `.pipo` file and keeps its comments; Save & run starts it too.
 - When the engine is down, the dashboard says how to wake it and reconnects by itself. When the engine is older than the code on disk, it offers to restart it.
 
@@ -197,7 +201,7 @@ Run `bun pipo help <command>` for details. Every command except `run` (which str
 | Observe | `status`, `logs`, `runners`, `packets`, `inspect` |
 | Recover | `dlq` (`replay`, `purge`), `rerun`, `push`, `ack`, `attach` |
 | Versions | `history`, `diff`, `rollback` |
-| Engine and UI | `engine start\|stop\|status`, `ui` |
+| Engine and UI | `engine start\|stop\|status`, `ui`, `owner` (`reset`) |
 | Agents | `proposals` (`show`, `propose`, `apply`, `reject`), `resolve` |
 
 ## Examples

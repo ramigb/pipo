@@ -10,7 +10,7 @@ pipo ui --workspace ~/pipes   # where the builder saves new pipelines (when it s
 
 `pipo ui --json` prints `{url, started, pid, workspace}`. An open dashboard keeps the engine awake: the idle clock only starts once the last tab closes.
 
-The top bar has **🏠 Pipelines**, **🧮 Tasks**, **🛠️ Builder**, **🔑 Agents**, **🤖 Bots** and **⚙️ Settings**, the engine's status, the live event stream's status, and **🌗** to switch between the light and dark themes (it follows your system until you pick one). Animations respect your system's reduced-motion setting.
+The top bar has **🏠 Pipelines**, **🧮 Tasks**, **🛠️ Builder**, **🔑 Agents**, **🤖 Bots** and **⚙️ Settings**, the engine's status, the live event stream's status, **👤** with the owner's name (it opens Settings), and **🌗** to switch between the light and dark themes (it follows your system until you pick one). Animations respect your system's reduced-motion setting.
 
 ## Pipelines
 
@@ -93,6 +93,7 @@ The Telegram bots of this Pipo home (`#/bots`): add, edit, rename, test, make on
 ## ⚙️ Settings
 
 - **🔌 Engine**: its pid, address and start time, with **🔄 Restart engine** and **⏻ Stop engine**.
+- **👤 Owner**: the owner's email, with **📨 Send test email** once `engine.mail` is set; **🔑 Change password**; **👋 Log out** and **🚪 Log out everywhere**. With `engine.auth: open` it says there is no login. See [Owner and remote access](owner.md).
 - **📁 Workspace**: the folder the builder saves new pipelines in, and where **🧰 Ready to run** looks for files. Pick one by walking folders from the current one, or type a path. A missing folder can be created. The choice applies at once and is saved as `engine.workspace` in `config.yaml`, so the next engine uses it too. Pipelines already saved stay where they are.
 
 The workspace defaults to the folder the engine was started from. `pipo ui --workspace <dir>` or `pipod --workspace <dir>` set it for one engine, and a choice made here wins over both.
@@ -105,4 +106,4 @@ The workspace defaults to the folder the engine was started from. `pipo ui --wor
 
 ## Security
 
-The dashboard needs the owner's login (the first visit creates the owner with a setup code, see [Owner and remote access](owner.md)). It answers only on `127.0.0.1` unless you expose the engine, and only to requests whose `Host` is a loopback name or `engine.public_url`'s host. Pages from other origins are refused, the session cookie is `SameSite=Strict`, and every API `POST` must be JSON. A web page you visit can't drive your engine. Data from pipelines is always rendered as text.
+The dashboard needs the owner's login. The first visit creates the owner with a setup code (`#/setup`; `pipo ui` fills it in), and after that a `401` sends you to **Log in** (`#/login`) and back. **Forgot your password?** (`#/forgot`) emails a reset link when `engine.mail` is set, and otherwise names `pipo owner reset`. See [Owner and remote access](owner.md). It answers only on `127.0.0.1` unless you expose the engine, and only to requests whose `Host` is a loopback name or `engine.public_url`'s host. Pages from other origins are refused, the session cookie is `SameSite=Strict`, and every API `POST` must be JSON. A web page you visit can't drive your engine. Data from pipelines is always rendered as text.

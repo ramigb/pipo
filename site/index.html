@@ -252,7 +252,7 @@
           <ul>
             <li><b>Your editor</b><span>VS Code schema and highlighting</span></li>
             <li><b>The CLI</b><span><code>check</code>, <code>test</code>, <code>run</code>, <code>--json</code> everywhere</span></li>
-            <li><b>The dashboard</b><span>live graph, packet inspector, DLQ, a builder that saves the file</span></li>
+            <li><b>The dashboard</b><span>behind your login: live graph, packet inspector, DLQ, a builder that saves the file</span></li>
             <li><b>MCP</b><span>scoped tokens for agents that operate or author</span></li>
           </ul>
         </div>
@@ -267,14 +267,14 @@
               <ul>
                 <li>one readable file per pipeline, in Git</li>
                 <li>for personal and small-team glue</li>
-                <li>running on your laptop or a box you own</li>
+                <li>running on your laptop, or a box you own behind your login</li>
                 <li>happy to be written and run by an agent</li>
               </ul>
             </div>
             <div>
               <p class="kicker">pipo isn't</p>
               <ul>
-                <li>a hosted service or a SaaS</li>
+                <li>a hosted or multi-user service: one owner, no roles</li>
                 <li>a Kafka, Airflow or BPM replacement</li>
                 <li>exactly-once (it's at-least-once)</li>
                 <li>finished: no packaged release yet</li>
@@ -301,7 +301,7 @@
             </div>
             <pre tabindex="0"><code id="cmd-install">git clone https://github.com/ramigb/pipo.git && cd pipo
 bun install
-bun pipo ui        # opens the dashboard and builder</code></pre>
+bun pipo ui        # pick your owner login, then the dashboard</code></pre>
           </div>
           <div class="term">
             <div class="pane-bar">
@@ -310,8 +310,8 @@ bun pipo ui        # opens the dashboard and builder</code></pre>
             </div>
             <pre tabindex="0"><code id="cmd-plugin">/plugin install pipo --marketplace ramigb/pipo</code></pre>
             <p class="fine">
-              Then <code>bun pipo engine start</code> and <code>/mcp</code>. You approve the connection in your
-              browser.
+              Then <code>bun pipo engine start</code> and <code>/mcp</code>. You log in and approve the connection
+              in your browser.
             </p>
           </div>
         </div>

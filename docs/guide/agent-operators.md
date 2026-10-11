@@ -22,7 +22,7 @@ Agents never change Pipo's own code at runtime. They change `.pipo` files, throu
    claude mcp add --transport http pipo http://127.0.0.1:4747/mcp
    ```
 
-2. **Approve it in the browser.** In Claude Code, run `/mcp` and pick `pipo`. Your browser opens the Pipo dashboard on a **🔑 Connect an agent** page: pick what it may do (its scope), which pipelines it may see, and the name its actions are recorded under, then **Approve**. Claude Code gets a token and refreshes it by itself.
+2. **Approve it in the browser.** In Claude Code, run `/mcp` and pick `pipo`. Your browser opens the Pipo dashboard on a **🔑 Connect an agent** page (log in as the [owner](owner.md) first if you aren't): pick what it may do (its scope), which pipelines it may see, and the name its actions are recorded under, then **Approve**. Claude Code gets a token and refreshes it by itself.
 
 3. **Let the pipeline be operated** by agents, in its `.pipo` file:
 
@@ -62,11 +62,11 @@ claude mcp add --transport http pipo http://127.0.0.1:4747/mcp \
 
 ## The MCP endpoint
 
-The engine serves an MCP server at `/mcp` on its gateway (port 4747 by default, or `engine.listen`, on `127.0.0.1`).
+The engine serves an MCP server at `/mcp` on its gateway (port 4747 by default, or `engine.listen`, on `127.0.0.1` unless `engine.host` exposes it).
 
 - **Transport.** Streamable HTTP without sessions: each POST carries one JSON-RPC message and gets a JSON answer. Notifications get `202`. There is no server stream, so GET and DELETE are `405`. Batches are refused. Revisions `2025-06-18` and `2025-11-25` are supported.
 - **Methods.** `initialize`, `ping`, `tools/list`, `tools/call`, `resources/list`, `resources/templates/list`, `resources/read`.
-- **Local only.** Like `/api`, it answers only requests addressed to a loopback host (`127.0.0.1`, `localhost`, `[::1]`). A non-loopback `Origin` is `403`, and bodies over 4 MiB are `413`.
+- **Addressed to this engine.** Like `/api`, it answers only requests addressed to a loopback host (`127.0.0.1`, `localhost`, `[::1]`) or to the host of `engine.public_url` (see [Owner and remote access](owner.md#exposing-the-engine)). Any other `Origin` is `403`, and bodies over 4 MiB are `413`.
 - **The same operations** are available over REST and through `pipo … --json`. MCP tools call the REST handlers, so their answers, errors and hints are the same.
 
 ### Tokens and scopes

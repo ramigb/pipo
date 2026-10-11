@@ -87,6 +87,9 @@ Everything Pipo writes at runtime lives in one folder, the **Pipo home**: `~/.pi
 ```text
 ~/.pipo/
   config.yaml                  engine and agent settings (optional)
+  owner.json                   the owner: username, password hash, optional email
+  sessions.json                the owner's dashboard sessions (digests only)
+  engine.key                   the key the CLI sends instead of a login
   bots.json                    Telegram bots (made from the dashboard)
   trust.json                   trusted templates and projects
   approvals.json               pipelines agents wrote, and their approval

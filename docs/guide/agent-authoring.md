@@ -14,7 +14,7 @@ The Pipo plugin gives Claude Code a **Pipo skill**, which teaches it the authori
 /plugin install pipo --marketplace ramigb/pipo
 ```
 
-On Claude Code before 2.1.275, add the marketplace first: `/plugin marketplace add ramigb/pipo`, then `/plugin install pipo@pipo`. Start the engine (`pipo engine start`) and run `/mcp` to connect: the consent page opens in your browser.
+On Claude Code before 2.1.275, add the marketplace first: `/plugin marketplace add ramigb/pipo`, then `/plugin install pipo@pipo`. Start the engine (`pipo engine start`) and run `/mcp` to connect: the consent page opens in your browser, after you log in as the engine's [owner](owner.md).
 
 The plugin lives in [`plugins/pipo`](https://github.com/ramigb/pipo/tree/main/plugins/pipo). Other agents get the same guidance from the engine itself: every guide page is an MCP resource, `pipo://docs/guide/<page>.md`, and so is a Markdown summary of every connector, `pipo://docs/reference/connectors.md`.
 
