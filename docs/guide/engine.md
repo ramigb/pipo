@@ -48,7 +48,7 @@ The checker is written once, in TypeScript. When a runner starts, applies a chan
 ```text
 $ pipo engine status
 engine: up (ready)
-pid 8485 · gateway 127.0.0.1:41985 · uptime 24s
+pid 8485 · gateway 127.0.0.1:4747 · uptime 24s
 pipelines 1 · idle no · ttl none
 ```
 
@@ -134,6 +134,8 @@ Everything the engine and runners keep lives in one folder, `~/.pipo` by default
 | `config.yaml` | Engine and agent settings. See [Configuration](configuration.md). |
 | `bots.json` | Telegram bots (mode 0600). See [Telegram bots](telegram.md). |
 | `trust.json` | Templates you trusted with `pipo trust`. See [Templates and generators](scaffolding.md#trust). |
+| `approvals.json` | Pipelines agents wrote and their approval state (mode 0600). See [Agents that build pipelines](agent-authoring.md). |
+| `mcp-grants.json` | Agents connected over OAuth: their grants and the SHA-256 digests of their tokens (mode 0600). See [Agents as operators](agent-operators.md). |
 | `templates/` | Your own templates for `pipo new`. |
 | `pipelines/<name>/journal.db` | The pipeline's journal: packets, events, versions, proposals, the DLQ. |
 | `pipelines/<name>/files/` | Files downloaded by a telegram input. |

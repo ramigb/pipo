@@ -52,7 +52,7 @@ The dashboard and its drag-and-drop builder are served by the engine. They read 
 
 ## What Pipo isn't
 
-- **Not a workflow or approval tool.** There are no human-approval steps or BPM-style processes.
+- **Not a workflow or approval tool.** Pipelines have no human-approval steps or BPM-style processes. (You do approve the pipelines agents write before they run: see [Agents that build pipelines](agent-authoring.md).)
 - **Not multi-tenant or hosted.** It runs on your machine or your own server. It binds to `127.0.0.1` by default.
 - **Not exactly-once.** Pipo guarantees **at-least-once** delivery, plus idempotency keys at the output. A side effect in the middle of a pipeline can run twice after a crash. See [Core concepts](concepts.md#at-least-once-delivery).
 - **Agents don't change engine code.** They change `.pipo` files through a validated, audited protocol.
@@ -69,7 +69,7 @@ Pipo runs on Linux and macOS.
 | Write pipelines | [The .pipo file](pipo-file.md), [Inputs](inputs.md), [Nodes and the graph](nodes.md), [Outputs](outputs.md), [Delivery checks](delivery.md), [Expressions and templates](expressions.md) |
 | Add code or programs | [User functions](functions.md), [Running programs](exec.md) |
 | Handle failures | [Error policies](errors.md), [Recovering packets](recovery.md) |
-| Use AI agents | [Agent nodes](agent-nodes.md), [Agents as operators](agent-operators.md), [Live changes and proposals](change-protocol.md) |
+| Use AI agents | [Agent nodes](agent-nodes.md), [Agents as operators](agent-operators.md), [Agents that build pipelines](agent-authoring.md), [Live changes and proposals](change-protocol.md) |
 | Run pipelines for real | [Running pipelines](running.md), [The engine](engine.md), [Observing pipelines](observing.md) |
 | Work visually | [Dashboard](dashboard.md), [Builder](builder.md) |
 | Test and scaffold | [Testing](testing.md), [Templates and generators](scaffolding.md), [Editor support](editor.md) |

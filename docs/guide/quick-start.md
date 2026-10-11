@@ -262,7 +262,7 @@ Read the runner's log with `pipo logs hello` (`-f` to follow).
 pipo ui
 ```
 
-This prints the dashboard's address (for example `http://127.0.0.1:32925/ui`) and opens it in your browser. The dashboard shows the pipeline list, a live graph with packets moving along its edges, the packet inspector, logs, the dead-letter queue and version history. Its builder (**✏️ Edit**) opens `hello.pipo` on a canvas. See [Dashboard](dashboard.md) and [Builder](builder.md).
+This prints the dashboard's address (for example `http://127.0.0.1:4747/ui`) and opens it in your browser. The dashboard shows the pipeline list, a live graph with packets moving along its edges, the packet inspector, logs, the dead-letter queue and version history. Its builder (**✏️ Edit**) opens `hello.pipo` on a canvas. See [Dashboard](dashboard.md) and [Builder](builder.md).
 
 ## 10. Stop
 
@@ -278,3 +278,4 @@ pipo engine stop         # optional: the engine also sleeps by itself when idle
 - Make delivery stricter or looser: [Delivery checks](delivery.md).
 - Decide what happens on failure: [Error policies](errors.md).
 - Browse complete pipelines: [Examples](../reference/examples.md).
+- Let Claude Code build and run pipelines for you, with your approval: [Agents that build pipelines](agent-authoring.md).

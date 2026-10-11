@@ -111,6 +111,7 @@ Phase 1 (the MVP in spec §12) is done, and Phase 2 has started: the visual buil
 - Several inputs per pipeline (`inputs:`, spec §3.3.1), and chains: one pipeline's output (`to: pipeline`) feeds another's `via: pipeline` input exactly once, with an end-to-end `downstream` delivery check (spec §3.14; see `examples/signup-intake`).
 - Agent nodes, through the Anthropic API or a local CLI (see [Agents](#agents)), with schemas, timeouts and `agent_budget` (per packet, per day, and engine-wide).
 - The MCP endpoint `/mcp` and the change protocol for agents (proposals, validation, dry run, apply as a new version).
+- Agents that build pipelines (spec §9.4): an `author` scope, human approval on the dashboard's **🔑 Agents** page (or auto-approve), OAuth sign-in for MCP clients, and a Claude Code plugin.
 - The engine (`pipod`): supervisor, gateway, SSE events, detached runners and reattach, per-node latency and oldest-pending metrics, and CPU and memory per pipeline.
 - The CLI (including `pipo test` and `pipo proposals`), the dashboard with its drag-and-drop builder, and the VS Code extension.
 

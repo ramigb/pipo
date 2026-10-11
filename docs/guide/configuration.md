@@ -27,6 +27,8 @@ pipo run examples/heartbeat/heartbeat.pipo
 | `config.yaml` | Engine and agent settings (below). Optional: a missing file means every default. |
 | `bots.json` | Telegram bots (mode 0600). See [Telegram bots](telegram.md). |
 | `trust.json` | Templates you've trusted with `pipo trust`. |
+| `approvals.json` | Pipelines agents wrote and their approval state (mode 0600). See [Agents that build pipelines](agent-authoring.md). |
+| `mcp-grants.json` | Agents connected over OAuth, with only the SHA-256 digests of their tokens (mode 0600). See [Agents as operators](agent-operators.md). |
 | `templates/` | Your own templates for `pipo new`. See [Templates and generators](scaffolding.md). |
 | `pipelines/<name>/journal.db` | The pipeline's journal: packets, events, versions, proposals, the DLQ, agent spend. SQLite, WAL mode. |
 | `pipelines/<name>/files/` | Files downloaded by a telegram input. |

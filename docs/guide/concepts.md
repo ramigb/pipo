@@ -153,9 +153,9 @@ Runtime state lives in the Pipo home (`~/.pipo`). See [Running pipelines](runnin
 
 Agents take part in four ways, all through documented interfaces:
 
-1. **Author**: write `.pipo` files with the JSON Schema, `pipo check` and `pipo test`.
+1. **Author**: write `.pipo` files with the JSON Schema, `pipo check` and `pipo test`, or over MCP with `create_pipeline` and `test_pipeline`. A pipeline an agent writes waits for a human's approval before it starts.
 2. **Operator**: watch, pause, resume, replay and push packets through the MCP endpoint, REST or the CLI.
 3. **Editor**: propose changes to a running pipeline, limited to the paths its `agent.edit` policy allows, validated and optionally dry-run before they apply.
 4. **Node**: run inside the graph as an `agent:` node, with a required output schema, a timeout and a budget.
 
-See [Agent nodes](agent-nodes.md), [Agents as operators](agent-operators.md) and [Live changes and proposals](change-protocol.md).
+See [Agent nodes](agent-nodes.md), [Agents as operators](agent-operators.md), [Agents that build pipelines](agent-authoring.md) and [Live changes and proposals](change-protocol.md).

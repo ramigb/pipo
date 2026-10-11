@@ -30,7 +30,7 @@ Pipo has four parts:
 
 ### Non-goals
 
-- Not a human-approval or BPM workflow tool.
+- Not a human-approval or BPM workflow tool: pipelines have no approval steps. (A human does approve the pipelines agents write, §9.4.)
 - Not multi-tenant or hosted. It's a local or self-hosted tool.
 - Agents don't change engine code at runtime. They change `.pipo` files through a controlled protocol (§9).
 - No exactly-once delivery. Pipo guarantees **at-least-once** delivery, plus idempotency keys (§7.3).

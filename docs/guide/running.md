@@ -134,7 +134,7 @@ Any runner, detached or not, survives the engine being killed with `SIGKILL`. Wi
 
 Pipo never picks a port for an HTTP input by itself, except behind the gateway:
 
-- **With the gateway on** (the engine's `listen`; the CLI starts the engine on a free gateway port by default), an http input without a port gets a free loopback port, and is reachable at `http://127.0.0.1:<gateway>/in/<pipeline><path>`.
+- **With the gateway on** (the engine's `listen`; the CLI starts the engine on port 4747 by default, or on a free port when that one is taken), an http input without a port gets a free loopback port, and is reachable at `http://127.0.0.1:<gateway>/in/<pipeline><path>`.
 - **To have a fixed port**, set `input.with.listen: 8081` in the file, or pass `pipo start <name> --listen 8081`. The flag wins and is saved in the registry, so restarts and reattaches keep the same port. A fixed port is also reachable directly, which matters for detached runners: while the engine is down, only the direct port works.
 
 Before a start, the engine checks that the port is free. If it isn't, the start is refused with the pipeline or the process (pid and command line) that holds it, and a hint to stop it or pass another `--listen`. `pipo check` on several files warns when two pipelines declare the same port (P039).

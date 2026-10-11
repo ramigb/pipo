@@ -85,7 +85,7 @@ If fewer than *N* delivered packets exist, it replays what there is. With none, 
 
 ### 4. Apply at a safe point
 
-A proposal that passed is applied at once. `agent.edit` is the grant, so there is no separate human approval step. Applying is one transaction: version *N+1* and the proposal's `applied` state are committed together, so a crash leaves one or the other, never half. New packets switch to *N+1* immediately. Packets already accepted finish on *N*.
+A proposal that passed is applied at once. `agent.edit` is the grant, so there is no separate human approval step. The exception is a pipeline an agent wrote: an agent's proposal to it is held until a human applies it, unless auto-approve is on (see [Agents that build pipelines](agent-authoring.md#changes-to-agent-written-pipelines)). Applying is one transaction: version *N+1* and the proposal's `applied` state are committed together, so a crash leaves one or the other, never half. New packets switch to *N+1* immediately. Packets already accepted finish on *N*.
 
 ### Holding a proposal
 
@@ -98,6 +98,8 @@ pipo proposals people-intake show <id>          # diff, problems, dry-run summar
 pipo proposals people-intake apply <id>
 pipo proposals people-intake reject <id> --reason "Too aggressive"
 ```
+
+Held agent proposals also show on the dashboard's **🔑 Agents** page, with **Apply** and **Reject**.
 
 A held proposal stays `validated` (or `verified`) until someone with control applies or rejects it. Agents hold with `apply: false` on `propose_change`. Applying a `validated` proposal that still needs its dry run runs the dry run first.
 
@@ -158,7 +160,7 @@ REST mirrors the CLI (see [REST, SSE and MCP](api.md#versions-and-proposals)):
 | `POST` | `/api/pipelines/<name>/proposals/<id>/apply` | `{by?}` |
 | `POST` | `/api/pipelines/<name>/proposals/<id>/reject` | `{reason, by?}` |
 
-`by` defaults to `api` and `by_kind` to `human`. These local channels are trusted to say who they are. Only `/mcp` fixes them, as `agent` with the token's name. Reads work from the journal even when the pipeline isn't running; propose, apply and reject need the runner.
+`by` defaults to `api` and `by_kind` to `human`. These local channels are trusted to say who they are. Only `/mcp` fixes them, as `agent` with the token's or OAuth grant's name. Reads work from the journal even when the pipeline isn't running; propose, apply and reject need the runner.
 
 In the [builder](builder.md), **🚀 Apply live** on a running pipeline sends the draft as a human proposal (`by: ui`, applied at once) and, once it's applied, saves the file too, so the next start runs the same version. A refused proposal leaves the file as it was and shows the problems.
 

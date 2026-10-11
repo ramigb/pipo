@@ -89,6 +89,8 @@ Everything Pipo writes at runtime lives in one folder, the **Pipo home**: `~/.pi
   config.yaml                  engine and agent settings (optional)
   bots.json                    Telegram bots (made from the dashboard)
   trust.json                   trusted templates and projects
+  approvals.json               pipelines agents wrote, and their approval
+  mcp-grants.json              agents connected over OAuth (token digests only)
   pipelines/<name>/journal.db  each pipeline's journal
   pipelines/<name>/files/      files downloaded by a telegram input
   run/<name>.json              runner registry entries, and their sockets

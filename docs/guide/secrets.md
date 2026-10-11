@@ -132,6 +132,7 @@ A few credentials live outside pipeline files. All of them take the same kind of
 | A telegram step's own token | `with.token` in the pipeline | `${secrets.tg_token}` |
 | The Anthropic API key | `agents.claude_api.api_key` in `config.yaml` | `op://…` or `env:…` (default `env:ANTHROPIC_API_KEY`). See [Agent nodes](agent-nodes.md). |
 | MCP tokens | `engine.mcp.tokens[].token` in `config.yaml` | Only `op://…` or `env:…`. A literal is a config error, and the message never repeats it. See [Agents as operators](agent-operators.md). |
+| MCP OAuth tokens | Issued by the engine when you approve an agent on the dashboard's consent page | Nothing to configure. `<home>/mcp-grants.json` (mode 0600) keeps only their SHA-256 digests. Revoke with `pipo mcp grants revoke <id>` or the **🔑 Agents** page. |
 
 CLI agents (`claude_code`, `codex`, `pi`, `opencode`) use the account the CLI is logged in to on your machine; Pipo never sees those credentials.
 
@@ -139,7 +140,7 @@ CLI agents (`claude_code`, `codex`, `pi`, `opencode`) use the account the CLI is
 
 - **Local by default.** The engine binds to `127.0.0.1`. Exposing an http input to a network is your explicit choice (a reverse proxy, a tunnel). Protect such inputs with `auth`: a shared header token (`header` + `equals`), or an HMAC signature of the raw body (`hmac: {header, secret, algorithm}`), checked in constant time before anything is journaled. See [Inputs](inputs.md).
 - **Secrets by reference.** Never in `.pipo` files, the journal, logs or agent responses.
-- **Agents are scoped.** MCP access uses named bearer tokens with a scope (`read`, `operate`, `edit`) and an optional pipeline allowlist, on top of each pipeline's own `agent:` policy. Agents can never change `secrets`, `output`, `delivered`, `agent` or `agent_budget` through a proposal. Every change is versioned with its author.
+- **Agents are scoped.** MCP access uses named bearer tokens, from `config.yaml` or from OAuth grants you approved on the local dashboard, with a scope (`read`, `operate`, `edit`, `author`) and an optional pipeline allowlist, on top of each pipeline's own `agent:` policy. A pipeline an agent writes doesn't start until you approve it, and approval is tied to its files' hash. Agents can never change `secrets`, `output`, `delivered`, `agent` or `agent_budget` through a proposal. Every change is versioned with its author.
 - **Code is trusted.** `fn` modules, exec steps and connectors run as you. `fn` modules run in QuickJS without system APIs, and each pipeline is its own process, but neither is a reviewed sandbox. Templates from outside your project are untrusted until `pipo trust` records their content hash, and again after they change (P052). Sandboxing `fn` modules is planned.
 - **Isolation.** Each pipeline runs in its own process with its own journal. A crash, or a misbehaving function, affects only that pipeline.
 
