@@ -1010,7 +1010,7 @@ The dashboard's test run uses the same machinery with a trace: each unit also li
 
 - Secrets are referenced through `op://` (1Password, recommended) or `env:` and never stored in `.pipo` files, the journal, logs or agent responses (§3.7).
 - The engine binds to localhost by default. HTTP inputs support token-header or HMAC signature auth.
-- Agent access uses scoped tokens, is limited by each pipeline's `agent:` policy and is fully audited.
+- Agent access uses scoped tokens, is limited by each pipeline's `agent:` policy and is fully audited. Tokens come from `config.yaml` references or from OAuth grants a human approved on the local dashboard (only SHA-256 digests are stored, D82). A pipeline an agent writes runs only once a human approved its files, and agent changes to it wait for a human too, unless `engine.mcp.auto_approve` is on (§9.4).
 - `exec` nodes run programs as the user, with no shell and no sandbox (D71). A `.pipo` file with exec nodes that came from a template outside your project is untrusted, like an `fn` module, until you run `pipo trust`, and again after you edit it.
 - `fn` modules and connectors are trusted code. `fn` modules run in the runner's embedded QuickJS without Bun or Node APIs (§3.6), with a time limit per call and a memory limit; that keeps them off the system, but it is not a reviewed sandbox. Each pipeline is isolated at the process level. Templates from outside your project are untrusted until you run `pipo trust`, which records a hash of the content. If the content changes, it has to be trusted again. Sandboxing arrives with the Phase 2 template registry.
 

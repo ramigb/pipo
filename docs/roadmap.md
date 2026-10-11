@@ -89,6 +89,7 @@ Done:
 - Exec steps that run installed programs, with `pipo trust` for files from templates (D71).
 - A Settings page to choose the builder's workspace, and workspace pipelines listed on the Pipelines page, ready to run (D72).
 - The test suite runs on macOS.
+- Agents that build pipelines (§9.4, D81, D82, D83): an `author` MCP scope with `create_pipeline`, `test_pipeline` and `start_pipeline`, human approval on a 🔑 Agents page (or auto-approve), OAuth so an MCP client connects with a browser approval, the engine on port 4747 by default, and a Claude Code plugin with a Pipo skill.
 
 Next:
 
