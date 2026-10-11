@@ -6,6 +6,18 @@ An agent can do more than operate pipelines a human wrote: it can write a new on
 
 Connect an MCP client as in [Agents as operators](agent-operators.md#quick-start-connect-claude-code), and pick the **author** scope on the consent page. With a static token, give it `scope: author`.
 
+## The Claude Code plugin
+
+The Pipo plugin gives Claude Code a **Pipo skill**, which teaches it the authoring loop and the `.pipo` rules, and the engine as an **MCP server** (`http://127.0.0.1:4747/mcp`). Install it from this repository's marketplace:
+
+```text
+/plugin install pipo --marketplace ramigb/pipo
+```
+
+On Claude Code before 2.1.275, add the marketplace first: `/plugin marketplace add ramigb/pipo`, then `/plugin install pipo@pipo`. Start the engine (`pipo engine start`) and run `/mcp` to connect: the consent page opens in your browser.
+
+The plugin lives in [`plugins/pipo`](https://github.com/ramigb/pipo/tree/main/plugins/pipo). Other agents get the same guidance from the engine itself: every guide page is an MCP resource, `pipo://docs/guide/<page>.md`, and so is a Markdown summary of every connector, `pipo://docs/reference/connectors.md`.
+
 ## The authoring loop
 
 An agent with the `author` scope builds a pipeline in six steps:

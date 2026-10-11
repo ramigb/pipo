@@ -66,6 +66,16 @@ curl -X POST localhost:8787/in/people-intake/people \
 
 `pipo run` runs one pipeline in the foreground until Ctrl-C (it drains; a second Ctrl-C stops). A pipeline that fails `pipo check` refuses to start and says why.
 
+### Let Claude Code build pipelines
+
+The engine is an MCP server at `http://127.0.0.1:4747/mcp`. Install the Pipo plugin (the skill plus that server) in Claude Code:
+
+```text
+/plugin install pipo --marketplace ramigb/pipo
+```
+
+Then run `bun pipo engine start` and `/mcp` in Claude Code: your browser opens a Pipo page where you approve the connection. Whatever Claude writes waits for your approval on the dashboard's **🔑 Agents** page before it runs. See [Agents that build pipelines](docs/guide/agent-authoring.md).
+
 ## Why Pipo?
 
 - **Files are the source of truth.** One `.pipo` file describes one pipeline. Use your editor, the CLI, the builder or an agent; the definition stays readable, reviewable and versionable with normal developer tools.

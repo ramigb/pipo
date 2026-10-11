@@ -32,7 +32,7 @@ Agents never change Pipo's own code at runtime. They change `.pipo` files, throu
      actions: [pause, resume, replay, push]
    ```
 
-The dashboard's **🔑 Agents** page lists the connected agents, and revokes them. `pipo mcp grants` does the same from a terminal.
+The dashboard's **🔑 Agents** page lists the connected agents, and revokes them. `pipo mcp grants` does the same from a terminal. The [Pipo plugin](agent-authoring.md#the-claude-code-plugin) sets up the server and adds a Pipo skill in one step.
 
 Any MCP client that speaks Streamable HTTP and the MCP authorization flow works the same way.
 
@@ -147,6 +147,8 @@ Unknown arguments are refused, and `null` counts as absent. An agent's `replay`,
 |---|---|
 | `pipo://schema/pipo.schema.json` | The `.pipo` JSON Schema. |
 | `pipo://docs/spec.md` | The Pipo specification. |
+| `pipo://docs/guide/<page>.md` | A page of this guide, such as `pipo-file`, `nodes` or `agent-authoring`. |
+| `pipo://docs/reference/connectors.md` | Every connector and its `with:` fields, in Markdown. |
 | `pipo://connectors/<kind>/<name>` | A connector's `with:` schema and capabilities. `kind` is `input`, `tap`, `transform`, `agent`, `output` or `check`. |
 | `pipo://pipelines/<name>/source` | The pipeline's version in force, as `.pipo` source. |
 | `pipo://pipelines/<name>/versions` | Its versions: author, `author_kind`, reason, proposal. |

@@ -14,7 +14,7 @@
 // Proposals and rollbacks made here are recorded `author_kind: agent` with the token's name as the author.
 
 import { timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { FixtureError, Journal, loadFixtures, Secrets } from "@pipo/runner";
 import {
@@ -48,6 +48,47 @@ const NAME = /^[a-z0-9][a-z0-9-]*$/;
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 const MASK = "[redacted]";
 const SPEC_FILE = new URL("../../../docs/spec.md", import.meta.url).pathname;
+const GUIDE_DIR = new URL("../../../docs/guide/", import.meta.url).pathname;
+
+/** The guide's pages (docs/guide/*.md), each with the title of its first heading. */
+export function guidePages(): { slug: string; title: string }[] {
+  let files: string[] = [];
+  try {
+    files = readdirSync(GUIDE_DIR).filter((f) => /^[a-z0-9-]+\.md$/.test(f));
+  } catch {}
+  return files.sort().map((f) => {
+    const first = readFileSync(join(GUIDE_DIR, f), "utf8").split("\n", 1)[0] ?? "";
+    return { slug: f.slice(0, -3), title: first.replace(/^#\s+/, "") || f };
+  });
+}
+
+/** Every connector as Markdown: what it is, and its `with:` fields (a reading guide next to the JSON Schemas). */
+export function connectorsMarkdown(): string {
+  const out = [
+    "# Connectors",
+    "",
+    "Every connector, by kind, with its `with:` fields. The full JSON Schema of each is the resource pipo://connectors/<kind>/<name>.",
+  ];
+  for (const [kind, catalog] of Object.entries(CONNECTORS)) {
+    out.push("", `## ${kind}`);
+    for (const [name, m] of Object.entries(catalog)) {
+      out.push("", `### ${kind} \`${name}\``, "", m.description);
+      const w = m.with as {
+        properties?: Record<string, { description?: string; type?: unknown }>;
+        required?: string[];
+      };
+      const props = Object.entries(w?.properties ?? {});
+      if (!props.length) continue;
+      out.push("");
+      for (const [key, f] of props) {
+        const req = w.required?.includes(key) ? " (required)" : "";
+        const type = typeof f.type === "string" ? ` ${f.type}` : "";
+        out.push(`- \`${key}\`${type}${req}${f.description ? `: ${f.description}` : ""}`);
+      }
+    }
+  }
+  return `${out.join("\n")}\n`;
+}
 
 /** One REST call answered in-process by the gateway, exactly as over HTTP. */
 export type ApiCall = (
@@ -1289,6 +1330,19 @@ export class McpServer {
         title: "The Pipo specification",
         mimeType: "text/markdown",
       });
+    for (const page of guidePages())
+      out.push({
+        uri: `pipo://docs/guide/${page.slug}.md`,
+        name: `guide/${page.slug}.md`,
+        title: `Guide: ${page.title}`,
+        mimeType: "text/markdown",
+      });
+    out.push({
+      uri: "pipo://docs/reference/connectors.md",
+      name: "reference/connectors.md",
+      title: "Every connector and its with: fields",
+      mimeType: "text/markdown",
+    });
     for (const [kind, catalog] of Object.entries(CONNECTORS))
       for (const [name, m] of Object.entries(catalog))
         out.push({
@@ -1330,6 +1384,13 @@ export class McpServer {
       if (!existsSync(SPEC_FILE)) throw notFound("this installation has no docs/spec.md");
       return text("text/markdown", this.redactText(readFileSync(SPEC_FILE, "utf8")));
     }
+    const guide = /^pipo:\/\/docs\/guide\/([a-z0-9-]+)\.md$/.exec(uri);
+    if (guide) {
+      const path = join(GUIDE_DIR, `${guide[1]}.md`);
+      if (!existsSync(path)) throw notFound("resources/list lists the guide's pages");
+      return text("text/markdown", this.redactText(readFileSync(path, "utf8")));
+    }
+    if (uri === "pipo://docs/reference/connectors.md") return text("text/markdown", connectorsMarkdown());
     let m = /^pipo:\/\/connectors\/([a-z]+)\/([a-z_]+)$/.exec(uri);
     if (m) {
       const manifest = CONNECTORS[m[1] as string]?.[m[2] as string];

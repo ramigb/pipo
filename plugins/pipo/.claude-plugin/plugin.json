@@ -1,0 +1,10 @@
+{
+  "name": "pipo",
+  "version": "0.1.0",
+  "description": "Build, test and run Pipo pipelines from Claude Code: the Pipo skill, and the local Pipo engine as an MCP server.",
+  "author": { "name": "Rami GB" },
+  "homepage": "https://ramigb.github.io/pipo/docs/",
+  "repository": "https://github.com/ramigb/pipo",
+  "license": "AGPL-3.0-only",
+  "keywords": ["pipelines", "data", "mcp", "agents"]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "pipo",
+  "description": "Pipo, the agent-first pipeline manager, for Claude Code.",
+  "owner": { "name": "Rami GB" },
+  "plugins": [
+    {
+      "name": "pipo",
+      "source": "./plugins/pipo",
+      "description": "Build, test and run Pipo pipelines from Claude Code: the Pipo skill, and the local Pipo engine as an MCP server."
+    }
+  ]
+}

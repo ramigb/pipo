@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { readRegistryEntry } from "@pipo/runner";
+import { NAV } from "../../docs/src/nav";
 import { DEFAULT_CONFIG, EngineError, parseConfig, readEngineEntry, type Supervisor } from "../src";
 import { McpServer } from "../src/mcp";
 import { isAlive, query, sandbox, waitFor } from "./helpers";
@@ -389,6 +390,16 @@ describe("/mcp", () => {
     expect((spec.contents[0] as { text: string }).text).toContain("### 9.2 Agent endpoint");
     const sqlite = await reader.readResource({ uri: "pipo://connectors/output/sqlite" });
     expect(JSON.parse((sqlite.contents[0] as { text: string }).text)).toMatchObject({ kind: "output", name: "sqlite" });
+
+    // The guide, page by page, for agents writing pipelines: every guide page of the docs site's table of contents.
+    const guide = NAV.flatMap((sec) => sec.pages).filter((pg) => pg.source?.startsWith("docs/guide/"));
+    expect(guide.length).toBeGreaterThan(20);
+    for (const pg of guide) expect(uris).toContain(`pipo://docs/guide/${pg.slug}.md`);
+    const authoring = await reader.readResource({ uri: "pipo://docs/guide/agent-authoring.md" });
+    expect((authoring.contents[0] as { text: string }).text).toContain("# Agents that build pipelines");
+    const connectors = await reader.readResource({ uri: "pipo://docs/reference/connectors.md" });
+    expect((connectors.contents[0] as { text: string }).text).toContain("### output `sqlite`");
+    await expect(reader.readResource({ uri: "pipo://docs/guide/nope.md" })).rejects.toThrow(/not found/);
 
     await expect(reader.readResource({ uri: "pipo://pipelines/plain/source" })).rejects.toThrow(/-32002/);
     await expect(reader.readResource({ uri: "pipo://nope" })).rejects.toThrow(/not found/);
