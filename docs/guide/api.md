@@ -259,12 +259,34 @@ Starting a pipeline any other way as a human (`POST /api/pipelines`, `…/start`
 
 ## MCP: `/mcp`
 
-The MCP endpoint takes one JSON-RPC message per `POST`, authenticated with `Authorization: Bearer <token>`. Its tools call the REST handlers above, so the answers match. Tokens, scopes, tools and resources are described in [Agents as operators](agent-operators.md#the-mcp-endpoint).
+The MCP endpoint takes one JSON-RPC message per `POST`, authenticated with `Authorization: Bearer <token>` (an OAuth access token, or a static token). Its tools call the REST handlers above, so the answers match. Tokens, scopes, tools and resources are described in [Agents as operators](agent-operators.md#the-mcp-endpoint).
 
 ```sh
 curl -s localhost:8787/mcp -H "Authorization: Bearer $PIPO_MCP_TOKEN" -H 'content-type: application/json' \
   -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_status", "arguments": {"pipeline": "people-intake"}}}'
 ```
+
+## OAuth
+
+The MCP endpoint's OAuth server (see [Agents as operators](agent-operators.md#oauth)). Its errors are OAuth's `{error, error_description}`, not the `/api` shape.
+
+| Method | Path | Body | Answer |
+|---|---|---|---|
+| `GET` | `/.well-known/oauth-protected-resource` | | The protected resource metadata (RFC 9728): `{resource, authorization_servers, scopes_supported, bearer_methods_supported}`. Also at `…/mcp`. |
+| `GET` | `/.well-known/oauth-authorization-server` | | The server metadata (RFC 8414): the endpoints, `code_challenge_methods_supported: ["S256"]`, `token_endpoint_auth_methods_supported: ["none"]`. |
+| `POST` | `/oauth/register` | JSON client metadata | Registers a public client (RFC 7591). `201 {client_id, client_name, redirect_uris, …}`. |
+| `GET` | `/oauth/authorize` | | Checks the request (client, redirect URI, PKCE S256, `resource`) and redirects the browser to the consent page, `/ui/#/connect/<id>`. |
+| `POST` | `/oauth/token` | form: `grant_type=authorization_code` or `refresh_token` | `{access_token, token_type, expires_in, refresh_token, scope}`. |
+
+The consent page and the grant list use `/api`:
+
+| Method | Path | Body | Answer |
+|---|---|---|---|
+| `GET` | `/api/oauth/requests/<id>` | | A waiting authorization request: `{client_name, redirect_uri, redirect_host, scope, scopes, pipelines, suggested_name, expires_at}`. |
+| `POST` | `/api/oauth/requests/<id>/approve` | `{scope, pipelines, name}` | `{redirect}`: where the browser goes next, with the one-time code. `pipelines` is `null` for all. |
+| `POST` | `/api/oauth/requests/<id>/deny` | `{}` | `{redirect}`, with `error=access_denied`. |
+| `GET` | `/api/mcp/grants` | | `{grants: [{id, name, client_id, client_name, scope, pipelines, created_at, last_used_at, expires_at}], tokens: [{name, scope, pipelines}]}`. `tokens` are the static ones from `config.yaml`. |
+| `POST` | `/api/mcp/grants/<id>/revoke` | `{}` | `{revoked}`. Its tokens stop working at once. |
 
 ## The runner's control socket
 

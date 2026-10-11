@@ -12,8 +12,10 @@
 // proposals (§9.3, D51): they are read from the journal when nothing runs, while propose, apply, reject and `resolve`
 // (D50) need the runner.
 // `/mcp` is the agent endpoint (§9.2, D53, mcp.ts): its tools call the `/api` handlers in-process (internal()).
-// `/api`, `/events` and `/mcp` only answer requests addressed to a loopback host, and POSTs must be JSON, so a web page
-// can't drive the engine through the browser (DNS rebinding, cross-site form posts).
+// `/.well-known/oauth-*` and `/oauth/*` are its OAuth server (D82, oauth.ts); the human approves on the dashboard,
+// through `/api/oauth/requests/<id>`.
+// `/api`, `/events`, `/mcp` and the OAuth routes only answer requests addressed to a loopback host, and `/api` POSTs
+// must be JSON, so a web page can't drive the engine through the browser (DNS rebinding, cross-site form posts).
 
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
@@ -31,6 +33,7 @@ import { pipelineGraph } from "./graph";
 import { journalPath, logPath } from "./home";
 import { HttpError } from "./http-error";
 import { McpServer } from "./mcp";
+import { OAuth, OAuthError } from "./oauth";
 import { resourcesOf } from "./resources";
 import { listFolders, saveEngineSetting } from "./settings";
 import type { RunnerInfo, Supervisor } from "./supervisor";
@@ -66,6 +69,11 @@ const ROUTES = [
   "POST /api/settings/workspace {path, create?}",
   "POST /api/settings/agents {auto_approve}",
   "GET  /api/folders?path=",
+  "GET  /api/oauth/requests/<id>",
+  "POST /api/oauth/requests/<id>/approve {scope, pipelines, name}",
+  "POST /api/oauth/requests/<id>/deny",
+  "GET  /api/mcp/grants",
+  "POST /api/mcp/grants/<id>/revoke",
   "GET  /api/approvals",
   "GET  /api/approvals/<name>",
   "POST /api/approvals/<name>/approve {start?, by?}",
@@ -117,7 +125,12 @@ const ROUTES = [
   "GET  /api/events?pipeline=&after=&limit=",
   "GET  /events?pipeline=&after= (SSE)",
   "GET  /ui (dashboard)",
-  "POST /mcp (MCP, Authorization: Bearer <token from engine.mcp.tokens>)",
+  "POST /mcp (MCP, Authorization: Bearer <token from engine.mcp.tokens, or OAuth>)",
+  "GET  /.well-known/oauth-protected-resource",
+  "GET  /.well-known/oauth-authorization-server",
+  "POST /oauth/register",
+  "GET  /oauth/authorize",
+  "POST /oauth/token",
   "ANY  /in/<pipeline><path>",
 ];
 
@@ -206,6 +219,7 @@ export class Gateway {
   private ready = false;
   private stopped?: Promise<void>;
   private readonly mcp: McpServer;
+  private readonly oauth: OAuth;
   private readonly builder: Builder;
   /** Whether the engine's sources changed on disk since it started (D64). */
   private readonly code = new CodeStamp();
@@ -235,7 +249,9 @@ export class Gateway {
     }
     this.port = this.server.port as number;
     this.builder = new Builder(engine);
+    this.oauth = new OAuth(engine.home, () => this.port);
     this.mcp = new McpServer({
+      oauth: this.oauth,
       engine,
       tokens: engine.config.mcp?.tokens ?? [],
       api: (method, path, body, agent) => this.internal(method, path, body, agent),
@@ -491,6 +507,11 @@ export class Gateway {
         server.timeout(req, 0); // start and stop wait for runners, which can take longer than Bun's idle timeout
         return await this.api(req, url, path.split("/").slice(2));
       }
+      if (path.startsWith("/.well-known/oauth-") || path === "/oauth" || path.startsWith("/oauth/")) {
+        this.local(req);
+        this.engine.touch();
+        return await this.oauthRoute(req, url, path);
+      }
       if (path === "/mcp") {
         this.local(req);
         server.timeout(req, 0); // a proposal's dry run and apply can take longer than Bun's idle timeout
@@ -502,7 +523,7 @@ export class Gateway {
       throw new HttpError(
         404,
         `nothing at ${path}`,
-        `the gateway serves /in/<pipeline>/…, /api/…, /events, /mcp and /ui`,
+        `the gateway serves /in/<pipeline>/…, /api/…, /events, /mcp, /oauth/… and /ui`,
         "not_found",
         {
           routes: ROUTES,
@@ -523,6 +544,63 @@ export class Gateway {
         {},
         { "retry-after": "1" },
       );
+    }
+  }
+
+  /** `http://<the Host the request was sent to>`: the OAuth issuer and resource as the client sees them. */
+  private origin(req: Request): string {
+    const host = req.headers.get("host");
+    return host ? `http://${host}` : this.url;
+  }
+
+  /** The OAuth server (D82): metadata, registration, authorization and tokens. Errors are OAuth's `{error, …}`. */
+  private async oauthRoute(req: Request, url: URL, path: string): Promise<Response> {
+    const origin = this.origin(req);
+    const noStore = { "cache-control": "no-store" };
+    const get = req.method === "GET" || req.method === "HEAD";
+    try {
+      if (path === "/.well-known/oauth-protected-resource" || path === "/.well-known/oauth-protected-resource/mcp") {
+        if (!get) throw notAllowed("GET");
+        return json(200, this.oauth.resourceMetadata(origin));
+      }
+      if (
+        path === "/.well-known/oauth-authorization-server" ||
+        path === "/.well-known/oauth-authorization-server/mcp"
+      ) {
+        if (!get) throw notAllowed("GET");
+        return json(200, this.oauth.serverMetadata(origin));
+      }
+      if (path === "/oauth/register") {
+        if (req.method !== "POST") throw notAllowed("POST");
+        if (!/^application\/json\b/i.test(req.headers.get("content-type") ?? ""))
+          throw new OAuthError(415, "invalid_request", "send the client metadata as application/json");
+        let body: unknown;
+        try {
+          body = JSON.parse(await req.text());
+        } catch {
+          throw new OAuthError(400, "invalid_client_metadata", "the body is not valid JSON");
+        }
+        return json(201, this.oauth.register(body), noStore);
+      }
+      if (path === "/oauth/authorize") {
+        if (!get) throw notAllowed("GET");
+        return this.oauth.authorize(url, origin);
+      }
+      if (path === "/oauth/token") {
+        if (req.method !== "POST") throw notAllowed("POST");
+        if (!/^application\/x-www-form-urlencoded\b/i.test(req.headers.get("content-type") ?? ""))
+          throw new OAuthError(400, "invalid_request", "send the token request as application/x-www-form-urlencoded");
+        return json(200, this.oauth.token(new URLSearchParams(await req.text())), noStore);
+      }
+      throw new HttpError(
+        404,
+        `nothing at ${path}`,
+        "the OAuth server is at /oauth/authorize, /oauth/token and /oauth/register",
+        "not_found",
+      );
+    } catch (e) {
+      if (e instanceof OAuthError) return json(e.status, { error: e.error, error_description: e.message }, noStore);
+      throw e;
     }
   }
 
@@ -610,6 +688,36 @@ export class Gateway {
       return json(200, { auto_approve: value });
     }
     if (parts[0] === "approvals") return await this.approvals(req, url, parts);
+    if (parts[0] === "oauth" && parts[1] === "requests" && parts[2] && parts.length <= 4) {
+      // The dashboard's consent page (D82): only the local dashboard can approve, as for every /api POST.
+      const id = decode(parts[2]);
+      if (parts.length === 3) {
+        only("GET");
+        const names = new Set([...engine.list().map((i) => i.name), ...engine.approvals.list().map((a) => a.name)]);
+        return json(200, this.oauth.request(id, [...names].sort()));
+      }
+      only("POST");
+      const body = await readBody(req);
+      if (parts[3] === "approve") return json(200, this.oauth.approve(id, body, this.origin(req)));
+      if (parts[3] === "deny") return json(200, this.oauth.deny(id, this.origin(req)));
+      throw noRoute(url.pathname);
+    }
+    if (route === "mcp/grants") {
+      only("GET");
+      return json(200, {
+        grants: this.oauth.grants(),
+        // The static tokens of config.yaml, read-only here (their values never leave the engine).
+        tokens: engine.config.mcp.tokens.map((t) => ({ name: t.name, scope: t.scope, pipelines: t.pipelines })),
+      });
+    }
+    if (parts[0] === "mcp" && parts[1] === "grants" && parts[2] && parts[3] === "revoke" && parts.length === 4) {
+      only("POST");
+      await readBody(req);
+      const id = decode(parts[2]);
+      if (!this.oauth.revoke(id))
+        throw new HttpError(404, `no OAuth grant '${id}'`, "GET /api/mcp/grants lists them", "not_found");
+      return json(200, { revoked: id });
+    }
     if (route === "settings/workspace") {
       only("POST");
       const body = await readBody(req);

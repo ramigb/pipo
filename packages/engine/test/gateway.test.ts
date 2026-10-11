@@ -251,7 +251,7 @@ describe("one engine with a gateway on port 0", () => {
     await check(post(`${base}/in/nope/x`), 404, "no pipeline named 'nope'");
     await check(post(`${base}/in/pushy`), 404, "'pushy' has no http input");
     await check(post(`${base}/in`), 404, "no pipeline in the path");
-    expect((await check(post(`${base}/mcp`), 403, "no tokens configured")).hint).toContain("engine.mcp.tokens");
+    expect((await check(post(`${base}/mcp`), 401, "needs a bearer token")).hint).toContain("OAuth");
     const routes = (await check(fetch(`${base}/api/nope`), 404, "no API route")) as unknown as { routes: string[] };
     expect(routes.routes).toContain("GET  /api/pipelines");
     await check(fetch(`${base}/api/pipelines/nope`), 404, "no pipeline named 'nope'");

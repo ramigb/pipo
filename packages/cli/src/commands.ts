@@ -328,6 +328,12 @@ export const COMMANDS: CommandHelp[] = [
     ],
   },
   {
+    name: "mcp",
+    summary: "List the agents connected to the MCP endpoint (OAuth grants and config tokens), or revoke a grant",
+    usage: "pipo mcp grants [revoke <id>]",
+    flags: [["--home <dir>", "Pipo home (default ~/.pipo, or PIPO_HOME)"], JSON_FLAG],
+  },
+  {
     name: "resolve",
     summary: "Settle packets handed to the agent (then: agent, on_stall: handle): retry, dead-letter or drop them",
     usage: 'pipo resolve <name> <id…> --action retry|dead_letter|drop [--reason "…"]',

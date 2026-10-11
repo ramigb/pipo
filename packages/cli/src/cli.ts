@@ -5,7 +5,7 @@ import { join, relative } from "node:path";
 import { parseArgs } from "node:util";
 import { runForeground } from "@pipo/runner";
 import { buildSchema, checkProject, type Diagnostic, displayPath, formatDiagnostic, summarize } from "@pipo/spec";
-import { cmdApprovals } from "./agents";
+import { cmdApprovals, cmdMcp } from "./agents";
 import { commandHelp, renderCommandHelp, renderHelp } from "./commands";
 import { cmdCompile, fnDiagnostic } from "./compile";
 import { cmdAttach, cmdEngine, cmdRunners } from "./engine-cmds";
@@ -119,6 +119,8 @@ async function dispatch(command: string, rest: string[]): Promise<number> {
       return cmdResolve(rest);
     case "approvals":
       return cmdApprovals(rest);
+    case "mcp":
+      return cmdMcp(rest);
     case "test":
       return cmdTest(rest);
     case "ui":

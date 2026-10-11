@@ -1,7 +1,8 @@
-// The agent endpoint (docs/spec.md §9.2, §9.3, D53): an MCP server at `/mcp`, Streamable HTTP without sessions. A POST
-// carries one JSON-RPC message and gets one JSON answer (a notification gets 202); GET and DELETE are 405. Every
-// request needs `Authorization: Bearer <token>` with a token from `engine.mcp.tokens`, resolved from its `op://` or
-// `env:` reference when the engine starts and compared in constant time; with none configured nothing is served.
+// The agent endpoint (docs/spec.md §9.2, §9.3, §9.4, D53, D81, D82): an MCP server at `/mcp`, Streamable HTTP without
+// sessions. A POST carries one JSON-RPC message and gets one JSON answer (a notification gets 202); GET and DELETE are
+// 405. Every request needs `Authorization: Bearer <token>`: a token from `engine.mcp.tokens` (resolved from its
+// `op://` or `env:` reference when the engine starts, compared in constant time), or an access token of an OAuth grant
+// (oauth.ts). A 401 points the client at the OAuth metadata, so it can connect with the human's approval.
 // Tools call the gateway's REST handlers in-process (the same checks, runner ops, journal reads and errors), so there
 // is no second implementation of any operation. On top of that the endpoint enforces, per tool call:
 // - the token's scope (`read` < `operate` < `edit`) and pipeline allowlist (a pipeline outside it does not exist);
@@ -34,6 +35,7 @@ import { createPipeline } from "./authoring";
 import { MCP_SCOPES, type McpScope, type McpTokenConfig } from "./config";
 import { journalPath } from "./home";
 import { HttpError } from "./http-error";
+import type { OAuth } from "./oauth";
 import type { Supervisor } from "./supervisor";
 
 /** Protocol revisions this server speaks, newest first (Streamable HTTP, 2025-06-18 or later). */
@@ -62,6 +64,8 @@ export interface McpOptions {
   api: ApiCall;
   /** The gateway's own URL, for links in hints (the dashboard's Agents page). */
   base?: string;
+  /** OAuth grants (D82): their access tokens are accepted too. */
+  oauth?: OAuth;
   /** Engine log line (token problems at start). */
   log?: (level: string, message: string) => void;
 }
@@ -817,17 +821,21 @@ export class McpServer {
   private tokens: Token[] = [];
   /** Resolved token values, redacted from every response. */
   private hidden: string[] = [];
+  /** OAuth access tokens seen lately, redacted too (only their digests are stored). */
+  private recent: string[] = [];
   /** Tokens configured but not usable (unresolvable or too short); details are in the engine log. */
   private unusable = 0;
   private readonly ready: Promise<void>;
   readonly engine: Supervisor;
   private readonly api: ApiCall;
   private readonly base: string;
+  private readonly oauth: OAuth | undefined;
 
   constructor(opts: McpOptions) {
     this.engine = opts.engine;
     this.api = opts.api;
     this.base = opts.base ?? "";
+    this.oauth = opts.oauth;
     const log =
       opts.log ??
       ((level, message) =>
@@ -948,42 +956,41 @@ export class McpServer {
   }
 
   private authenticate(req: Request): Token | Response {
-    const challenge = { "www-authenticate": 'Bearer realm="pipo"' };
-    if (!this.tokens.length) {
-      return httpError(
-        403,
-        "forbidden",
-        this.unusable
-          ? `none of the ${this.unusable} MCP token(s) in engine.mcp.tokens could be used`
-          : "the MCP endpoint has no tokens configured",
-        this.unusable
-          ? "see the engine log for why (an unresolvable reference, or a token under 16 characters), fix it and restart the engine"
-          : "add a token under engine.mcp.tokens in <home>/config.yaml, e.g. engine: { mcp: { tokens: [{ name: my-agent, token: env:PIPO_MCP_TOKEN, scope: read }] } } (op://… works too), then restart the engine",
-      );
-    }
+    const host = req.headers.get("host");
+    const origin = host ? `http://${host}` : this.base;
+    const challenge = (error?: string) => ({
+      "www-authenticate": `Bearer ${error ? `error="${error}", ` : ""}resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
+    });
+    const broken = this.unusable
+      ? ` (${this.unusable} token(s) in engine.mcp.tokens could not be used: see the engine log)`
+      : "";
     const auth = req.headers.get("authorization") ?? "";
     const m = /^Bearer\s+(\S+)\s*$/i.exec(auth);
     if (!m)
       return httpError(
         401,
         "unauthorized",
-        "the MCP endpoint needs a bearer token",
-        "send Authorization: Bearer <token>, a token from engine.mcp.tokens",
-        challenge,
+        `the MCP endpoint needs a bearer token${broken}`,
+        `connect with OAuth: add ${origin}/mcp to your MCP client (claude mcp add --transport http pipo ${origin}/mcp) and approve it in the browser; or send Authorization: Bearer <token> with a token from engine.mcp.tokens`,
+        challenge(),
       );
     const given = digest(m[1] as string);
     let match: Token | undefined;
     // Compare against every token, in constant time each, so timing tells nothing about which (or whether one) matched.
     for (const t of this.tokens) if (timingSafeEqual(given, t.digest) && !match) match = t;
-    if (!match)
-      return httpError(
-        401,
-        "unauthorized",
-        "the bearer token matches no MCP token",
-        "use a token from engine.mcp.tokens (they are resolved when the engine starts)",
-        challenge,
-      );
-    return match;
+    if (match) return match;
+    const grant = this.oauth?.authenticate(m[1] as string);
+    if (grant) {
+      if (!this.recent.includes(m[1] as string)) this.recent = [...this.recent, m[1] as string].slice(-32);
+      return { name: grant.name, scope: grant.scope, pipelines: grant.pipelines, digest: given };
+    }
+    return httpError(
+      401,
+      "unauthorized",
+      `the bearer token matches no MCP token or live OAuth grant${broken}`,
+      "an OAuth token expires after an hour (the client refreshes it) and ends when its grant is revoked: connect again; or use a token from engine.mcp.tokens (resolved when the engine starts)",
+      challenge("invalid_token"),
+    );
   }
 
   private async dispatch(method: string, params: Record<string, unknown>, token: Token): Promise<unknown> {
@@ -1207,7 +1214,7 @@ export class McpServer {
 
   private redactText(text: string): string {
     let out = text;
-    for (const h of this.hidden) out = out.split(h).join("***");
+    for (const h of [...this.hidden, ...this.recent]) out = out.split(h).join("***");
     return out;
   }
 
@@ -1258,9 +1265,9 @@ export class McpServer {
       } catch {}
     }
     try {
-      return await Secrets.resolve(refs, undefined, this.hidden);
+      return await Secrets.resolve(refs, undefined, [...this.hidden, ...this.recent]);
     } catch {
-      return await Secrets.resolve({}, undefined, this.hidden);
+      return await Secrets.resolve({}, undefined, [...this.hidden, ...this.recent]);
     }
   }
 

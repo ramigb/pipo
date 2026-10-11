@@ -15,25 +15,14 @@ Agents never change Pipo's own code at runtime. They change `.pipo` files, throu
 
 ## Quick start: connect Claude Code
 
-1. **Give the engine a port**, so it serves `/mcp`. In `<home>/config.yaml` (`~/.pipo/config.yaml` by default):
-
-   ```yaml
-   engine:
-     listen: 8787
-     mcp:
-       tokens:
-         - name: ops-agent                # the name its actions are recorded under
-           token: env:PIPO_MCP_TOKEN      # a reference, never the token itself
-           scope: operate                 # read | operate | edit | author
-           pipelines: [people-intake]     # optional allowlist
-   ```
-
-2. **Create the token** and start the engine with it in its environment. Tokens are resolved when the engine starts, so a change needs an engine restart:
+1. **Add the engine** to Claude Code. The engine listens on port 4747 when the CLI starts it (`pipo engine start`, `pipo ui`, or any command):
 
    ```sh
-   export PIPO_MCP_TOKEN=$(openssl rand -hex 24)   # at least 16 characters
-   pipo engine stop; pipo engine start
+   pipo engine start
+   claude mcp add --transport http pipo http://127.0.0.1:4747/mcp
    ```
+
+2. **Approve it in the browser.** In Claude Code, run `/mcp` and pick `pipo`. Your browser opens the Pipo dashboard on a **🔑 Connect an agent** page: pick what it may do (its scope), which pipelines it may see, and the name its actions are recorded under, then **Approve**. Claude Code gets a token and refreshes it by itself.
 
 3. **Let the pipeline be operated** by agents, in its `.pipo` file:
 
@@ -43,21 +32,37 @@ Agents never change Pipo's own code at runtime. They change `.pipo` files, throu
      actions: [pause, resume, replay, push]
    ```
 
-4. **Add the server** to Claude Code:
+The dashboard's **🔑 Agents** page lists the connected agents, and revokes them. `pipo mcp grants` does the same from a terminal.
 
-   ```sh
-   claude mcp add --transport http pipo http://127.0.0.1:8787/mcp \
-     --header "Authorization: Bearer $PIPO_MCP_TOKEN"
-   ```
+Any MCP client that speaks Streamable HTTP and the MCP authorization flow works the same way.
 
-Any MCP client that speaks Streamable HTTP and can send an `Authorization` header works the same way.
+### Static tokens
+
+For a client without OAuth, or a script, list a token in `<home>/config.yaml` (`~/.pipo/config.yaml` by default) and restart the engine:
+
+```yaml
+engine:
+  mcp:
+    tokens:
+      - name: ops-agent                # the name its actions are recorded under
+        token: env:PIPO_MCP_TOKEN      # a reference, never the token itself
+        scope: operate                 # read | operate | edit | author
+        pipelines: [people-intake]     # optional allowlist
+```
+
+```sh
+export PIPO_MCP_TOKEN=$(openssl rand -hex 24)   # at least 16 characters
+pipo engine stop; pipo engine start
+claude mcp add --transport http pipo http://127.0.0.1:4747/mcp \
+  --header "Authorization: Bearer $PIPO_MCP_TOKEN"
+```
 
 > [!TIP]
 > Keep the token in 1Password and reference it as `token: op://Pipo/mcp/ops-agent`, instead of an environment variable.
 
 ## The MCP endpoint
 
-The engine serves an MCP server at `/mcp` on its gateway (`engine.listen`, on `127.0.0.1`).
+The engine serves an MCP server at `/mcp` on its gateway (port 4747 by default, or `engine.listen`, on `127.0.0.1`).
 
 - **Transport.** Streamable HTTP without sessions: each POST carries one JSON-RPC message and gets a JSON answer. Notifications get `202`. There is no server stream, so GET and DELETE are `405`. Batches are refused. Revisions `2025-06-18` and `2025-11-25` are supported.
 - **Methods.** `initialize`, `ping`, `tools/list`, `tools/call`, `resources/list`, `resources/templates/list`, `resources/read`.
@@ -66,7 +71,21 @@ The engine serves an MCP server at `/mcp` on its gateway (`engine.listen`, on `1
 
 ### Tokens and scopes
 
-Every request sends `Authorization: Bearer <token>`. A missing or unknown token is `401`. With no usable token configured, `/mcp` answers `403` with a hint on how to add one.
+Every request sends `Authorization: Bearer <token>`: an OAuth access token, or a static token from `config.yaml`. A missing or unknown token is `401`, with `WWW-Authenticate: Bearer resource_metadata="…"` so the client can start the OAuth flow, and a hint.
+
+### OAuth
+
+The engine is its own OAuth server, following the MCP authorization spec:
+
+- **Discovery.** `/.well-known/oauth-protected-resource` names the engine as the authorization server, and `/.well-known/oauth-authorization-server` lists its endpoints.
+- **Registration.** Clients register themselves at `/oauth/register`. Only public clients, with redirect URIs on `localhost`, `127.0.0.1` or `[::1]` (any port), or `https://`.
+- **Approval.** `/oauth/authorize` (with PKCE) sends your browser to the dashboard's consent page. It shows the client's name, which the client chose itself, and where the token will go. You pick the scope, all pipelines or some, and the name. An `author` scope is flagged: it lets the agent write pipelines and start them once approved.
+- **Tokens.** Access tokens last an hour and refresh tokens 30 days, rotated on every use. Only their SHA-256 digests are kept, in `<home>/mcp-grants.json`, so grants survive engine restarts.
+- **Revoking.** The Agents page, `pipo mcp grants revoke <id>`, or `POST /api/mcp/grants/<id>/revoke`. The agent's next call is `401`, and its client asks you again.
+
+Reconnecting under the same name keeps the pipelines the agent wrote (see [Agents that build pipelines](agent-authoring.md)).
+
+### Static tokens and scopes
 
 `engine.mcp.tokens` is a list:
 
@@ -76,6 +95,8 @@ Every request sends `Authorization: Bearer <token>`. A missing or unknown token 
 | `token` | `op://…` or `env:VAR`. A literal value is a config error, and the error never repeats it. A token that doesn't resolve, or is shorter than 16 characters, is logged and left out. |
 | `scope` | `read` (default), `operate`, `edit` or `author`. Each includes the ones before it. |
 | `pipelines` | Optional allowlist. A pipeline outside it doesn't exist for this token (`not_found`). |
+
+Scopes are the same for OAuth grants and static tokens:
 
 | Scope | Tools |
 |---|---|

@@ -453,7 +453,7 @@ describe("engine.mcp config and token resolution", () => {
     expect(err?.message).toContain("is used by another token");
   });
 
-  test("no usable token: /mcp refuses with 403 and says why; a short or unresolvable token is logged, not used", async () => {
+  test("no usable token: /mcp answers 401 with the OAuth challenge and says why; a short or unresolvable token is logged, not used", async () => {
     const lines: string[] = [];
     const fake = { home: box.root, touch() {}, list: () => [], get: () => undefined } as unknown as Supervisor;
     const ping = (server: McpServer) =>
@@ -465,7 +465,8 @@ describe("engine.mcp config and token resolution", () => {
         }),
       );
     const none = await ping(new McpServer({ engine: fake, tokens: [], api: async () => ({ status: 500, body: {} }) }));
-    expect(none.status).toBe(403);
+    expect(none.status).toBe(401);
+    expect(none.headers.get("www-authenticate")).toContain("resource_metadata=");
     expect(((await none.json()) as any).hint).toContain("engine.mcp.tokens");
 
     process.env.PIPO_MCP_TEST_SHORT = "short";
@@ -479,8 +480,8 @@ describe("engine.mcp config and token resolution", () => {
       log: (level, message) => lines.push(`${level} ${message}`),
     });
     const res = await ping(bad);
-    expect(res.status).toBe(403);
-    expect(((await res.json()) as any).error).toContain("none of the 2 MCP token(s)");
+    expect(res.status).toBe(401);
+    expect(((await res.json()) as any).error).toContain("2 token(s) in engine.mcp.tokens could not be used");
     expect(lines.join("\n")).toContain("'tiny' is shorter than 16 characters");
     expect(lines.join("\n")).toContain("'gone' is not usable");
     expect(lines.join("\n")).not.toContain("short\n");

@@ -2,6 +2,10 @@
 
 An agent can do more than operate pipelines a human wrote: it can write a new one, test it, and run it, while you keep the last word. Everything an agent writes waits for your approval before it runs, unless you turn that off. This page covers the authoring tools, the approval loop, and the settings around them. For the MCP endpoint itself (tokens, scopes, the operating tools), see [Agents as operators](agent-operators.md).
 
+## Connect an agent
+
+Connect an MCP client as in [Agents as operators](agent-operators.md#quick-start-connect-claude-code), and pick the **author** scope on the consent page. With a static token, give it `scope: author`.
+
 ## The authoring loop
 
 An agent with the `author` scope builds a pipeline in six steps:
