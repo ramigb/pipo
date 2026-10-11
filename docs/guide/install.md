@@ -1,6 +1,34 @@
 # Install
 
-Pipo runs from a checkout of its Git repository. There is no packaged release yet. Installing takes three steps: get the prerequisites, clone and install, then put the `pipo` command on your `PATH`.
+Pipo runs from a checkout of its Git repository. There is no packaged release yet. The install script does every step for you and then checks the result. You can also [install by hand](#prerequisites).
+
+## Install script
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ramigb/pipo/main/install.sh | bash
+```
+
+The script:
+
+1. Checks the platform (Linux or macOS) and the [prerequisites](#prerequisites). It offers to install Bun and Rust if they're missing or too old. It only gives you the command for a C compiler or Git, because those need `sudo`.
+2. Clones the repository into `~/.local/share/pipo`. If a checkout is already there, it updates it with `git pull --ff-only`, unless the checkout has local changes.
+3. Runs `bun install`, which also builds the runner.
+4. Links the `pipo` command into Bun's global bin folder (`~/.bun/bin`).
+5. Verifies the install. It runs the runner binary and `pipo check examples`, runs `pipo test` on `examples/people-intake` through the runner, and starts an engine in a throwaway Pipo home, loads the dashboard, then stops the engine. It also lists the optional tools it finds.
+
+In a checkout you already have, run `./install.sh` there. It installs that checkout and doesn't pull.
+
+| Option | Effect |
+|---|---|
+| `--dir <path>` | Put the checkout here instead (or set `PIPO_DIR`) |
+| `--branch <ref>` | Clone or update this branch |
+| `--yes`, `-y` | Install missing prerequisites without asking. Without a terminal and without `--yes`, the script installs nothing and stops with a hint. |
+| `--check` | Only verify an existing install. Changes nothing. |
+| `--no-update` | Use the existing checkout as it is |
+| `--no-link` | Don't link the `pipo` command |
+| `--skip-engine` | Skip the engine check |
+
+The script exits with status 1 if a check fails, and prints what to do for each failure. Run `./install.sh --check` from the checkout at any time to check the install again.
 
 ## Prerequisites
 
@@ -68,6 +96,8 @@ The rest of these docs write commands as `pipo …`. From the repository root wi
 
 ## Check the install
 
+`./install.sh --check`, from the checkout, runs every check the install script runs. Or check by hand:
+
 ```sh
 pipo check examples
 ```
@@ -116,6 +146,8 @@ The VS Code extension in `packages/vscode` registers `.pipo` files, attaches the
 git pull
 bun install
 ```
+
+Or run the install script again: it pulls, installs and checks.
 
 If an engine is running, restart it so it runs the new code: `pipo engine stop`, then any `pipo` command starts it again. The dashboard shows a banner when the running engine is older than the code on disk.
 

@@ -47,12 +47,14 @@ The file fits Git, diffs, pull requests and CI. The visual builder loads and sav
 
 ## Quick start
 
-Requires [Bun](https://bun.sh) ≥ 1.3, on Linux or macOS. From a checkout of this repository:
+Runs on Linux and macOS. The install script checks for [Bun](https://bun.sh) ≥ 1.3, [Rust](https://rustup.rs) and Git, offers to install the ones you don't have, builds Pipo, links the `pipo` command and checks the install:
 
 ```sh
-bun install
-bun pipo ui                      # starts the engine and opens the dashboard and builder
+curl -fsSL https://raw.githubusercontent.com/ramigb/pipo/main/install.sh | bash
+pipo ui                          # starts the engine and opens the dashboard and builder
 ```
+
+In a checkout you already have, run `./install.sh` instead, or `bun install` and then `bun pipo ui`. See [Install](docs/guide/install.md).
 
 The first visit asks you to create the engine's **owner**, its one account: `pipo ui` fills in the one-time setup code, and you choose a username and password. The CLI needs no login, because it reads the engine key from the Pipo home. See [Owner and remote access](docs/guide/owner.md).
 
