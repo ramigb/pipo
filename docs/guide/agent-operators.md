@@ -79,7 +79,7 @@ The engine is its own OAuth server, following the MCP authorization spec:
 
 - **Discovery.** `/.well-known/oauth-protected-resource` names the engine as the authorization server, and `/.well-known/oauth-authorization-server` lists its endpoints.
 - **Registration.** Clients register themselves at `/oauth/register`. Only public clients, with redirect URIs on `localhost`, `127.0.0.1` or `[::1]` (any port), or `https://`.
-- **Approval.** `/oauth/authorize` (with PKCE) sends your browser to the dashboard's consent page. It shows the client's name, which the client chose itself, and where the token will go. You pick the scope, all pipelines or some, and the name. An `author` scope is flagged: it lets the agent write pipelines and start them once approved.
+- **Approval.** `/oauth/authorize` (with PKCE) sends your browser to the dashboard's consent page, which needs the owner's login, and the grant records who approved it. It shows the client's name, which the client chose itself, and where the token will go. You pick the scope, all pipelines or some, and the name. An `author` scope is flagged: it lets the agent write pipelines and start them once approved.
 - **Tokens.** Access tokens last an hour and refresh tokens 30 days, rotated on every use. Only their SHA-256 digests are kept, in `<home>/mcp-grants.json`, so grants survive engine restarts.
 - **Revoking.** The Agents page, `pipo mcp grants revoke <id>`, or `POST /api/mcp/grants/<id>/revoke`. The agent's next call is `401`, and its client asks you again.
 

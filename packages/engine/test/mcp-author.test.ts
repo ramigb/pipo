@@ -11,7 +11,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { main } from "../../cli/src/cli";
 import { readEngineEntry } from "../src";
-import { sandbox, waitFor } from "./helpers";
+import { openAuth, sandbox, waitFor } from "./helpers";
 
 const PIPOD = join(import.meta.dir, "../src/main.ts");
 const box = sandbox();
@@ -97,6 +97,7 @@ async function rest(method: "GET" | "POST", path: string, body?: unknown) {
 }
 
 async function startEngine(): Promise<string> {
+  openAuth(home);
   for (let tries = 1; ; tries++) {
     const log = join(box.root, `pipod.${tries}.log`);
     const proc = Bun.spawn(["bun", PIPOD, "--home", home, "--listen", "0", "--workspace", workspace], {

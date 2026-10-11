@@ -18,7 +18,7 @@ input:
 
 | `via` | Triggered by | Key `with:` settings |
 |---|---|---|
-| [`http`](#http) | A webhook or API call to `/in/<pipeline><path>` | `path`, `method`, `auth`, `respond`, `timeout`, `listen` |
+| [`http`](#http) | A webhook or API call to `/in/<pipeline><path>` | `path`, `method`, `auth`, `public`, `respond`, `timeout`, `listen` |
 | [`schedule`](#schedule) | A timer | `cron` or `every`, `payload` |
 | [`watch`](#watch) | File system changes | `path`, `events`, `read` |
 | [`push`](#push) | `pipo push`, the dashboard or an agent | none |
@@ -113,7 +113,11 @@ Two methods, which can be combined:
 | `header` + `equals` | The request must carry the header with exactly this value, compared in constant time. Use a secret: `equals: "${secrets.token}"`. |
 | `hmac: {header, secret, algorithm}` | The header must carry the hex HMAC of the **raw body**, keyed with `secret`. `algorithm` is `sha256` (default) or `sha1`. A `sha256=` or `sha1=` prefix, as GitHub sends it, is accepted. |
 
-A missing or wrong token or signature is `401`, and nothing is journaled. To compute a signature for testing:
+A missing or wrong token or signature is `401`, and nothing is journaled.
+
+**From the network.** When the engine is exposed (`engine.host`, see [Owner and remote access](owner.md#inputs-from-the-network)), a request from another machine, or forwarded by a proxy, reaches an input only if the input has `auth` or sets `public: true`. Otherwise it gets `403`. Requests from this machine are never affected.
+
+To compute a signature for testing:
 
 ```sh
 body='{"order_id": 1}'

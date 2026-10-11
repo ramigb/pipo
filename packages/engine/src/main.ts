@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 // pipod, the Pipo engine (docs/spec.md §7.1, §7.2, D25, D27). On start it reattaches every runner in <home>/run
 // (restarting those that died while active), then supervises the pipelines it is given. With engine.listen set in
-// config.yaml (or --listen) it serves the gateway on 127.0.0.1 (/in, /api, /events; D28). Detached runners
+// config.yaml (or --listen) it serves the gateway on 127.0.0.1, or every interface with engine.host / --host
+// (/in, /api, /events; D28, D85). Detached runners
 // (engine.detached, or `detached` in a start request; D30) run in their own session and outlive pipod.
 // Lifetime (§7.5, D31): it sleeps (exits 0) after engine.idle with nothing to do, and when engine.ttl (or --ttl)
 // expires it drains every pipeline that isn't detached and exits 0.
@@ -9,16 +10,17 @@
 // The dashboard builder saves new pipelines under --workspace (default: the working directory; §8, D61).
 // --after <pid> (a restart from the dashboard, D65): wait for that engine to exit first, and keep running even when
 // the pipelines it hands over fail to start again.
-// Usage: pipod [--home <dir>] [--listen <port>] [--ttl <dur>] [--workspace <dir>] [file.pipo …]
+// Usage: pipod [--home <dir>] [--listen <port>] [--host <addr>] [--ttl <dur>] [--workspace <dir>] [file.pipo …]
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { formatDuration, parseDuration } from "@pipo/spec";
-import { type EngineConfig, loadConfig } from "./config";
+import { BIND_HOSTS, type EngineConfig, loadConfig } from "./config";
 import { EngineError } from "./errors";
 import { resolveHome } from "./home";
 import { Supervisor } from "./supervisor";
 
-const USAGE = "usage: pipod [--home <dir>] [--listen <port>] [--ttl <duration>] [--workspace <dir>] [file.pipo …]";
+const USAGE =
+  "usage: pipod [--home <dir>] [--listen <port>] [--host <addr>] [--ttl <duration>] [--workspace <dir>] [file.pipo …]";
 const HELP = `${USAGE}
 
 Start the Pipo engine and the pipelines given, one runner process per pipeline.
@@ -26,7 +28,8 @@ Runners already registered in <home>/run are reattached first; one that died
 while running is restarted, and its journal resumes the packets in flight.
 Crashed runners restart with backoff (engine.restart in <home>/config.yaml).
 With engine.listen set, the gateway serves /in/<pipeline>/…, /api and /events
-on 127.0.0.1 (its port is in <home>/run/engine.json).
+on 127.0.0.1 (its port is in <home>/run/engine.json), or on every interface
+with engine.host (which needs engine.public_url and the owner's login).
 With engine.detached: true, runners keep running when pipod stops or dies;
 the next pipod reattaches them. SIGINT/SIGTERM drain the other pipelines.
 With every pipeline stopped or completed for engine.idle (default 5m), pipod
@@ -35,6 +38,7 @@ expires, it drains every pipeline that isn't detached and exits.
 
   --home <dir>        Pipo home (default ~/.pipo, or PIPO_HOME)
   --listen <port>     gateway port on 127.0.0.1, 0 picks a free one (overrides engine.listen)
+  --host <addr>       bind 127.0.0.1 (default), 0.0.0.0 or :: (overrides engine.host)
   --ttl <duration>    stop after this long, e.g. 8h (overrides engine.ttl)
   --workspace <dir>   where the dashboard saves new pipelines (default: the working directory)
   -h, --help          show this help`;
@@ -52,6 +56,7 @@ function args() {
       options: {
         home: { type: "string" },
         listen: { type: "string" },
+        host: { type: "string" },
         ttl: { type: "string" },
         workspace: { type: "string" },
         after: { type: "string" },
@@ -83,7 +88,11 @@ function configure(home: string): EngineConfig {
     report(e);
     process.exit(2);
   }
-  const { listen, ttl } = parsed.values;
+  const { listen, ttl, host } = parsed.values;
+  if (host !== undefined) {
+    if (!BIND_HOSTS.includes(host)) bad(`--host '${host}' must be one of ${BIND_HOSTS.join(", ")}`);
+    config.host = host;
+  }
   if (listen !== undefined) {
     const port = /^\d+$/.test(listen) ? Number(listen) : Number.NaN;
     if (!(port >= 0 && port <= 65535)) bad(`--listen '${listen}' is not a port (use 0–65535; 0 picks a free one)`);

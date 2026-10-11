@@ -14,6 +14,7 @@ import { formatPipo } from "./fmt";
 import { generateNode } from "./generate";
 import { cmdLogs, cmdPause, cmdRestart, cmdResume, cmdStart, cmdStatus, cmdStop } from "./lifecycle";
 import { newPipeline } from "./new";
+import { cmdOwner } from "./owner";
 import { cmdAck, cmdDlq, cmdInspect, cmdPackets, cmdPush, cmdRerun } from "./packets";
 import { cmdProposals, cmdResolve } from "./proposals";
 import { listTemplates } from "./templates";
@@ -121,6 +122,8 @@ async function dispatch(command: string, rest: string[]): Promise<number> {
       return cmdApprovals(rest);
     case "mcp":
       return cmdMcp(rest);
+    case "owner":
+      return cmdOwner(rest);
     case "test":
       return cmdTest(rest);
     case "ui":

@@ -64,6 +64,7 @@ export const NAV: Section[] = [
       guide("recovery", "Recovering packets"),
       guide("versions", "Versions and rollback"),
       guide("dashboard", "Dashboard"),
+      guide("owner", "Owner and remote access"),
       guide("builder", "Builder"),
     ],
   },

@@ -49,6 +49,7 @@ export const INPUTS: Record<string, InputManifest> = {
         },
         additionalProperties: false,
       },
+      public: { type: "boolean" },
       respond: { enum: ["accepted", "delivered"] },
       timeout: DURATION,
       listen: { type: "integer", minimum: 1, maximum: 65535 },

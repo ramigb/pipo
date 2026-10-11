@@ -19,6 +19,16 @@ describe("model", () => {
     expect(M.pipelineNames("")).toEqual({ names: [], bad: [] });
   });
 
+  test("ownerProblem: the owner forms' rules, as the engine checks them (D84)", () => {
+    expect(M.ownerProblem({ username: "ada", password: "long enough pw", again: "long enough pw" })).toBeNull();
+    expect(M.ownerProblem({ username: "-ada" })).toContain("username");
+    expect(M.ownerProblem({ password: "short" })).toContain("10 characters");
+    expect(M.ownerProblem({ password: "long enough pw", again: "other one!!" })).toContain("differ");
+    expect(M.ownerProblem({ email: "nope" })).toContain("email");
+    expect(M.ownerProblem({ email: "" })).toBeNull();
+    expect(M.ownerProblem({ email: "ada@example.com" })).toBeNull();
+  });
+
   test("rerunFrom: the node a trace step ran, `output` for the write, nothing for the input or markers", () => {
     const at = (event: string, node: string | null) => M.rerunFrom({ event, node });
     expect(at("node.done", "stamp")).toBe("stamp");

@@ -1982,3 +1982,11 @@ textarea.invalid {
 .push[open] summary {
   margin-bottom: 10px;
 }
+
+/* The owner's pages (setup, login, reset; D84): nothing to navigate to before the login. */
+body.locked .nav,
+body.locked #engine,
+body.locked #live,
+body.locked #user {
+  visibility: hidden;
+}

@@ -68,7 +68,7 @@ Stopped, failed and crashed pipelines have no runner, so they don't keep the eng
 
 ## The gateway
 
-With a gateway port, the engine serves one HTTP server on `127.0.0.1`:
+With a gateway port, the engine serves one HTTP server on `127.0.0.1` (or on every interface with `engine.host`, see [Owner and remote access](owner.md)):
 
 | Path | What |
 |---|---|
@@ -80,7 +80,7 @@ With a gateway port, the engine serves one HTTP server on `127.0.0.1`:
 
 The gateway doesn't retry anything. An unknown pipeline, or one without an http input, is `404`. A pipeline that isn't running is `503` (with `Retry-After` while it starts or waits to restart). A failure after the request was sent is `502`, with a hint that the packet may have been accepted.
 
-`/api` and `/events` only answer requests whose `Host` is a loopback name, and every API `POST` must be JSON. So a web page you visit can't drive your engine. `/in` has no such limit, because inputs have their own auth (a token header or an HMAC signature, see [Inputs](inputs.md)).
+`/api` and `/events` need the owner's login, or the engine key the CLI sends (`engine.auth: owner`, the default). They only answer requests whose `Host` is a loopback name or `engine.public_url`'s host, refuse pages from other origins, and every API `POST` must be JSON. So a web page you visit can't drive your engine. `/in` needs no login, because inputs have their own auth (a token header or an HMAC signature, see [Inputs](inputs.md)); a request from the network reaches an input without auth only when it says `public: true`. See [Owner and remote access](owner.md).
 
 ## Supervision and restarts
 

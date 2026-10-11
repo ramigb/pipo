@@ -64,6 +64,24 @@ export { ulid } from "./ids";
 export { ESCALATED, IN_FLIGHT, Journal, type PacketRow, type PacketState, PENDING, TERMINAL } from "./journal";
 export { entryAlive, type Liveness, pidReused, pidRunning, processStartedAt, procStart } from "./liveness";
 export {
+  emailProblem,
+  engineKeyPath,
+  ensureEngineKey,
+  MIN_PASSWORD,
+  type Owner,
+  ownerPath,
+  ownerStamp,
+  passwordProblem,
+  readEngineKey,
+  readOwner,
+  rotateEngineKey,
+  sessionsPath,
+  setOwnerPassword,
+  usernameProblem,
+  verifyPassword,
+  writeOwner,
+} from "./owner";
+export {
   type AuthorKind,
   PROPOSAL_STATES,
   type ProblemCode,

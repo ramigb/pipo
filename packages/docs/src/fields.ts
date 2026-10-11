@@ -31,6 +31,8 @@ const FIELDS: Record<string, string> = {
   "input.http.method": "HTTP method accepted; default `POST`.",
   "input.http.auth":
     "Request authentication: `header` + `equals` (a token header), or `hmac: {header, secret, algorithm}` (a body signature; `sha256` by default).",
+  "input.http.public":
+    "`true` takes requests from the network without `auth` when the engine is exposed (`engine.host`); without it such requests get `403`. Loopback callers never need it.",
   "input.http.respond":
     "`accepted` (default): answer `202 {packet_id}` once journaled; `delivered`: wait for the final state up to `timeout`.",
   "input.http.timeout": "How long `respond: delivered` waits for delivery; default `30s`.",

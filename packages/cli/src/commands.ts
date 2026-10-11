@@ -334,6 +334,19 @@ export const COMMANDS: CommandHelp[] = [
     flags: [["--home <dir>", "Pipo home (default ~/.pipo, or PIPO_HOME)"], JSON_FLAG],
   },
   {
+    name: "owner",
+    summary:
+      "Show the owner of this Pipo home, or set a new password (no old one needed; every dashboard session ends)",
+    usage: "pipo owner [reset [--username <name>] [--password-stdin] [--rotate-key]]",
+    flags: [
+      ["--username <name>", "reset: rename the owner (needed when there is no owner yet: it creates one)"],
+      ["--password-stdin", "reset: read the new password from stdin instead of asking twice"],
+      ["--rotate-key", "reset: also replace <home>/engine.key, the key the CLI sends to the engine"],
+      ["--home <dir>", "Pipo home (default ~/.pipo, or PIPO_HOME)"],
+      JSON_FLAG,
+    ],
+  },
+  {
     name: "resolve",
     summary: "Settle packets handed to the agent (then: agent, on_stall: handle): retry, dead-letter or drop them",
     usage: 'pipo resolve <name> <id…> --action retry|dead_letter|drop [--reason "…"]',
@@ -349,10 +362,14 @@ export const COMMANDS: CommandHelp[] = [
   {
     name: "engine",
     summary: "Start, stop or inspect the engine (detached runners keep running when it stops)",
-    usage: "pipo engine start|stop|status [--ttl 8h] [--listen <port>]",
+    usage: "pipo engine start|stop|status [--ttl 8h] [--listen <port>] [--host <addr>]",
     flags: [
       ["--ttl <duration>", "start: the engine drains its pipelines and stops after this long, e.g. 8h"],
       ["--listen <port>", "start: gateway port on 127.0.0.1 (0 picks a free one; default engine.listen, else 0)"],
+      [
+        "--host <addr>",
+        "start: bind 127.0.0.1 (default), or 0.0.0.0 / :: for every interface (needs engine.public_url; default engine.host)",
+      ],
       ["--home <dir>", "Pipo home (default ~/.pipo, or PIPO_HOME)"],
       JSON_FLAG,
     ],

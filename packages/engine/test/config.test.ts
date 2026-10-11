@@ -94,3 +94,51 @@ test("the engine refuses to open with a bad config.yaml, before claiming the hom
     /config\.yaml:2:22 engine\.restart\.window must be a duration/,
   );
 });
+
+test("auth, host, public_url and mail (D84–D86)", () => {
+  const ok = parseConfig(
+    `engine:
+  auth: owner
+  host: 0.0.0.0
+  public_url: https://pipo.example.com/
+  mail: { host: smtp.example.com, user: pipo@example.com, password: op://Pipo/smtp/password, from: "Pipo <pipo@example.com>" }
+`,
+  );
+  expect(ok.auth).toBe("owner");
+  expect(ok.host).toBe("0.0.0.0");
+  expect(ok.public_url).toBe("https://pipo.example.com");
+  expect(ok.mail).toEqual({
+    host: "smtp.example.com",
+    port: 587,
+    secure: "starttls",
+    user: "pipo@example.com",
+    password: "op://Pipo/smtp/password",
+    from: "Pipo <pipo@example.com>",
+  });
+  const tls = parseConfig("engine:\n  mail: { host: smtp.example.com, port: 465, from: pipo@example.com }\n");
+  expect(tls.mail).toMatchObject({ secure: "tls", user: null, password: null });
+
+  expect(fails("engine:\n  auth: nobody\n").message).toContain("owner (a login, the default) or open");
+  expect(fails("engine:\n  host: 192.168.1.5\n").message).toContain("0.0.0.0");
+  expect(fails("engine:\n  public_url: https://pipo.example.com/app\n").message).toContain("no path");
+  expect(fails("engine:\n  public_url: ftp://pipo.example.com\n").message).toContain("http(s) URL");
+  const open = fails("engine:\n  host: 0.0.0.0\n  auth: open\n  public_url: https://a.example\n");
+  expect(open.message).toContain("engine.auth: open");
+  expect(fails("engine:\n  host: '::'\n").message).toContain("engine.public_url is not set");
+
+  const literal = fails(
+    "engine:\n  mail: { host: smtp.example.com, user: me, password: hunter2-literal, from: me@example.com }\n",
+  );
+  expect(literal.message).toContain("secret reference");
+  expect(literal.message).not.toContain("hunter2-literal");
+  expect(fails("engine:\n  mail: { host: smtp.example.com, secure: none, from: me@example.com }\n").message).toContain(
+    "only allowed for a relay on this machine",
+  );
+  expect(fails("engine:\n  mail: { host: smtp.example.com, user: me, from: me@example.com }\n").message).toContain(
+    "both user and password",
+  );
+  expect(fails("engine:\n  mail: { host: smtp.example.com, from: nobody }\n").message).toContain("sender address");
+  expect(fails("engine:\n  mail: { host: smtp.example.com, from: a@b.c, tls: yes }\n").message).toContain(
+    "unknown key 'engine.mail.tls'",
+  );
+});

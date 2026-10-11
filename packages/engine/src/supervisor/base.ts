@@ -216,7 +216,7 @@ export abstract class SupervisorBase {
     }
   }
 
-  protected log(level: string, message: string) {
+  log(level: string, message: string) {
     (this.opts.log ?? console.log)(`${new Date().toISOString()} ${level.toUpperCase().padEnd(5)} [engine] ${message}`);
   }
 

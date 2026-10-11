@@ -1,7 +1,8 @@
 // `pipo ui [--no-open] [--workspace dir]` (docs/spec.md §6, §8, D61): open the dashboard, which the engine serves at
 // /ui. Starts the engine first when none runs (its builder saves new pipelines under --workspace, default the current
 // folder); an open dashboard keeps it awake. Warns when the engine is older than Pipo's code here (D64). Prints the
-// URL and tries to open it in a browser.
+// URL and tries to open it in a browser. While the engine has no owner (D84), the URL opens the setup page with the
+// setup code filled in: the CLI reads it with the engine key.
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -51,12 +52,24 @@ export async function cmdUi(args: string[]): Promise<number> {
   // Started before Pipo was updated (or too old to tell): the dashboard is served fresh and may need newer routes (D64).
   const outdated = info.code_changed !== false;
   const started = info.pid !== before;
-  const url = `http://127.0.0.1:${ctx.api.port}/ui`;
+  const auth = await ctx.api
+    .call<{ setup_code?: string }>("GET", "/api/auth")
+    .catch(() => ({}) as { setup_code?: string });
+  const setup = typeof auth.setup_code === "string" ? auth.setup_code : null;
+  const url = `http://127.0.0.1:${ctx.api.port}/ui${setup ? `/#/setup/${setup}` : ""}`;
   const elsewhere = workspace !== undefined && info.workspace !== undefined && info.workspace !== workspace;
   if (values.json) {
     console.log(
       JSON.stringify(
-        { ok: true, url, started, pid: info.pid, workspace: info.workspace ?? null, engine_outdated: outdated },
+        {
+          ok: true,
+          url,
+          started,
+          pid: info.pid,
+          workspace: info.workspace ?? null,
+          engine_outdated: outdated,
+          owner_setup: setup !== null,
+        },
         null,
         2,
       ),
@@ -78,6 +91,7 @@ export async function cmdUi(args: string[]): Promise<number> {
       );
     }
     if (info.workspace) flourish("info", `workspace ${paint().dim(info.workspace)}`);
+    if (setup) flourish("info", "no owner yet: the dashboard opens on the setup page, with the setup code filled in");
     // The URL alone on stdout, for scripts; dressed only when stdout is a terminal.
     const p = paint(process.stdout);
     console.log(fancy(process.stdout) ? `${p.cyan("➜")} ${p.bold("dashboard")}  ${p.underline(p.cyan(url))}\n` : url);

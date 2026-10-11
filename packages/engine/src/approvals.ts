@@ -3,9 +3,10 @@
 // page, `pipo approvals approve`, or starting it themselves). Approval is tied to a hash of the files the agent wrote,
 // so a later rewrite is pending again. With `engine.mcp.auto_approve` the engine approves on the agent's behalf.
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { inputsOf, load, type Pipeline } from "@pipo/spec";
+import { writePrivateJson } from "./files";
 
 export type ApprovalState = "pending" | "approved" | "rejected";
 
@@ -97,10 +98,7 @@ export class Approvals {
   }
 
   private write(store: Store) {
-    mkdirSync(dirname(this.path), { recursive: true });
-    writeFileSync(`${this.path}.tmp`, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });
-    chmodSync(`${this.path}.tmp`, 0o600);
-    renameSync(`${this.path}.tmp`, this.path);
+    writePrivateJson(this.path, store);
   }
 
   private view(a: Approval): ApprovalView {

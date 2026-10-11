@@ -12,6 +12,7 @@ import {
   COMMON,
   context,
   type EngineEntry,
+  engineAuth,
   findEngine,
   needEngine,
   probe,
@@ -41,7 +42,7 @@ interface RunnerRow {
 async function liveApi(home: string, noEngine: boolean): Promise<Api | null> {
   if (noEngine) return null;
   const engine = findEngine(home);
-  return engine && (await probe(engine)) === "ready" ? new Api(engine.port) : null;
+  return engine && (await probe(engine)) === "ready" ? new Api(engine.port, home) : null;
 }
 
 /** A live runner is reachable when `hello` on its socket names the same pipeline and pid (D27). */
@@ -181,7 +182,7 @@ export async function cmdEngine(args: string[]): Promise<number> {
     case "status":
       return engineStatus(rest);
     default:
-      return usage("pipo engine start|stop|status [--ttl 8h] [--listen <port>]");
+      return usage("pipo engine start|stop|status [--ttl 8h] [--listen <port>] [--host <addr>]");
   }
 }
 
@@ -194,9 +195,9 @@ async function engineStart(args: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args,
     allowPositionals: true,
-    options: { ...COMMON, ttl: { type: "string" }, listen: { type: "string" } },
+    options: { ...COMMON, ttl: { type: "string" }, listen: { type: "string" }, host: { type: "string" } },
   });
-  if (positionals.length) return usage("pipo engine start [--ttl 8h] [--listen <port>]");
+  if (positionals.length) return usage("pipo engine start [--ttl 8h] [--listen <port>] [--host <addr>]");
   const home = resolveHome(values.home);
   let ttlMs: number | undefined;
   if (values.ttl !== undefined) {
@@ -221,19 +222,38 @@ async function engineStart(args: string[]): Promise<number> {
   const running = readEngineEntry(home);
   if (running) {
     const note =
-      values.ttl !== undefined || listen !== undefined
-        ? "; --ttl and --listen apply to a new engine only: stop it first"
+      values.ttl !== undefined || listen !== undefined || values.host !== undefined
+        ? "; --ttl, --listen and --host apply to a new engine only: stop it first"
         : "";
     return report(values.json === true, home, "already running", running, note);
   }
-  const why = await startEngine(home, { ttl: values.ttl, listen });
+  const why = await startEngine(home, { ttl: values.ttl, listen, host: values.host });
   if (why)
     throw new CliError(
       `cannot start the engine: ${why}`,
       "fix that, then run 'pipo engine start' again",
       "engine_down",
     );
-  return report(values.json === true, home, "started", readEngineEntry(home));
+  const entry = readEngineEntry(home);
+  const code = entry?.listen ? await setupCode(home, entry.listen) : null;
+  const note = code
+    ? `\nno owner yet: run pipo ui to create it in the dashboard (setup code ${code}), or pipo owner reset`
+    : "";
+  return report(values.json === true, home, "started", entry, note);
+}
+
+/** The setup code while the engine has no owner (D84), read with this home's engine key; null otherwise. */
+export async function setupCode(home: string, port: number): Promise<string | null> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/auth`, {
+      headers: engineAuth(home),
+      signal: AbortSignal.timeout(3000),
+    });
+    const body = (await res.json()) as { setup_code?: unknown };
+    return typeof body.setup_code === "string" ? body.setup_code : null;
+  } catch {
+    return null;
+  }
 }
 
 function report(json: boolean, home: string, what: string, e: EngineEntry | null, note = ""): number {
@@ -316,7 +336,10 @@ async function engineStatus(args: string[]): Promise<number> {
   }
   let info: any;
   try {
-    const res = await fetch(`http://127.0.0.1:${entry.listen}/api/engine`, { signal: AbortSignal.timeout(3000) });
+    const res = await fetch(`http://127.0.0.1:${entry.listen}/api/engine`, {
+      headers: engineAuth(home),
+      signal: AbortSignal.timeout(3000),
+    });
     info = await res.json();
   } catch (e) {
     throw new CliError(

@@ -184,7 +184,7 @@ test("engine start, status, runners, attach and stop; a detached runner survives
 
   const ui = await pipo("ui", "--no-open", ...H);
   expect(ui.code).toBe(0);
-  expect(ui.stdout).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/ui$/);
+  expect(ui.stdout).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/ui(\/#\/setup\/[A-Z0-9-]{19})?$/);
   expect((await fetch(ui.stdout)).headers.get("content-type")).toContain("text/html");
 
   const stop = await pipo("engine", "stop", ...H);
@@ -242,7 +242,7 @@ test("pipo ui starts the engine when none runs, and reuses a running one (D61)",
   expect(first.code).toBe(0);
   const a = json(first);
   expect(a).toMatchObject({ ok: true, started: true, workspace: sb.root, engine_outdated: false });
-  expect(a.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/ui$/);
+  expect(a.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/ui(\/#\/setup\/[A-Z0-9-]{19})?$/);
   const page = await fetch(a.url);
   expect(page.status).toBe(200);
   expect(await page.text()).toContain("<title>Pipo</title>");

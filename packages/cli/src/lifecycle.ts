@@ -16,6 +16,7 @@ import {
   entryAlive,
   homeAgentBudget,
   type RegistryEntry,
+  readEngineKey,
   runnerBinary,
 } from "@pipo/runner";
 import { parseDuration } from "@pipo/spec";
@@ -69,18 +70,34 @@ export interface EngineEntry {
 export interface Engine {
   port: number;
   pid: number;
+  /** The Pipo home, whose engine.key the CLI sends (D84). */
+  home: string;
+}
+
+/**
+ * Headers that admit the CLI to an engine with `engine.auth: owner` (D84): its key, `<home>/engine.key`, which only
+ * someone who can read the home has.
+ */
+export function engineAuth(home: string): Record<string, string> {
+  const key = readEngineKey(home);
+  return key ? { authorization: `Bearer ${key}` } : {};
 }
 
 /** The running engine with a gateway, from `<home>/run/engine.json`; null when absent, dead or without a gateway. */
 export function findEngine(home: string): Engine | null {
   const e = readJson<EngineEntry>(join(home, "run", "engine.json"));
-  return e && alive(e) && e.listen ? { port: e.listen, pid: e.pid } : null;
+  return e && alive(e) && e.listen ? { port: e.listen, pid: e.pid, home } : null;
 }
 
 /** What the engine's `GET /api/engine` says: serving, still reattaching, or shutting down (asleep, TTL; D31). */
-export async function probe(engine: Engine): Promise<"ready" | "starting" | "stopping" | "unreachable"> {
+export async function probe(engine: Engine): Promise<"ready" | "starting" | "stopping" | "unreachable" | "refused"> {
   try {
-    const r = await fetch(`http://127.0.0.1:${engine.port}/api/engine`, { signal: AbortSignal.timeout(2000) });
+    const r = await fetch(`http://127.0.0.1:${engine.port}/api/engine`, {
+      headers: engineAuth(engine.home),
+      signal: AbortSignal.timeout(2000),
+    });
+    // It wants a login and doesn't take this home's key: another home's engine, or a key that changed under it.
+    if (r.status === 401) return "refused";
     if (!r.ok) return "unreachable";
     const body = (await r.json()) as { ready?: boolean; stopping?: boolean; pid?: number };
     // Another engine on that port (this one claimed it in engine.json, but hasn't bound it, or couldn't).
@@ -108,7 +125,7 @@ export function configuredListen(home: string): number | null {
  */
 export async function startEngine(
   home: string,
-  opts: { ttl?: string; listen?: number; workspace?: string } = {},
+  opts: { ttl?: string; listen?: number; host?: string; workspace?: string } = {},
 ): Promise<string | null> {
   if (opts.listen !== undefined || configuredListen(home) !== null) return launchEngine(home, opts);
   const port = defaultEnginePort();
@@ -127,7 +144,7 @@ export async function startEngine(
 
 async function launchEngine(
   home: string,
-  opts: { ttl?: string; listen?: number; workspace?: string },
+  opts: { ttl?: string; listen?: number; host?: string; workspace?: string },
 ): Promise<string | null> {
   // A stale or missing runner is built here, in the terminal, rather than inside the engine (D73).
   runnerBinary();
@@ -136,6 +153,7 @@ async function launchEngine(
   const offset = existsSync(logFile) ? statSync(logFile).size : 0;
   const args = [ENGINE_MAIN, "--home", home];
   if (opts.listen !== undefined) args.push("--listen", String(opts.listen));
+  if (opts.host !== undefined) args.push("--host", opts.host);
   if (opts.ttl !== undefined) args.push("--ttl", opts.ttl);
   if (opts.workspace !== undefined) args.push("--workspace", opts.workspace);
   const log = openSync(logFile, "a");
@@ -179,13 +197,16 @@ function logLines(file: string, offset: number): string {
 }
 
 export class Api {
-  constructor(readonly port: number) {}
+  constructor(
+    readonly port: number,
+    readonly home: string,
+  ) {}
   async call<T = any>(method: "GET" | "POST", path: string, body?: Record<string, unknown>): Promise<T> {
     let res: Response;
     try {
       res = await fetch(`http://127.0.0.1:${this.port}${path}`, {
         method,
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...engineAuth(this.home) },
         body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,
       });
     } catch (e) {
@@ -199,6 +220,12 @@ export class Api {
         : [];
       const diag = extra.length ? `\n${extra.map((d: any) => `  ${d.message ?? d}`).join("\n")}` : "";
       const packet = typeof data.packet_id === "string" ? ` (packet ${data.packet_id})` : "";
+      if (res.status === 401)
+        throw new CliError(
+          `the engine on port ${this.port} did not take this home's engine key`,
+          `the CLI sends ${join(this.home, "engine.key")}; check that --home (or PIPO_HOME) is the engine's home and that you can read that file`,
+          "login_required",
+        );
       throw new CliError(
         `${data.error ?? `engine answered ${res.status}`}${packet}${diag}`,
         cliHint(data.hint),
@@ -237,14 +264,16 @@ export async function connect(home: string, noEngine: boolean, start: { workspac
         if (state === "ready") {
           spin.stop();
           if (started) flourish("ok", `started the engine (pid ${engine.pid}, gateway 127.0.0.1:${engine.port})`);
-          return { home, json, api: new Api(engine.port) };
+          return { home, json, api: new Api(engine.port, home) };
         }
         why =
           state === "stopping"
             ? `the engine (pid ${engine.pid}) is shutting down; try again once it stopped`
             : state === "starting"
               ? `the engine (pid ${engine.pid}) is still reattaching its runners`
-              : `the engine (pid ${engine.pid}) does not answer on port ${engine.port}`;
+              : state === "refused"
+                ? `the engine on port ${engine.port} does not take this home's engine key (${join(home, "engine.key")}); check --home or PIPO_HOME`
+                : `the engine (pid ${engine.pid}) does not answer on port ${engine.port}`;
         spin.text(state === "stopping" ? `the engine (pid ${engine.pid}) is shutting down; waiting it out` : why);
       } else {
         const entry = readJson<EngineEntry>(join(home, "run", "engine.json"));

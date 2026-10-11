@@ -139,6 +139,8 @@ async function main() {
   rmSync(OUT, { recursive: true, force: true });
   mkdirSync(OUT, { recursive: true });
   mkdirSync(HOME, { recursive: true });
+  // No login for the screenshots: the browser drives an engine on loopback (spec D84).
+  writeFileSync(join(HOME, "config.yaml"), "engine:\n  auth: open\n");
   cpSync(join(ROOT, "examples"), PROJECT, { recursive: true });
 
   const port = await freePort();

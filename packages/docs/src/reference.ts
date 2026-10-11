@@ -69,7 +69,7 @@ const CLI_AREAS: [area: string, commands: string[], guide: string][] = [
   ["Observe", ["status", "logs", "runners", "attach", "packets", "inspect"], "observing.md"],
   ["Recover", ["dlq", "rerun", "push", "ack", "resolve"], "recovery.md"],
   ["Versions and proposals", ["history", "diff", "rollback", "proposals"], "versions.md"],
-  ["Engine and dashboard", ["engine", "ui", "help"], "engine.md"],
+  ["Engine and dashboard", ["engine", "ui", "owner", "help"], "engine.md"],
 ];
 
 const COMMAND_GUIDE: Record<string, string> = {
@@ -85,6 +85,7 @@ const COMMAND_GUIDE: Record<string, string> = {
   proposals: "../guide/change-protocol.md",
   resolve: "../guide/agent-operators.md",
   ui: "../guide/dashboard.md",
+  owner: "../guide/owner.md",
 };
 
 function cliPage(): GeneratedPage {

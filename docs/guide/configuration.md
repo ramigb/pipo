@@ -28,6 +28,9 @@ pipo run examples/heartbeat/heartbeat.pipo
 | `bots.json` | Telegram bots (mode 0600). See [Telegram bots](telegram.md). |
 | `trust.json` | Templates you've trusted with `pipo trust`. |
 | `approvals.json` | Pipelines agents wrote and their approval state (mode 0600). See [Agents that build pipelines](agent-authoring.md). |
+| `owner.json` | The owner: username, optional email, the argon2id hash of the password (mode 0600). See [Owner and remote access](owner.md). |
+| `sessions.json` | The owner's dashboard sessions, as SHA-256 digests only (mode 0600). |
+| `engine.key` | The engine key the CLI sends instead of a login (mode 0600). |
 | `mcp-grants.json` | Agents connected over OAuth, with only the SHA-256 digests of their tokens (mode 0600). See [Agents as operators](agent-operators.md). |
 | `templates/` | Your own templates for `pipo new`. See [Templates and generators](scaffolding.md). |
 | `pipelines/<name>/journal.db` | The pipeline's journal: packets, events, versions, proposals, the DLQ, agent spend. SQLite, WAL mode. |
@@ -45,6 +48,7 @@ A pipeline's journal outlives its runner: `pipo packets`, `inspect`, `dlq`, `his
 ```yaml
 engine:
   listen: 8787                  # serve the gateway (REST, SSE, MCP, the dashboard) on 127.0.0.1:8787
+  auth: owner                   # the default: the dashboard needs the owner's login (open: no login)
   detached: false
   idle: 5m
   ttl: 8h
@@ -72,6 +76,10 @@ Only two top-level keys exist, `engine` and `agents`. **Unknown keys are errors*
 | Key | Default | Meaning |
 |---|---|---|
 | `listen` | 4747 from the CLI | The gateway's port on `127.0.0.1`. `0` picks a free one (recorded in `run/engine.json`). An engine the CLI starts uses 4747 when this is unset (`PIPO_ENGINE_PORT` changes that, and a taken port falls back to a free one with a warning). `pipod` started by hand has no gateway without it: no `/api`, `/events`, `/mcp` or `/ui`. `pipo engine start --listen` overrides it. |
+| `auth` | `owner` | `owner`: the dashboard and the API need the owner's login, or the engine key the CLI sends. `open`: no login, only for an engine on `127.0.0.1`. See [Owner and remote access](owner.md). |
+| `host` | `127.0.0.1` | Where the gateway listens: `127.0.0.1`, or `0.0.0.0` / `::` for every interface, which needs `auth: owner` and `public_url`. `pipo engine start --host` overrides it. |
+| `public_url` | none | The URL people and agents reach the engine at, such as `https://pipo.example.com` (no path). The engine answers requests addressed to its host and builds reset links and OAuth URLs from it. |
+| `mail` | none | `{host, port, secure, user, password, from}`: the SMTP server for password reset links. `password` is a reference (`op://…` or `env:…`). See [Owner and remote access](owner.md#mail). |
 | `detached` | `false` | Start every runner detached, so it outlives the engine. See [The engine](engine.md). |
 | `idle` | `5m` | How long the engine waits with nothing to do before it sleeps (exits). At least `1s`. The next `pipo` command starts it again. |
 | `ttl` | none | The engine's own lifetime. When it ends, every pipeline that isn't detached drains and the engine stops. `pipo engine start --ttl` overrides it. |

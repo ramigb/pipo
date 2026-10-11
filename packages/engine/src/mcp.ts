@@ -109,6 +109,8 @@ export interface McpOptions {
   oauth?: OAuth;
   /** Engine log line (token problems at start). */
   log?: (level: string, message: string) => void;
+  /** The engine's public URL (D85): its origin may call, and the OAuth challenge names it when addressed by it. */
+  publicUrl?: string | null;
 }
 
 interface Token {
@@ -871,8 +873,10 @@ export class McpServer {
   private readonly api: ApiCall;
   private readonly base: string;
   private readonly oauth: OAuth | undefined;
+  private readonly publicUrl: string | null;
 
   constructor(opts: McpOptions) {
+    this.publicUrl = opts.publicUrl ?? null;
     this.engine = opts.engine;
     this.api = opts.api;
     this.base = opts.base ?? "";
@@ -933,7 +937,7 @@ export class McpServer {
       try {
         host = new URL(origin).hostname;
       } catch {}
-      if (!LOOPBACK.has(host.toLowerCase()))
+      if (!LOOPBACK.has(host.toLowerCase()) && origin !== this.publicUrl)
         return httpError(
           403,
           "forbidden",
@@ -998,7 +1002,12 @@ export class McpServer {
 
   private authenticate(req: Request): Token | Response {
     const host = req.headers.get("host");
-    const origin = host ? `http://${host}` : this.base;
+    const origin =
+      this.publicUrl && host?.toLowerCase() === new URL(this.publicUrl).host
+        ? this.publicUrl
+        : host
+          ? `http://${host}`
+          : this.base;
     const challenge = (error?: string) => ({
       "www-authenticate": `Bearer ${error ? `error="${error}", ` : ""}resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
     });

@@ -17,11 +17,13 @@ pipo engine start --listen 8787     # 0 picks a free port
 pipo engine status                  # prints the port; it is also in <home>/run/engine.json
 ```
 
-It binds to `127.0.0.1` only. Every CLI command has `--json`, which gives the same data as this API.
+It binds to `127.0.0.1` unless `engine.host` says otherwise (see [Owner and remote access](owner.md)). Every CLI command has `--json`, which gives the same data as this API.
 
 ## Conventions
 
-**Local only.** `/api`, `/events` and `/mcp` answer only requests whose `Host` is a loopback name (`127.0.0.1`, `localhost`, `[::1]`). Anything else is `403`. Every `POST` to `/api` must have `Content-Type: application/json` (`415` otherwise). Together, these stop a web page in your browser from driving the engine (DNS rebinding, cross-site form posts). `/in` has no such limits: inputs have their own auth.
+**The owner only.** With `engine.auth: owner` (the default), `/api` and `/events` need the owner's session cookie (from `/api/auth/login`) or the engine key, `Authorization: Bearer <contents of <home>/engine.key>`, which the CLI sends. Without either they answer `401` with code `login_required`, or `owner_setup_required` before the owner exists. `/api/auth/*` needs neither. See [Owner and remote access](owner.md).
+
+**Addressed to this engine.** `/api`, `/events`, `/mcp` and the OAuth routes answer only requests whose `Host` is a loopback name (`127.0.0.1`, `localhost`, `[::1]`) or the host of `engine.public_url`, and refuse an `Origin` other than the engine's own. Anything else is `403`. Every `POST` to `/api` must have `Content-Type: application/json` (`415` otherwise). Together, these stop a web page in your browser from driving the engine (DNS rebinding, cross-site form posts). `/in` has no such limits: inputs have their own auth.
 
 **Errors** are JSON with a status that matches:
 
@@ -32,13 +34,16 @@ It binds to `127.0.0.1` only. Every CLI command has `--json`, which gives the sa
 | Status | `code` | When |
 |---|---|---|
 | `400` | `bad_request` | A missing or malformed field, an unknown key. |
-| `403` | `forbidden` | A non-loopback `Host`, or a builder path outside the workspace. |
+| `401` | `login_required`, `owner_setup_required`, `login_failed` | No session or engine key; no owner yet; a wrong username or password. |
+| `403` | `forbidden` | A `Host` or `Origin` that isn't this engine's, a wrong setup code, or a builder path outside the workspace. |
 | `404` | `not_found` | No such pipeline, packet, version or route. An unknown route lists every route in `routes`. |
 | `405` | | Wrong method. |
 | `409` | `invalid_state`, `conflict` | The pipeline isn't in a state that allows it (stopped, draining), a port is taken, a file exists. |
 | `413` | | Body too large. |
 | `415` | | A `POST` that isn't JSON. |
 | `422` | `invalid_pipeline`, `rejected` | The file fails `pipo check` (with `diagnostics`), or a pushed packet was rejected (with `packet_id`). |
+| `429` | `rate_limited` | Too many failed logins, setup codes or reset links (with `Retry-After`). |
+| `502` | `mail_failed` | The mail server refused a test or reset email (the message has its answer). |
 | `503` | `unavailable` | The engine is still reattaching runners after a start (with `Retry-After`), or a runner is unreachable. |
 
 A `diagnostics` list has the shape of `pipo check --json`: `code`, `severity`, `message`, `hint`, `line`, `col`, `path`, `file`.
@@ -48,6 +53,21 @@ A `diagnostics` list has the shape of `pipo check --json`: `code`, `severity`, `
 **Reads without a runner.** Packet, DLQ, version and proposal reads ask the runner when it runs. Otherwise they read the pipeline's journal read-only. The answer's `source` says which: `runner` or `journal`. A payload that can't be redacted safely without the runner (a secret that can't be resolved here) is withheld and listed in `withheld`.
 
 **Writes need a runner.** DLQ replay and purge, rerun, rollback, proposals and resolve are committed by the runner. With the pipeline stopped they answer `409` with a hint to start it.
+
+## Owner
+
+| Method | Path | Body | Answer |
+|---|---|---|---|
+| `GET` | `/api/auth` | | `{mode, owner, user, via, email, mail}`: the mode (`owner` or `open`), whether an owner exists, who is asking (`via`: `session` or `key`), and whether the engine can send mail. With the engine key and no owner yet, also `setup_code`. |
+| `POST` | `/api/auth/setup` | `{code, username, password, email?}` | `201 {user}` and the session cookie. `403` for a wrong code, `409` once an owner exists. |
+| `POST` | `/api/auth/login` | `{username, password}` | `{user}` and the session cookie, or `401 login_failed`. |
+| `POST` | `/api/auth/logout` | `{}` | Ends this session. |
+| `POST` | `/api/auth/logout-all` | `{}` | Ends every session (needs the owner). |
+| `POST` | `/api/auth/password` | `{current, password}` | Ends every other session; the caller gets a new cookie. |
+| `POST` | `/api/auth/email` | `{email}` | Sets the owner's email (`null` clears it). Not verified. |
+| `POST` | `/api/auth/test-mail` | `{}` | Sends a test email to the owner (`409` without `engine.mail` or an email). |
+| `POST` | `/api/auth/forgot` | `{login}` | `202`, always: when `login` is the owner's username or email and mail works, a reset link goes out. |
+| `POST` | `/api/auth/reset` | `{token, password}` | Sets the password from a reset link (once, within 30 minutes), ends every session, and logs in. |
 
 ## Engine
 

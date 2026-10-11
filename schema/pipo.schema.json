@@ -260,6 +260,9 @@
                     },
                     "additionalProperties": false
                   },
+                  "public": {
+                    "type": "boolean"
+                  },
                   "respond": {
                     "enum": [
                       "accepted",
@@ -635,6 +638,9 @@
                         }
                       },
                       "additionalProperties": false
+                    },
+                    "public": {
+                      "type": "boolean"
                     },
                     "respond": {
                       "enum": [

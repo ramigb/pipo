@@ -7,10 +7,11 @@
 // code for an access token (1 h) and a refresh token (30 d, rotated on use) at `/oauth/token`.
 // Grants live in `<home>/mcp-grants.json` (0600, atomic) as SHA-256 digests only, so they survive engine restarts and
 // the file holds nothing a client could use; `pipo mcp grants revoke` or the Agents page revokes one.
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { createHash, randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { MCP_SCOPES, type McpScope } from "./config";
+import { safeEqual, sha256, randomToken as token, writePrivateJson } from "./files";
 import { HttpError } from "./http-error";
 
 export const ACCESS_TTL_MS = 60 * 60_000;
@@ -39,6 +40,8 @@ export interface Grant {
   client_name: string;
   /** Who the agent is: the author of its proposals, the `by` of what it does, and the owner of what it writes. */
   name: string;
+  /** Who approved it on the consent page (D84): the owner's username, or `api` in open mode. */
+  approved_by?: string;
   scope: McpScope;
   pipelines: string[] | null;
   resource: string;
@@ -77,6 +80,7 @@ interface Code {
   pipelines: string[] | null;
   name: string;
   expires: number;
+  approved_by: string;
 }
 
 /** Who a bearer token is, when it belongs to a live grant. */
@@ -87,8 +91,6 @@ export interface GrantIdentity {
   pipelines: string[] | null;
 }
 
-const token = () => randomBytes(32).toString("base64url");
-const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 const nowIso = () => new Date().toISOString();
 const isMap = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 
@@ -115,18 +117,12 @@ export function scopeFrom(raw: string | null): McpScope | null {
   return asked.reduce((a, b) => (MCP_SCOPES.indexOf(b) > MCP_SCOPES.indexOf(a) ? b : a));
 }
 
-/** Whether `raw` names this engine's MCP endpoint, under any loopback host. */
-function isOurResource(raw: string, port: number): boolean {
+/** Whether `raw` names this engine's MCP endpoint, under any loopback host or its public URL (D85). */
+function isOurResource(raw: string, port: number, publicUrl: string | null): boolean {
   try {
     const u = new URL(raw);
-    return (
-      u.protocol === "http:" &&
-      LOOPBACK_HOSTS.has(u.hostname) &&
-      Number(u.port || 80) === port &&
-      u.pathname.replace(/\/+$/, "") === "/mcp" &&
-      !u.search &&
-      !u.hash
-    );
+    const local = u.protocol === "http:" && LOOPBACK_HOSTS.has(u.hostname) && Number(u.port || 80) === port;
+    return (local || u.origin === publicUrl) && u.pathname.replace(/\/+$/, "") === "/mcp" && !u.search && !u.hash;
   } catch {
     return false;
   }
@@ -142,6 +138,7 @@ export class OAuth {
   constructor(
     home: string,
     private readonly port: () => number,
+    private readonly publicUrl: string | null = null,
   ) {
     this.path = join(home, "mcp-grants.json");
   }
@@ -163,10 +160,7 @@ export class OAuth {
     const live = new Set(store.grants.map((g) => g.client_id));
     for (const [id, c] of Object.entries(store.clients))
       if (!live.has(id) && now - Date.parse(c.created_at) > REFRESH_TTL_MS) delete store.clients[id];
-    mkdirSync(dirname(this.path), { recursive: true });
-    writeFileSync(`${this.path}.tmp`, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });
-    chmodSync(`${this.path}.tmp`, 0o600);
-    renameSync(`${this.path}.tmp`, this.path);
+    writePrivateJson(this.path, store);
   }
 
   private sweep() {
@@ -295,7 +289,8 @@ export class OAuth {
       return back("invalid_request", "PKCE is required: send code_challenge (S256)");
     if (q.get("code_challenge_method") !== "S256") return back("invalid_request", "code_challenge_method must be S256");
     const resource = q.get("resource") ?? `${origin}/mcp`;
-    if (!isOurResource(resource, this.port())) return back("invalid_target", `resource must be ${origin}/mcp`);
+    if (!isOurResource(resource, this.port(), this.publicUrl))
+      return back("invalid_target", `resource must be ${origin}/mcp`);
     if (this.pending.size >= MAX_PENDING) return back("temporarily_unavailable", "too many requests waiting");
     const id = randomBytes(16).toString("base64url");
     this.pending.set(id, {
@@ -349,7 +344,7 @@ export class OAuth {
   }
 
   /** The human approved: a one-time code goes back to the client. Answers where the browser goes next. */
-  approve(id: string, body: Record<string, unknown>, origin: string): { redirect: string } {
+  approve(id: string, body: Record<string, unknown>, origin: string, by = "api"): { redirect: string } {
     const { p } = this.need(id);
     const bad = (message: string, hint: string) => new HttpError(400, message, hint, "bad_request");
     const scope = body.scope ?? p.scope;
@@ -379,6 +374,7 @@ export class OAuth {
       scope: scope as McpScope,
       pipelines: pipelines === null ? null : [...new Set(pipelines as string[])],
       name,
+      approved_by: by,
       expires: Date.now() + CODE_TTL_MS,
     });
     const to = new URL(p.redirect_uri);
@@ -447,6 +443,7 @@ export class OAuth {
       client_id: code.client_id,
       client_name: client?.client_name ?? "MCP client",
       name: code.name,
+      approved_by: code.approved_by,
       scope: code.scope,
       pipelines: code.pipelines,
       resource: code.resource,
@@ -523,6 +520,7 @@ export class OAuth {
       client_name: g.client_name,
       scope: g.scope,
       pipelines: g.pipelines,
+      approved_by: g.approved_by ?? null,
       created_at: g.created_at,
       last_used_at: g.last_used_at,
       expires_at: g.refresh_expires_at,
@@ -548,12 +546,6 @@ export class OAuthError extends Error {
   ) {
     super(description);
   }
-}
-
-function safeEqual(a: string, b: string): boolean {
-  const x = Buffer.from(a);
-  const y = Buffer.from(b);
-  return x.length === y.length && timingSafeEqual(x, y);
 }
 
 function tokenAnswer(access: string, refresh: string, scope: McpScope) {

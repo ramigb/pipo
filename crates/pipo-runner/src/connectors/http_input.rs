@@ -32,6 +32,9 @@ pub struct Hmac {
     pub algorithm: String,
 }
 
+/// Set by the engine's gateway on `/in` requests that come from the network (spec D85).
+const REMOTE_HEADER: &str = "x-pipo-remote";
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct HttpOptions {
     pub pipeline: String,
@@ -43,6 +46,8 @@ pub struct HttpOptions {
     /// The header that must hold the token, and the token.
     pub auth: Option<(String, String)>,
     pub hmac: Option<Hmac>,
+    /// `public: true`: requests from the network are taken without `auth` (spec D85).
+    pub public: bool,
     pub respond: Option<String>,
     /// How long `respond: delivered` waits for a terminal state.
     pub timeout_ms: u64,
@@ -314,6 +319,7 @@ impl HttpInput {
                 secret: h.get("secret").map(string_of).unwrap_or_default(),
                 algorithm: h.get("algorithm").and_then(|a| a.as_str()).unwrap_or("sha256").to_string(),
             }),
+            public: w.get("public").is_some_and(super::truthy),
             respond: w.get("respond").and_then(|r| r.as_str()).map(str::to_owned),
             timeout_ms,
             idle: IDLE,
@@ -397,6 +403,17 @@ impl Inner {
 
     async fn handle_here(self: Rc<Self>, req: Request<Incoming>, peer: SocketAddr) -> Reply {
         let o = &self.opts;
+        // The engine's gateway marks requests from the network (spec D85): an input without auth must opt in.
+        if req.headers().contains_key(REMOTE_HEADER) && o.auth.is_none() && o.hmac.is_none() && !o.public {
+            return reply(
+                403,
+                &json!({
+                    "error": "this input takes requests from this machine only",
+                    "hint": "add auth (a header token or an HMAC) to input.with, or set public: true to take unauthenticated requests from the network"
+                }),
+                &[],
+            );
+        }
         if let Some((header, equals)) = &o.auth {
             let given = req.headers().get(header.as_str()).map(|v| v.as_bytes()).unwrap_or(b"");
             if !same_secret(given, equals.as_bytes()) {
@@ -651,6 +668,7 @@ mod tests {
             format: format.into(),
             auth: None,
             hmac: None,
+            public: false,
             respond: None,
             timeout_ms: 30_000,
             idle: IDLE,
@@ -935,6 +953,36 @@ mod tests {
             assert_eq!(post(&url, "hi", &[("X-Hub-Signature", &format!("sha1={sig}"))]).await.0, 202);
             assert_eq!(post(&url, "hi", &[("X-Hub-Signature", &hmac_hex("sha256", "k", b"hi"))]).await.0, 401);
             input.stop().await;
+        });
+    }
+
+    #[test]
+    fn network_requests_need_auth_or_public() {
+        local(async {
+            let dir = TempDir::new();
+            let (intake, got) = recording_intake(accepted);
+            let remote = [("x-pipo-remote", "1")];
+            let (input, url) = started(opts("json"), intake.clone(), runtime(&dir)).await;
+            let (status, body, _) = post(&url, "{}", &remote).await;
+            assert_eq!(status, 403);
+            assert_eq!(body["error"], "this input takes requests from this machine only");
+            assert!(body["hint"].as_str().unwrap().contains("public: true"));
+            assert_eq!(post(&url, "{}", &[]).await.0, 202, "local requests need nothing");
+            input.stop().await;
+
+            let mut o = opts("json");
+            o.public = true;
+            let (input, url) = started(o, intake.clone(), runtime(&dir)).await;
+            assert_eq!(post(&url, "{}", &remote).await.0, 202);
+            input.stop().await;
+
+            let mut o = opts("json");
+            o.auth = Some(("X-Token".into(), "tok".into()));
+            let (input, url) = started(o, intake, runtime(&dir)).await;
+            assert_eq!(post(&url, "{}", &remote).await.0, 401, "an input with auth checks it as usual");
+            assert_eq!(post(&url, "{}", &[remote[0], ("X-Token", "tok")]).await.0, 202);
+            input.stop().await;
+            assert_eq!(got.borrow().len(), 3);
         });
     }
 

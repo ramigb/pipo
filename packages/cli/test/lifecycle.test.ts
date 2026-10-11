@@ -223,7 +223,7 @@ test.if(process.platform === "linux")("an engine.json whose pid was reused is no
     const write = (startedAt: string) =>
       writeFileSync(join(home, "run", "engine.json"), JSON.stringify({ ...entry, started_at: startedAt }));
     write(new Date().toISOString());
-    expect(findEngine(home)).toEqual({ port: 1, pid: other.pid });
+    expect(findEngine(home)).toEqual({ port: 1, pid: other.pid, home });
     write(new Date(Date.now() - 3600_000).toISOString());
     expect(findEngine(home)).toBeNull();
   } finally {

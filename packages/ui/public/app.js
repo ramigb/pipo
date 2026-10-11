@@ -1,6 +1,7 @@
 // Pipo dashboard (docs/spec.md §8). Hash routes: #/ pipeline cards, #/p/<name> graph, logs, agent feed, DLQ and
 // versions tabs, #/p/<name>/<packet id> inspector, #/agents and the OAuth consent page #/connect/<id> (§9.2, §9.4),
-// #/build… the builder (builder.js). Live through /events (SSE),
+// #/build… the builder (builder.js), and the owner's pages (D84): #/setup[/<code>], #/login, #/forgot, #/reset/<token>.
+// Live through /events (SSE),
 // which also keeps the engine awake (D61); falls back to polling /api every 2 s when the stream is down, and to the
 // "napping" screen when the engine can't be reached. Everything from the API is rendered as text nodes, never HTML.
 import { ApiError, api, clean, EngineDown, h, morph, s, toast } from "./dom.js";
@@ -18,7 +19,7 @@ import {
   mascot,
   plural,
 } from "./look.js";
-import { pipelineNames, rerunFrom } from "./model.js";
+import { ownerProblem, pipelineNames, rerunFrom } from "./model.js";
 
 const app = document.getElementById("app");
 const $live = document.getElementById("live");
@@ -336,7 +337,7 @@ function napping() {
   wake = setInterval(async () => {
     try {
       const r = await fetch("/api/engine", { cache: "no-store" });
-      if (!r.ok) return;
+      if (!r.ok && r.status !== 401) return;
       clearInterval(wake);
       wake = null;
       down = false;
@@ -1757,7 +1758,7 @@ const FROM = {
 };
 
 async function settingsView(browse) {
-  const [cfg, engine] = await Promise.all([api("/settings"), api("/engine")]);
+  const [cfg, engine, a] = await Promise.all([api("/settings"), api("/engine"), loadAuth()]);
   setEngine(engine);
   const at = await api(`/folders?path=${encodeURIComponent(browse || cfg.workspace)}`).catch(() => api("/folders"));
   const go = (path) => {
@@ -1790,6 +1791,7 @@ async function settingsView(browse) {
         h("p", { class: "muted" }, "Where your pipes live. The builder saves new pipelines in the workspace folder."),
       ),
     ),
+    ownerSection(a),
     section(
       "🔌 Engine",
       h(
@@ -2315,6 +2317,379 @@ async function connectView(id) {
   );
 }
 
+// ---- the owner (D84, D86): first-run setup, login, reset by email, and the header's user chip ----
+const AUTH_KINDS = ["setup", "login", "forgot", "reset"];
+const $user = document.getElementById("user");
+/** What `GET /api/auth` said last: mode, whether there is an owner, who is signed in, whether mail works. */
+let auth = null;
+
+async function loadAuth() {
+  auth = await api("/auth");
+  $user.hidden = !auth.user;
+  $user.textContent = auth.user ? `👤 ${auth.user}` : "";
+  $user.title = auth.user ? `Signed in as ${auth.user}. Settings has Log out.` : "";
+  return auth;
+}
+
+/** On a 401, go to the login (or setup) page and come back here afterwards. Returns whether it did. */
+function needsLogin(e) {
+  if (!(e instanceof ApiError)) return false;
+  if (e.code !== "login_required" && e.code !== "owner_setup_required") return false;
+  const [, kind] = location.hash.split("/");
+  if (!AUTH_KINDS.includes(kind)) {
+    try {
+      sessionStorage.setItem("pipo-next", location.hash || "#/");
+    } catch {}
+  }
+  stream?.close();
+  stream = null;
+  streamKey = undefined;
+  location.hash = e.code === "owner_setup_required" ? "#/setup" : "#/login";
+  return true;
+}
+
+/** Back to where the login interrupted, else the pipelines. */
+function afterLogin() {
+  let next = "#/";
+  try {
+    next = sessionStorage.getItem("pipo-next") || "#/";
+    sessionStorage.removeItem("pipo-next");
+  } catch {}
+  if (AUTH_KINDS.includes(next.split("/")[1])) next = "#/";
+  loadAuth().catch(() => {});
+  location.hash = next;
+}
+
+const authHero = (mood, title, ...text) =>
+  h(
+    "section",
+    { class: "hero" },
+    mascot(mood, 72),
+    h("div", { class: "hero-text" }, h("h1", null, title), ...text.map((t) => h("p", { class: "muted" }, t))),
+  );
+
+/** An auth form: its fields, a submit button, and what it does (errors become a toast with the hint). */
+function authForm(fields, label, submit, ...after) {
+  const button = h("button", { class: "btn primary", type: "submit" }, label);
+  return h(
+    "form",
+    {
+      class: "card",
+      onsubmit: async (ev) => {
+        ev.preventDefault();
+        button.disabled = true;
+        try {
+          await submit();
+        } catch (e) {
+          if (e instanceof EngineDown) return napping();
+          toast(e.message, "bad", e.hint);
+        } finally {
+          button.disabled = false;
+        }
+      },
+    },
+    ...fields,
+    h("div", { class: "toolbar" }, button),
+    ...after,
+  );
+}
+
+const pwInput = (autocomplete) => h("input", { type: "password", autocomplete, spellcheck: "false" });
+
+function openModeCard() {
+  return section(
+    "🔓 Open mode",
+    h(
+      "div",
+      { class: "card" },
+      h("p", null, "This engine runs with ", h("code", null, "engine.auth: open"), ", so it has no login."),
+      h("p", { class: "muted small" }, "Anyone who can reach it can use it. That's fine on 127.0.0.1 only."),
+      h("p", null, h("a", { class: "btn", href: "#/" }, "🏠 Pipelines")),
+    ),
+  );
+}
+
+async function setupView(code) {
+  const a = await loadAuth();
+  if (a.mode === "open") return show(authHero("happy", "No login here 🔓"), openModeCard());
+  if (a.owner) {
+    location.hash = a.user ? "#/" : "#/login";
+    return;
+  }
+  const codeIn = h("input", {
+    class: "mono",
+    value: code ?? "",
+    placeholder: "ABCD-EFGH-JKLM-NPQR",
+    autocomplete: "off",
+    spellcheck: "false",
+  });
+  const username = h("input", { autocomplete: "username", spellcheck: "false", placeholder: "you" });
+  const password = pwInput("new-password");
+  const again = pwInput("new-password");
+  const email = h("input", { type: "email", autocomplete: "email", placeholder: "optional: you@example.com" });
+  show(
+    authHero(
+      "wow",
+      "Welcome to Pipo 👋",
+      "Create the owner: the one account that runs this engine.",
+      "The setup code is in the engine log (logs/engine.log in your Pipo home); pipo ui on this machine fills it in.",
+    ),
+    section(
+      "👤 The owner",
+      authForm(
+        [
+          botField("Setup code", codeIn, "from the engine log; it proves you can see this machine"),
+          botField("Username", username, "letters, digits, '.', '_' or '-'"),
+          botField("Password", password, "at least 10 characters; a few words make a good one"),
+          botField("Password again", again),
+          botField("Email", email, "only for password reset links, which need engine.mail; you can add it later"),
+        ],
+        "✨ Create owner",
+        async () => {
+          const form = { username: username.value.trim(), password: password.value, again: again.value };
+          const problem = ownerProblem({ ...form, email: email.value.trim() });
+          if (problem) return toast(problem, "bad");
+          await api("/auth/setup", {
+            code: codeIn.value.trim(),
+            username: form.username,
+            password: form.password,
+            ...(email.value.trim() && { email: email.value.trim() }),
+          });
+          toast(`🎉 Welcome, ${form.username}!`);
+          afterLogin();
+        },
+      ),
+    ),
+  );
+  (code ? username : codeIn).focus();
+}
+
+async function loginView() {
+  const a = await loadAuth();
+  if (a.mode === "open") return show(authHero("happy", "No login here 🔓"), openModeCard());
+  if (!a.owner) {
+    location.hash = "#/setup";
+    return;
+  }
+  if (a.user) return afterLogin();
+  const username = h("input", { autocomplete: "username", spellcheck: "false" });
+  const password = pwInput("current-password");
+  show(
+    authHero("happy", "Log in 🔐", "This engine belongs to its owner."),
+    section(
+      "👤 Owner",
+      authForm(
+        [botField("Username", username), botField("Password", password)],
+        "🔓 Log in",
+        async () => {
+          await api("/auth/login", { username: username.value.trim(), password: password.value });
+          afterLogin();
+        },
+        a.mail
+          ? h("p", { class: "small" }, h("a", { href: "#/forgot" }, "Forgot your password?"))
+          : h(
+              "p",
+              { class: "muted small" },
+              "Forgot your password? Run ",
+              h("code", null, "pipo owner reset"),
+              " on the engine's machine.",
+            ),
+      ),
+    ),
+  );
+  username.focus();
+}
+
+async function forgotView() {
+  const a = await loadAuth();
+  if (!a.mail) {
+    show(
+      authHero("sleepy", "Forgot your password? 🤔", "This engine can't send email (engine.mail isn't set)."),
+      section(
+        "Reset it on the engine's machine",
+        h(
+          "div",
+          { class: "card" },
+          h("pre", { class: "cmd" }, "pipo owner reset"),
+          h("p", { class: "muted small" }, "It asks for a new password and logs out every browser."),
+          h("p", null, h("a", { class: "btn", href: "#/login" }, "🔐 Back to log in")),
+        ),
+      ),
+    );
+    return;
+  }
+  const login = h("input", { autocomplete: "username", spellcheck: "false" });
+  show(
+    authHero("happy", "Forgot your password? 🤔", "We'll email the owner a link to choose a new one."),
+    section(
+      "📮 Reset link",
+      authForm(
+        [botField("Username or email", login)],
+        "📨 Send link",
+        async () => {
+          const res = await api("/auth/forgot", { login: login.value.trim() });
+          show(
+            authHero("happy", "Check your inbox 📬", res.hint),
+            h("p", null, h("a", { class: "btn", href: "#/login" }, "🔐 Back to log in")),
+          );
+        },
+        h("p", { class: "muted small" }, "Or run ", h("code", null, "pipo owner reset"), " on the engine's machine."),
+      ),
+    ),
+  );
+  login.focus();
+}
+
+function resetView(token) {
+  const password = pwInput("new-password");
+  const again = pwInput("new-password");
+  show(
+    authHero("wow", "Choose a new password 🔑", "Every browser signed in now gets logged out."),
+    section(
+      "👤 Owner",
+      authForm(
+        [botField("New password", password, "at least 10 characters"), botField("Password again", again)],
+        "💾 Save and log in",
+        async () => {
+          const problem = ownerProblem({ password: password.value, again: again.value });
+          if (problem) return toast(problem, "bad");
+          await api("/auth/reset", { token, password: password.value });
+          toast("🔑 New password saved");
+          afterLogin();
+        },
+      ),
+    ),
+  );
+  password.focus();
+}
+
+/** The settings page's owner section: email, test email, password, log out. */
+function ownerSection(a) {
+  if (a.mode === "open") return openModeCard();
+  const act = async (label, path, body, after) => {
+    try {
+      const res = await api(path, body ?? {});
+      if (after) return after(res);
+      toast(`${label}: done`);
+    } catch (e) {
+      if (e instanceof EngineDown) return napping();
+      if (needsLogin(e)) return;
+      toast(`${label}: ${e.message}`, "bad", e.hint);
+    }
+  };
+  const email = h("input", {
+    type: "email",
+    value: a.email ?? "",
+    autocomplete: "email",
+    placeholder: "you@example.com",
+  });
+  const current = pwInput("current-password");
+  const next = pwInput("new-password");
+  const again = pwInput("new-password");
+  return section(
+    "👤 Owner",
+    h(
+      "div",
+      { class: "card" },
+      h("p", null, "Signed in as ", h("b", null, a.user ?? "?"), a.via === "key" ? " (with the engine key)" : ""),
+      h(
+        "div",
+        { class: "toolbar" },
+        h(
+          "button",
+          {
+            type: "button",
+            class: "btn",
+            onclick: () =>
+              act("Log out", "/auth/logout", {}, () => {
+                location.hash = "#/login";
+              }),
+          },
+          "👋 Log out",
+        ),
+        h(
+          "button",
+          {
+            type: "button",
+            class: "btn danger",
+            onclick: () =>
+              confirm("Log out every browser signed in as the owner, this one too?") &&
+              act("Log out everywhere", "/auth/logout-all", {}, () => {
+                location.hash = "#/login";
+              }),
+          },
+          "🚪 Log out everywhere",
+        ),
+      ),
+    ),
+    h(
+      "form",
+      {
+        class: "card",
+        onsubmit: (ev) => {
+          ev.preventDefault();
+          const value = email.value.trim();
+          const problem = ownerProblem({ email: value });
+          if (problem) return toast(problem, "bad");
+          act("Email", "/auth/email", { email: value || null }, () =>
+            toast(value ? `📮 Email saved: ${value}` : "Email cleared"),
+          );
+        },
+      },
+      botField(
+        "Email",
+        email,
+        a.mail
+          ? "where password reset links go; not verified, so send a test email after saving"
+          : "where reset links would go; this engine can't send mail until engine.mail is set in config.yaml",
+      ),
+      h(
+        "div",
+        { class: "toolbar" },
+        h("button", { class: "btn primary", type: "submit" }, "💾 Save email"),
+        a.mail
+          ? h(
+              "button",
+              {
+                type: "button",
+                class: "btn",
+                onclick: () =>
+                  act("Test email", "/auth/test-mail", {}, (r) => toast(`📨 Sent to ${r.sent}: check your inbox`)),
+              },
+              "📨 Send test email",
+            )
+          : null,
+      ),
+    ),
+    h(
+      "form",
+      {
+        class: "card",
+        onsubmit: (ev) => {
+          ev.preventDefault();
+          const problem = ownerProblem({ password: next.value, again: again.value });
+          if (problem) return toast(problem, "bad");
+          act("Password", "/auth/password", { current: current.value, password: next.value }, () => {
+            for (const i of [current, next, again]) i.value = "";
+            toast("🔑 Password changed; other browsers are logged out");
+          });
+        },
+      },
+      botField("Current password", current),
+      botField("New password", next, "at least 10 characters"),
+      botField("New password again", again),
+      h("div", { class: "toolbar" }, h("button", { class: "btn primary", type: "submit" }, "🔑 Change password")),
+      h(
+        "p",
+        { class: "muted small" },
+        "Forgot it? ",
+        h("code", null, "pipo owner reset"),
+        " on the engine's machine sets a new one without the old.",
+      ),
+    ),
+  );
+}
+
 async function builderRoute(rest) {
   const { builderView } = await import("./builder.js");
   return builderView({ app, rest, show, setFresh: () => (fresh = true), napping, onEngine: setEngine });
@@ -2323,7 +2698,7 @@ async function builderRoute(rest) {
 function navActive(kind) {
   document
     .getElementById("nav-home")
-    .classList.toggle("on", !["build", "top", "bots", "settings", "agents", "connect"].includes(kind));
+    .classList.toggle("on", !["build", "top", "bots", "settings", "agents", "connect", ...AUTH_KINDS].includes(kind));
   document.getElementById("nav-bots").classList.toggle("on", kind === "bots");
   document.getElementById("nav-agents").classList.toggle("on", kind === "agents" || kind === "connect");
   document.getElementById("nav-settings").classList.toggle("on", kind === "settings");
@@ -2335,30 +2710,45 @@ async function render() {
   const [, kind, name, ...rest] = location.hash.split("/");
   fresh = true;
   navActive(kind);
+  const authPage = AUTH_KINDS.includes(kind);
+  document.body.classList.toggle("locked", authPage);
   if (down) return;
-  connect(kind === "p" && name ? name : null);
+  // The owner's pages need no live stream (it would only answer 401 before the login).
+  if (authPage) {
+    stream?.close();
+    stream = null;
+    streamKey = undefined;
+  } else connect(kind === "p" && name ? name : null);
   const id = rest[0];
   const view =
-    kind === "build"
-      ? () => builderRoute([name, ...rest].filter((x) => x !== undefined))
-      : kind === "bots"
-        ? () => botsView(name && decodeURIComponent(name))
-        : kind === "settings"
-          ? () => settingsView(name && decodeURIComponent(name))
-          : kind === "agents"
-            ? agentsView
-            : kind === "connect" && name
-              ? () => connectView(decodeURIComponent(name))
-              : kind === "top"
-                ? topView
-                : kind === "p" && name
-                  ? id
-                    ? () => packetView(name, decodeURIComponent(id))
-                    : () => pipelineView(name)
-                  : listView;
+    kind === "setup"
+      ? () => setupView(name && decodeURIComponent(name))
+      : kind === "login"
+        ? loginView
+        : kind === "forgot"
+          ? forgotView
+          : kind === "reset" && name
+            ? () => resetView(decodeURIComponent(name))
+            : kind === "build"
+              ? () => builderRoute([name, ...rest].filter((x) => x !== undefined))
+              : kind === "bots"
+                ? () => botsView(name && decodeURIComponent(name))
+                : kind === "settings"
+                  ? () => settingsView(name && decodeURIComponent(name))
+                  : kind === "agents"
+                    ? agentsView
+                    : kind === "connect" && name
+                      ? () => connectView(decodeURIComponent(name))
+                      : kind === "top"
+                        ? topView
+                        : kind === "p" && name
+                          ? id
+                            ? () => packetView(name, decodeURIComponent(id))
+                            : () => pipelineView(name)
+                          : listView;
   // The builder manages its own DOM; live refreshes only re-render the dashboard views.
   // The bots, settings, agents and consent pages hold forms: no live refresh under the user's typing.
-  const still = ["build", "bots", "settings", "agents", "connect"].includes(kind);
+  const still = ["build", "bots", "settings", "agents", "connect", ...AUTH_KINDS].includes(kind);
   refresh = still
     ? null
     : async () => {
@@ -2366,6 +2756,7 @@ async function render() {
           await view();
         } catch (e) {
           if (e instanceof EngineDown) return napping();
+          if (needsLogin(e)) return;
           show(errorCard(e), h("p", null, h("a", { class: "btn", href: "#/" }, "🏠 back to pipelines")));
         }
       };
@@ -2374,8 +2765,10 @@ async function render() {
     else await refresh();
   } catch (e) {
     if (e instanceof EngineDown) return napping();
+    if (needsLogin(e)) return;
     show(errorCard(e instanceof ApiError || e instanceof Error ? e : new Error(String(e))));
   }
 }
 addEventListener("hashchange", render);
+loadAuth().catch(() => {});
 render();

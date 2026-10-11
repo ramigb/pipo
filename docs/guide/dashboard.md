@@ -105,4 +105,4 @@ The workspace defaults to the folder the engine was started from. `pipo ui --wor
 
 ## Security
 
-The dashboard and the API answer only on `127.0.0.1`, only to requests whose `Host` is a loopback name, and every API `POST` must be JSON. A web page you visit can't drive your engine. Data from pipelines is always rendered as text.
+The dashboard needs the owner's login (the first visit creates the owner with a setup code, see [Owner and remote access](owner.md)). It answers only on `127.0.0.1` unless you expose the engine, and only to requests whose `Host` is a loopback name or `engine.public_url`'s host. Pages from other origins are refused, the session cookie is `SameSite=Strict`, and every API `POST` must be JSON. A web page you visit can't drive your engine. Data from pipelines is always rendered as text.

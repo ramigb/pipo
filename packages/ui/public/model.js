@@ -637,3 +637,18 @@ export function pipelineNames(text) {
   }
   return { names, bad };
 }
+
+/**
+ * What is wrong with an owner form (the setup, reset and password pages, D84), or null. The engine checks the same
+ * rules; this only saves a round trip. `again` and `email` are checked when given.
+ */
+export function ownerProblem({ username, password, again, email } = {}) {
+  if (username !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(username))
+    return "A username is letters, digits, '.', '_' or '-' (up to 64), starting with a letter or digit";
+  if (password !== undefined && password.length < 10) return "A password needs at least 10 characters";
+  if (password !== undefined && password.length > 1024) return "A password can be at most 1024 characters";
+  if (again !== undefined && again !== password) return "The two passwords differ";
+  if (email && !(email.length <= 254 && /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email)))
+    return "An email looks like name@example.com";
+  return null;
+}

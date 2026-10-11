@@ -42,6 +42,26 @@ export interface McpTokenConfig {
   pipelines: string[] | null;
 }
 
+/** `engine.auth` (D84): `owner` needs the owner's login (or the engine key) for `/api` and `/events`; `open` doesn't. */
+export const AUTH_MODES = ["owner", "open"] as const;
+export type AuthMode = (typeof AUTH_MODES)[number];
+
+/** How the SMTP client talks to the server (D86): TLS from the start, STARTTLS, or plain text (loopback only). */
+export const MAIL_SECURITY = ["tls", "starttls", "none"] as const;
+export type MailSecurity = (typeof MAIL_SECURITY)[number];
+
+/** `engine.mail` (D86): the SMTP server password reset links and test emails go through. */
+export interface MailConfig {
+  host: string;
+  port: number;
+  secure: MailSecurity;
+  user: string | null;
+  /** `op://…` or `env:…`, resolved when the engine starts. */
+  password: string | null;
+  /** The sender, such as `Pipo <pipo@example.com>`. */
+  from: string;
+}
+
 export interface EngineConfig {
   /** Engine TTL (ms), §7.5, D31: counted from engine start; on expiry every pipeline drains and the engine stops. */
   ttl: number | null;
@@ -49,8 +69,16 @@ export interface EngineConfig {
   idle: number;
   /** Start runners detached by default (§7.2, D30): they outlive the engine, and shutdown leaves them running. */
   detached: boolean;
-  /** Gateway port (§7.1, D28) on 127.0.0.1; 0 picks a free one (written to run/engine.json). Null: no gateway. */
+  /** Gateway port (§7.1, D28) on `host`; 0 picks a free one (written to run/engine.json). Null: no gateway. */
   listen: number | null;
+  /** The address the gateway binds (D85): loopback, or `0.0.0.0` / `::`, which need `auth: owner` and `public_url`. */
+  host: string;
+  /** The URL people and agents reach the gateway at (D85), such as https://pipo.example.com; null: loopback only. */
+  public_url: string | null;
+  /** Who may use `/api`, `/events` and the dashboard (D84). */
+  auth: AuthMode;
+  /** SMTP for password reset links (D86); null: reset only with `pipo owner reset`. */
+  mail: MailConfig | null;
   /** Environment variables exposed to expressions as `env` (§14.2), passed to every runner. */
   env_allow: string[];
   /** How long a runner may take to register and answer `hello` (ms). */
@@ -81,6 +109,10 @@ export const DEFAULT_CONFIG: EngineConfig = {
   idle: 300_000,
   detached: false,
   listen: null,
+  host: "127.0.0.1",
+  public_url: null,
+  auth: "owner",
+  mail: null,
   env_allow: [],
   start_timeout: 30_000,
   stop_timeout: 15_000,
@@ -99,13 +131,19 @@ type Field =
   | { kind: "count" }
   | { kind: "names" }
   | { kind: "timezone" }
-  | { kind: "path" };
+  | { kind: "path" }
+  | { kind: "host" }
+  | { kind: "url" }
+  | { kind: "auth" };
 
 const ENGINE_FIELDS: Record<string, Field> = {
   ttl: { kind: "duration", min: 1 },
   idle: { kind: "duration", min: 1000 },
   detached: { kind: "boolean" },
   listen: { kind: "port" },
+  host: { kind: "host" },
+  public_url: { kind: "url" },
+  auth: { kind: "auth" },
   env_allow: { kind: "names" },
   start_timeout: { kind: "duration", min: 100 },
   stop_timeout: { kind: "duration", min: 100 },
@@ -123,12 +161,62 @@ const RESTART_FIELDS: Record<string, Field> = {
 const EXAMPLE = `engine:
   restart: { backoff: 1s, max_backoff: 30s, stable: 1m, max_restarts: 5, window: 10m }`;
 
+const MAIL_KEYS = ["host", "port", "secure", "user", "password", "from"];
+const MAIL_EXAMPLE = `engine:
+  mail: { host: smtp.example.com, port: 587, user: pipo@example.com, password: op://Pipo/smtp/password, from: "Pipo <pipo@example.com>" }`;
+const LOOPBACK_NAMES = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
+
+/** Whether `host` (a bind address or a URL's hostname) is this machine's loopback. */
+export function isLoopbackHost(host: string): boolean {
+  const h = host.toLowerCase();
+  return LOOPBACK_NAMES.has(h) || /^127(\.\d{1,3}){3}$/.test(h);
+}
+
+/**
+ * The rules between `host`, `auth` and `public_url` (D85), checked once the flags are applied: an engine reachable
+ * from the network needs the owner's login, and a public URL to build links and accept requests with.
+ */
+export function checkExposure(config: EngineConfig): void {
+  if (isLoopbackHost(config.host)) return;
+  if (config.auth !== "owner")
+    throw new EngineError(
+      "config",
+      `the gateway would listen on ${config.host} with engine.auth: open, so anyone who can reach it could drive the engine`,
+      "set engine.auth: owner (the default), or listen on 127.0.0.1",
+    );
+  if (config.public_url === null)
+    throw new EngineError(
+      "config",
+      `the gateway would listen on ${config.host}, but engine.public_url is not set`,
+      "set engine.public_url to the URL people reach it at (for example https://pipo.example.com behind a TLS proxy); the engine answers only requests addressed to it, and builds reset links from it",
+    );
+}
+
 const MCP_TOKEN_KEYS = ["name", "token", "scope", "pipelines"];
 const MCP_TOKEN_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const MCP_EXAMPLE = `engine:
   mcp:
     tokens:
       - { name: ops-agent, token: env:PIPO_MCP_TOKEN, scope: operate, pipelines: [people-intake] }`;
+
+/** What the gateway may bind (D85): loopback, or every IPv4 / IPv6 interface. */
+export const BIND_HOSTS = ["127.0.0.1", "localhost", "::1", "0.0.0.0", "::"];
+const HOST = /^(\[?[0-9A-Fa-f:.]+\]?|[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?)$/;
+
+/** `raw` as an origin (`https://host[:port]`), or null when it is not an http(s) URL without a path. */
+export function publicUrl(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+  if ((url.pathname !== "/" && url.pathname !== "") || url.search || url.hash || url.username || url.password)
+    return null;
+  return url.origin;
+}
 
 /** Read and validate `<home>/config.yaml`. Throws EngineError (`config`) listing every problem. */
 export function loadConfig(home: string): EngineConfig {
@@ -179,8 +267,10 @@ export function parseConfig(source: string, file = "config.yaml"): EngineConfig 
         "restart",
         "agent_budget",
         "mcp",
+        "mail",
       ]);
       if (engine.mcp !== undefined && engine.mcp !== null) config.mcp = readMcp(engine.mcp);
+      if (engine.mail !== undefined && engine.mail !== null) config.mail = readMail(engine.mail);
       const budget = engine.agent_budget;
       if (budget !== undefined && budget !== null) {
         const perDay = isMap(budget) ? budget.per_day : undefined;
@@ -209,6 +299,14 @@ export function parseConfig(source: string, file = "config.yaml"): EngineConfig 
       `${at(["engine", "restart", "max_backoff"])} engine.restart.max_backoff (${formatDuration(config.restart.max_backoff)}) is shorter than engine.restart.backoff (${formatDuration(config.restart.backoff)})`,
     );
   }
+  if (!problems.length) {
+    try {
+      checkExposure(config);
+    } catch (e) {
+      const key = config.auth !== "owner" ? "auth" : "host";
+      problems.push(`${at(["engine", key])} ${(e as EngineError).message}; ${(e as EngineError).hint}`);
+    }
+  }
   if (problems.length) {
     throw new EngineError(
       "config",
@@ -217,6 +315,57 @@ export function parseConfig(source: string, file = "config.yaml"): EngineConfig 
     );
   }
   return config;
+
+  function readMail(mail: unknown): MailConfig | null {
+    const path = ["engine", "mail"];
+    if (!isMap(mail)) {
+      problems.push(`${at(path)} engine.mail must be a mapping, for example:\n${MAIL_EXAMPLE}`);
+      return null;
+    }
+    const before = problems.length;
+    for (const key of Object.keys(mail))
+      if (!MAIL_KEYS.includes(key))
+        problems.push(`${at([...path, key], true)} unknown key 'engine.mail.${key}' (known: ${MAIL_KEYS.join(", ")})`);
+    const bad = (key: string, expected: string) =>
+      problems.push(`${at([...path, key])} engine.mail.${key} ${expected}, got ${JSON.stringify(mail[key])}`);
+    if (typeof mail.host !== "string" || !HOST.test(mail.host))
+      bad("host", "must be a host name such as smtp.example.com");
+    const secure = mail.secure ?? null;
+    if (secure !== null && !MAIL_SECURITY.includes(secure as MailSecurity))
+      bad("secure", "must be tls, starttls or none");
+    const port = mail.port ?? (secure === "tls" ? 465 : 587);
+    if (!Number.isInteger(port) || (port as number) < 1 || (port as number) > 65535)
+      bad("port", "must be a port 1–65535");
+    const security = (secure ?? (port === 465 ? "tls" : "starttls")) as MailSecurity;
+    if (security === "none" && typeof mail.host === "string" && !isLoopbackHost(mail.host))
+      problems.push(
+        `${at([...path, "secure"])} engine.mail.secure: none sends the password and the reset links in clear text; it is only allowed for a relay on this machine (127.0.0.1); use tls or starttls`,
+      );
+    const user = mail.user ?? null;
+    if (user !== null && (typeof user !== "string" || !user)) bad("user", "must be the SMTP user name");
+    const password = mail.password ?? null;
+    if (
+      password !== null &&
+      (typeof password !== "string" || !(password.startsWith("op://") || /^env:[A-Za-z_][A-Za-z0-9_]*$/.test(password)))
+    )
+      // Never echo the value: it may be the password pasted in.
+      problems.push(
+        `${at([...path, "password"])} engine.mail.password must be a secret reference (op://vault/item/field or env:VAR), never the password itself`,
+      );
+    if ((user === null) !== (password === null))
+      problems.push(`${at(path)} engine.mail needs both user and password, or neither (a relay without login)`);
+    if (typeof mail.from !== "string" || !/<?[^\s<>@]+@[^\s<>@]+>?\s*$/.test(mail.from))
+      bad("from", 'must be the sender address, such as "Pipo <pipo@example.com>"');
+    if (problems.length !== before) return null;
+    return {
+      host: mail.host as string,
+      port: port as number,
+      secure: security,
+      user: user as string | null,
+      password: password as string | null,
+      from: mail.from as string,
+    };
+  }
 
   function readMcp(mcp: unknown): EngineConfig["mcp"] {
     const out: McpTokenConfig[] = [];
@@ -352,6 +501,23 @@ export function parseConfig(source: string, file = "config.yaml"): EngineConfig 
           break;
         case "path":
           if (typeof value !== "string" || !isAbsolute(value)) bad("must be an absolute path such as /home/me/pipes");
+          else into[key] = value;
+          break;
+        case "host":
+          // The CLI reaches the engine on 127.0.0.1, so it binds loopback or every interface, never one other address.
+          if (typeof value !== "string" || !BIND_HOSTS.includes(value))
+            bad(`must be one of ${BIND_HOSTS.join(", ")} (loopback, or every interface)`);
+          else into[key] = value;
+          break;
+        case "url": {
+          const url = publicUrl(value);
+          if (url === null)
+            bad("must be an http(s) URL with no path, such as https://pipo.example.com or http://192.168.1.20:4747");
+          else into[key] = url;
+          break;
+        }
+        case "auth":
+          if (!AUTH_MODES.includes(value as AuthMode)) bad("must be owner (a login, the default) or open");
           else into[key] = value;
           break;
         case "names":

@@ -2,9 +2,10 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { type RegistryEntry, readRegistryEntry, runnerBinary, runnerEnv } from "@pipo/runner";
+import { type RegistryEntry, readEngineKey, readRegistryEntry, runnerBinary, runnerEnv } from "@pipo/runner";
 import { cmdline, holds } from "../../runner/test/helpers";
 import { DEFAULT_CONFIG, type EngineConfig, type RestartConfig } from "../src";
+import { saveEngineSetting } from "../src/settings";
 
 export { holds };
 
@@ -77,10 +78,14 @@ export async function waitFor<T>(
   throw new Error(`timed out after ${timeoutMs}ms waiting for ${what}`);
 }
 
-/** Engine config for tests: fast restarts, and a start timeout that still covers Bun's slow loads from /mnt. */
+/**
+ * Engine config for tests: fast restarts, a start timeout that still covers Bun's slow loads from /mnt, and
+ * `auth: open` so tests talk to `/api` without a login (owner.test.ts covers the login, D84).
+ */
 export function testConfig(restart: Partial<RestartConfig> = {}): EngineConfig {
   return {
     ...structuredClone(DEFAULT_CONFIG),
+    auth: "open",
     start_timeout: 10_000,
     stop_timeout: 5_000,
     restart: { ...DEFAULT_CONFIG.restart, backoff: 100, max_backoff: 400, ...restart },
@@ -123,6 +128,7 @@ export async function spawnPipod<T>(
   n: number | string,
   timeoutMs = 15_000,
 ) {
+  openAuth(home);
   for (let tries = 1; ; tries++) {
     const log = join(root, `pipod-${n}.${tries}.log`);
     const proc = Bun.spawn(["bun", PIPOD, "--home", home, ...args], {
@@ -180,4 +186,20 @@ export async function spawnRunner(
     proc.kill("SIGKILL");
     throw e;
   }
+}
+
+/**
+ * `engine.auth: open` in `<home>/config.yaml` (kept with the rest of the file), so a spawned pipod's `/api` needs no
+ * login, as testConfig() does in process. A config a test broke on purpose is left as it is.
+ */
+export function openAuth(home: string): void {
+  try {
+    saveEngineSetting(home, ["engine", "auth"], "open");
+  } catch {}
+}
+
+/** The engine key header, for tests that drive a spawned pipod's `/api` in its default owner mode (D84). */
+export function keyHeaders(home: string): Record<string, string> {
+  const key = readEngineKey(home);
+  return key ? { authorization: `Bearer ${key}` } : {};
 }

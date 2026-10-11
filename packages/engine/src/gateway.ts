@@ -1,4 +1,4 @@
-// The engine's HTTP gateway (docs/spec.md §7.1, §7.2, §7.6, D28): one Bun.serve on 127.0.0.1:<engine.listen>.
+// The engine's HTTP gateway (docs/spec.md §7.1, §7.2, §7.6, D28): one Bun.serve on <engine.host>:<engine.listen>.
 // - `/in/<pipeline><path>` is proxied unchanged (method, path, query, headers, raw body) to the runner's own http
 //   input, which serves the same route on the port in its registry entry; the runner's reply comes back as is.
 //   Never retried: a refused connection reached no runner (503), a failure after sending may have journaled (502).
@@ -14,8 +14,10 @@
 // `/mcp` is the agent endpoint (§9.2, D53, mcp.ts): its tools call the `/api` handlers in-process (internal()).
 // `/.well-known/oauth-*` and `/oauth/*` are its OAuth server (D82, oauth.ts); the human approves on the dashboard,
 // through `/api/oauth/requests/<id>`.
-// `/api`, `/events`, `/mcp` and the OAuth routes only answer requests addressed to a loopback host, and `/api` POSTs
-// must be JSON, so a web page can't drive the engine through the browser (DNS rebinding, cross-site form posts).
+// `/api`, `/events`, `/mcp` and the OAuth routes only answer requests addressed to a loopback host or the host of
+// engine.public_url (D85), refuse an `Origin` other than the engine's own, and `/api` POSTs must be JSON, so a web page
+// can't drive the engine through the browser (DNS rebinding, cross-site form posts). With engine.auth: owner (D84,
+// auth.ts) `/api` and `/events` also need the owner's session or the engine key; `/api/auth/*` is how one logs in.
 
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
@@ -23,15 +25,17 @@ import { ControlError, homeAgentBudget, offlineRead, type ReadOp, readRegistryEn
 import { serveUi } from "@pipo/ui";
 import type { Server } from "bun";
 import { type ApprovalView, effectsOf } from "./approvals";
+import { type Caller, OwnerAuth } from "./auth";
 import { deleteBot, listBots, saveBot, testBot } from "./bots";
 import { Builder } from "./builder";
+import { isLoopbackHost } from "./config";
 import { activityEvents, chainOf, lifetimeOf, logPage, statsOf } from "./dashboard";
 import { EngineError } from "./errors";
 import { type EngineEvent, journalEventsAfter, journalEventsTail } from "./events";
 import { CodeStamp } from "./freshness";
 import { pipelineGraph } from "./graph";
 import { journalPath, logPath } from "./home";
-import { HttpError } from "./http-error";
+import { HttpError, optional, readBody, unknownKeys } from "./http-error";
 import { McpServer } from "./mcp";
 import { OAuth, OAuthError } from "./oauth";
 import { resourcesOf } from "./resources";
@@ -61,6 +65,16 @@ const HOP_BY_HOP = [
 ];
 
 const ROUTES = [
+  "GET  /api/auth",
+  "POST /api/auth/setup {code, username, password, email?}",
+  "POST /api/auth/login {username, password}",
+  "POST /api/auth/logout",
+  "POST /api/auth/logout-all",
+  "POST /api/auth/password {current, password}",
+  "POST /api/auth/email {email}",
+  "POST /api/auth/test-mail",
+  "POST /api/auth/forgot {login}",
+  "POST /api/auth/reset {token, password}",
   "GET  /api/engine",
   "POST /api/engine/restart",
   "POST /api/engine/stop",
@@ -138,6 +152,8 @@ const LIVE_STATES = new Set(["starting", "running", "backoff", "stopping", "unre
 const START_KEYS = ["listen", "detached", "ttl"];
 /** Set by the MCP endpoint's in-process calls: the agent a request is made for (a start by it approves nothing). */
 const AGENT_HEADER = "x-pipo-agent";
+/** Set by the proxy on `/in` requests that come from the network (D85); the runner refuses them for inputs without auth. */
+const REMOTE_HEADER = "x-pipo-remote";
 /** Agent-written files larger than this are listed without their text. */
 const MAX_SHOWN = 64 * 1024;
 const PROPOSE_KEYS = ["source", "base_version", "reason", "by", "by_kind", "apply"];
@@ -220,6 +236,9 @@ export class Gateway {
   private stopped?: Promise<void>;
   private readonly mcp: McpServer;
   private readonly oauth: OAuth;
+  private readonly auth: OwnerAuth;
+  /** Who each `/api` request is (D84), for the `by` of what it does when it names none. */
+  private readonly callers = new WeakMap<Request, Caller>();
   private readonly builder: Builder;
   /** Whether the engine's sources changed on disk since it started (D64). */
   private readonly code = new CodeStamp();
@@ -228,14 +247,15 @@ export class Gateway {
   /** Bound port, kept because Bun reports 0 once the server stopped. */
   readonly port: number;
 
-  /** Bind 127.0.0.1:`port` (0 picks a free one). Throws EngineError (`conflict`) when the port is taken. */
+  /** Bind `engine.host`:`port` (0 picks a free one). Throws EngineError (`conflict`) when the port is taken. */
   constructor(
     private readonly engine: Supervisor,
     port: number,
   ) {
+    const host = engine.config.host ?? "127.0.0.1";
     try {
       this.server = Bun.serve({
-        hostname: "127.0.0.1",
+        hostname: host,
         port,
         fetch: (req, server) => this.handle(req, server),
         error: (e) => json(500, { error: e.message, hint: "see the engine log", code: "internal" }),
@@ -243,19 +263,27 @@ export class Gateway {
     } catch (e) {
       throw new EngineError(
         "conflict",
-        `the gateway can't listen on 127.0.0.1:${port}: ${(e as Error).message}`,
+        `the gateway can't listen on ${host}:${port}: ${(e as Error).message}`,
         "set engine.listen in config.yaml to a free port (0 picks one), or stop what holds this one",
       );
     }
     this.port = this.server.port as number;
     this.builder = new Builder(engine);
-    this.oauth = new OAuth(engine.home, () => this.port);
+    const publicUrl = engine.config.public_url ?? null;
+    this.oauth = new OAuth(engine.home, () => this.port, publicUrl);
+    this.auth = new OwnerAuth({
+      home: engine.home,
+      config: engine.config,
+      base: () => this.base,
+      log: (level, message) => engine.log(level, message),
+    });
     this.mcp = new McpServer({
       oauth: this.oauth,
       engine,
       tokens: engine.config.mcp?.tokens ?? [],
       api: (method, path, body, agent) => this.internal(method, path, body, agent),
       base: this.url,
+      publicUrl,
     });
     this.unsubscribe.push(
       engine.subscribe((e) => this.onEvent(e)),
@@ -267,13 +295,20 @@ export class Gateway {
     this.heartbeat.unref?.();
   }
 
+  /** The gateway on this machine (it listens on loopback or on every interface, D85). */
   get url(): string {
     return `http://127.0.0.1:${this.port}`;
+  }
+
+  /** Where people reach it: engine.public_url, else the loopback URL. Links and the setup line use it. */
+  get base(): string {
+    return this.engine.config.public_url ?? this.url;
   }
 
   /** Discovery is done: answer `/api` and `/in` (before this they get 503 and Retry-After). */
   markReady(): void {
     this.ready = true;
+    this.auth.announce();
   }
 
   /**
@@ -498,7 +533,15 @@ export class Gateway {
       if (path === "/in" || path.startsWith("/in/")) return await this.proxy(req, url, server);
       if (path === "/events" || path === "/api" || path.startsWith("/api/")) {
         this.local(req);
+        this.sameOrigin(req);
         this.engine.touch(); // someone is using the engine: it doesn't sleep under them (D31)
+        if (path === "/api/auth" || path.startsWith("/api/auth/")) {
+          server.timeout(req, 0); // a test email waits for the mail server
+          const parts = path.split("/");
+          if (parts.length > 4) throw noRoute(url.pathname);
+          return await this.auth.route(req, parts[3], server.requestIP(req)?.address ?? "unknown");
+        }
+        this.callers.set(req, this.auth.require(req));
         if (path === "/events") {
           if (req.method !== "GET") throw notAllowed("GET");
           return this.sse(req, url, server);
@@ -509,6 +552,7 @@ export class Gateway {
       }
       if (path.startsWith("/.well-known/oauth-") || path === "/oauth" || path.startsWith("/oauth/")) {
         this.local(req);
+        this.sameOrigin(req);
         this.engine.touch();
         return await this.oauthRoute(req, url, path);
       }
@@ -547,9 +591,14 @@ export class Gateway {
     }
   }
 
-  /** `http://<the Host the request was sent to>`: the OAuth issuer and resource as the client sees them. */
+  /**
+   * `http://<the Host the request was sent to>`, or engine.public_url when it was sent to that: the OAuth issuer and
+   * resource as the client sees them.
+   */
   private origin(req: Request): string {
     const host = req.headers.get("host");
+    const pub = this.engine.config.public_url;
+    if (pub && host?.toLowerCase() === new URL(pub).host) return pub;
     return host ? `http://${host}` : this.url;
   }
 
@@ -604,19 +653,50 @@ export class Gateway {
     }
   }
 
-  /** Only requests addressed to a loopback host (a page on another site can't rebind its name to 127.0.0.1). */
+  /**
+   * Only requests addressed to a loopback host or to engine.public_url's host (D85): a page on another site can't
+   * rebind its name to this engine.
+   */
   private local(req: Request) {
     const host = req.headers.get("host");
     if (!host) return;
     const name = host.startsWith("[") ? host.slice(0, host.indexOf("]") + 1) : host.replace(/:\d+$/, "");
-    if (!LOOPBACK.has(name.toLowerCase())) {
+    if (LOOPBACK.has(name.toLowerCase())) return;
+    const pub = this.engine.config.public_url;
+    if (pub && host.toLowerCase() === new URL(pub).host) return;
+    throw new HttpError(
+      403,
+      `the engine API does not answer requests for host '${host}'`,
+      pub
+        ? `address it as ${pub} (engine.public_url) or http://127.0.0.1:${this.port}`
+        : `address it as http://127.0.0.1:${this.port} or http://localhost:${this.port}; to reach it from elsewhere set engine.public_url (and engine.host)`,
+      "forbidden",
+    );
+  }
+
+  /** A request a browser sent from a page: only from the engine's own pages (its loopback origins or public URL). */
+  private sameOrigin(req: Request) {
+    const origin = req.headers.get("origin");
+    if (!origin) return;
+    let ok = false;
+    try {
+      const u = new URL(origin);
+      ok =
+        origin === this.engine.config.public_url ||
+        (u.protocol === "http:" && LOOPBACK.has(u.hostname.toLowerCase()) && Number(u.port || 80) === this.port);
+    } catch {}
+    if (!ok)
       throw new HttpError(
         403,
-        `the engine API does not answer requests for host '${host}'`,
-        `address it as http://127.0.0.1:${this.port} or http://localhost:${this.port}`,
+        `the engine API does not answer pages from ${origin}`,
+        "use the dashboard the engine serves at /ui, the CLI, or a client that is not a web page",
         "forbidden",
       );
-    }
+  }
+
+  /** The `by` of an action whose request names none: the owner, `cli` for the engine key, else `api` (D84). */
+  private actor(req: Request): string {
+    return this.callers.get(req)?.actor ?? "api";
   }
 
   private async api(req: Request, url: URL, parts: string[]): Promise<Response> {
@@ -698,7 +778,7 @@ export class Gateway {
       }
       only("POST");
       const body = await readBody(req);
-      if (parts[3] === "approve") return json(200, this.oauth.approve(id, body, this.origin(req)));
+      if (parts[3] === "approve") return json(200, this.oauth.approve(id, body, this.origin(req), this.actor(req)));
       if (parts[3] === "deny") return json(200, this.oauth.deny(id, this.origin(req)));
       throw noRoute(url.pathname);
     }
@@ -880,7 +960,7 @@ export class Gateway {
       const args = {
         ...(body.ids !== undefined && { ids: body.ids }),
         ...(all !== undefined && { all }),
-        by: by ?? "api",
+        by: by ?? this.actor(req),
       };
       return json(200, await runnerOp(name, () => engine.request(name, op, args, 120_000)));
     }
@@ -961,7 +1041,7 @@ export class Gateway {
         }
         const by = optional(body, "by", "string");
         this.needRunner(name, "rollback");
-        const args = { version: body.version, by: by ?? "api" };
+        const args = { version: body.version, by: by ?? this.actor(req) };
         return json(200, await runnerOp(name, () => engine.request(name, "rollback", args, 120_000)));
       }
       case "rerun": {
@@ -969,7 +1049,7 @@ export class Gateway {
         if (unknown.length) throw unknownKeys(unknown, "from, ids, last, since, all, current, dry and by");
         const by = optional(body, "by", "string");
         this.needRunner(name, "rerun");
-        const args = { ...body, by: by ?? "api" };
+        const args = { ...body, by: by ?? this.actor(req) };
         return json(200, await runnerOp(name, () => engine.request(name, "rerun", args, 120_000)));
       }
       case "resolve": {
@@ -991,7 +1071,7 @@ export class Gateway {
           ...(body.ids !== undefined && { ids: body.ids }),
           ...(body.packet_id !== undefined && { packet_id: body.packet_id }),
           action: body.action,
-          by: by ?? "api",
+          by: by ?? this.actor(req),
           by_kind: kind ?? "human",
           ...(reason !== undefined && { reason }),
         };
@@ -1041,7 +1121,7 @@ export class Gateway {
     if (req.method !== "POST") throw notAllowed("POST");
     const body = await readBody(req);
     if (!found) throw missing();
-    const by = optional(body, "by", "string") ?? "api";
+    const by = optional(body, "by", "string") ?? this.actor(req);
     if (verb === "reject") {
       const unknown = Object.keys(body).filter((k) => k !== "reason" && k !== "by");
       if (unknown.length) throw unknownKeys(unknown, "reason and by");
@@ -1106,7 +1186,7 @@ export class Gateway {
         source: body.source,
         base_version: body.base_version,
         reason: body.reason,
-        author: by ?? "api",
+        author: by ?? this.actor(req),
         author_kind: kind ?? "human",
         ...(apply !== undefined && { apply }),
       };
@@ -1114,12 +1194,12 @@ export class Gateway {
       const unknown = Object.keys(body).filter((k) => k !== "by");
       if (unknown.length) throw unknownKeys(unknown, "`by`");
       op = "apply_proposal";
-      args = { id, by: by ?? "api" };
+      args = { id, by: by ?? this.actor(req) };
     } else {
       const unknown = Object.keys(body).filter((k) => k !== "by" && k !== "reason");
       if (unknown.length) throw unknownKeys(unknown, "reason and by");
       op = "reject_proposal";
-      args = { id, reason: body.reason, by: by ?? "api" };
+      args = { id, reason: body.reason, by: by ?? this.actor(req) };
     }
     this.needRunner(name, op === "propose" ? "propose" : op === "apply_proposal" ? "apply" : "reject");
     return json(200, await runnerOp(name, () => engine.request(name, op, args, 120_000)));
@@ -1219,8 +1299,9 @@ export class Gateway {
       );
     }
     const headers = new Headers(req.headers);
-    for (const h of [...HOP_BY_HOP, "host"]) headers.delete(h);
+    for (const h of [...HOP_BY_HOP, "host", REMOTE_HEADER]) headers.delete(h);
     const ip = server.requestIP(req)?.address;
+    if (fromNetwork(req, ip)) headers.set(REMOTE_HEADER, "1");
     if (ip) headers.set("x-forwarded-for", [req.headers.get("x-forwarded-for"), ip].filter(Boolean).join(", "));
     if (req.headers.get("host")) headers.set("x-forwarded-host", req.headers.get("host") as string);
     headers.set("x-forwarded-proto", "http");
@@ -1260,6 +1341,22 @@ export class Gateway {
     for (const h of [...HOP_BY_HOP, "content-encoding", "content-length"]) out.delete(h);
     return new Response(res.body, { status: res.status, statusText: res.statusText, headers: out });
   }
+}
+
+/**
+ * Whether an `/in` request came from the network (D85): from an address other than loopback, addressed to a name
+ * other than loopback (engine.public_url), or forwarded by a proxy. Only loopback callers on loopback names are local.
+ */
+export function fromNetwork(req: Request, ip: string | undefined): boolean {
+  const host = req.headers.get("host") ?? "";
+  const name = host.startsWith("[") ? host.slice(1, host.indexOf("]")) : host.replace(/:\d+$/, "");
+  const address = (ip ?? "").replace(/^::ffff:/, "");
+  return (
+    !(address && isLoopbackHost(address)) ||
+    !(name === "" || isLoopbackHost(name)) ||
+    req.headers.has("x-forwarded-for") ||
+    req.headers.has("forwarded")
+  );
 }
 
 function decode(segment: string): string {
@@ -1310,58 +1407,6 @@ function notAllowed(method: string): HttpError {
     "method_not_allowed",
     {},
     { allow: method },
-  );
-}
-
-/** A JSON object body. POSTs must say `Content-Type: application/json`, even when empty (cross-site safety). */
-async function readBody(req: Request): Promise<Record<string, unknown>> {
-  const type = req.headers.get("content-type") ?? "";
-  if (!/^application\/json\b/i.test(type)) {
-    throw new HttpError(
-      415,
-      "the engine API takes JSON",
-      "send Content-Type: application/json (an empty body is fine)",
-      "unsupported_media_type",
-    );
-  }
-  const text = await req.text();
-  if (!text.trim()) return {};
-  let body: unknown;
-  try {
-    body = JSON.parse(text);
-  } catch (e) {
-    throw new HttpError(
-      400,
-      `the body is not valid JSON: ${(e as Error).message}`,
-      "send a JSON object",
-      "bad_request",
-    );
-  }
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    throw new HttpError(400, "the body must be a JSON object", 'for example {"now": true}', "bad_request");
-  }
-  return body as Record<string, unknown>;
-}
-
-function optional<K extends "string" | "boolean" | "number">(
-  body: Record<string, unknown>,
-  key: string,
-  type: K,
-): (K extends "string" ? string : K extends "boolean" ? boolean : number) | undefined {
-  const v = body[key];
-  if (v === undefined || v === null) return undefined;
-  if (typeof v !== type) {
-    throw new HttpError(400, `\`${key}\` must be a ${type}, got ${JSON.stringify(v)}`, `fix \`${key}\``, "bad_request");
-  }
-  return v as never;
-}
-
-function unknownKeys(unknown: string[], takes: string): HttpError {
-  return new HttpError(
-    400,
-    `unknown ${unknown.length > 1 ? "keys" : "key"} ${unknown.map((k) => `\`${k}\``).join(", ")}`,
-    `this request takes ${takes}`,
-    "bad_request",
   );
 }
 

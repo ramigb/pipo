@@ -17,7 +17,7 @@ import { join, resolve } from "node:path";
 import { entryAlive, procStart, readRegistryEntry, ulid } from "@pipo/runner";
 import { formatDuration, inputsOf, type Pipeline, parseDuration } from "@pipo/spec";
 import { Approvals } from "./approvals";
-import { type EngineConfig, loadConfig } from "./config";
+import { checkExposure, type EngineConfig, loadConfig } from "./config";
 import { EngineError } from "./errors";
 import type { EngineEvent } from "./events";
 import { Gateway } from "./gateway";
@@ -88,6 +88,7 @@ export class Supervisor extends SupervisorDiscovery {
   static async open(opts: SupervisorOptions = {}): Promise<Supervisor> {
     const home = resolveHome(opts.home);
     const config = opts.config ?? loadConfig(home);
+    checkExposure(config);
     const engineId = `e_${ulid()}`;
     const startedAt = new Date().toISOString();
     // The claim comes first: a second engine on this home must never touch its runners (nor fight for its port).
@@ -493,6 +494,7 @@ export class Supervisor extends SupervisorDiscovery {
       "--after",
       String(process.pid),
       ...(listen === null ? [] : ["--listen", String(listen)]),
+      ...(this.config.host === "127.0.0.1" ? [] : ["--host", this.config.host]),
       ...again.map((r) => r.file),
     ];
     mkdirSync(join(this.home, "logs"), { recursive: true });

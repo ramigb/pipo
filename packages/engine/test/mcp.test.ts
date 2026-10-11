@@ -12,7 +12,7 @@ import { readRegistryEntry } from "@pipo/runner";
 import { NAV } from "../../docs/src/nav";
 import { DEFAULT_CONFIG, EngineError, parseConfig, readEngineEntry, type Supervisor } from "../src";
 import { McpServer } from "../src/mcp";
-import { isAlive, query, sandbox, waitFor } from "./helpers";
+import { isAlive, openAuth, query, sandbox, waitFor } from "./helpers";
 
 const PIPOD = join(import.meta.dir, "../src/main.ts");
 const box = sandbox();
@@ -103,6 +103,7 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
 
 /** Start pipod on a free gateway port with the test env; output to log files, found through run/engine.json. */
 async function startEngine(): Promise<string> {
+  openAuth(home);
   for (let tries = 1; ; tries++) {
     const log = join(box.root, `pipod.${tries}.log`);
     const proc = Bun.spawn(["bun", PIPOD, "--home", home, "--listen", "0"], {
