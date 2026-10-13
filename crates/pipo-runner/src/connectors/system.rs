@@ -58,8 +58,10 @@ fn statvfs(path: &str) -> Option<(u64, u64)> {
     if unsafe { libc::statvfs(c.as_ptr(), &mut s) } != 0 {
         return None;
     }
-    let size = s.f_frsize;
-    Some((s.f_blocks * size, s.f_bavail * size))
+    // statvfs field widths differ by OS (u32 block counts on macOS, u64 on Linux).
+    #[allow(clippy::unnecessary_cast)]
+    let (size, blocks, avail) = (s.f_frsize as u64, s.f_blocks as u64, s.f_bavail as u64);
+    Some((blocks * size, avail * size))
 }
 
 /// The default sampler: /proc, /sys and statvfs where they exist.
