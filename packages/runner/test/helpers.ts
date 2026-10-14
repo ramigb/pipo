@@ -33,9 +33,12 @@ export function sandbox() {
   };
 }
 
-/** Copies an example folder, leaving out what local runs leave behind (gitignored `out/`, `data/`, `inbox/`). */
+/** Copies an example folder, leaving out what local runs leave behind (gitignored `out/`, `data/`, `inbox/`, `logs/`). */
 export function copyExampleDir(src: string, dest: string) {
-  cpSync(src, dest, { recursive: true, filter: (path) => !/[\\/](out|data|inbox)$/.test(path.slice(src.length)) });
+  cpSync(src, dest, {
+    recursive: true,
+    filter: (path) => !/[\\/](out|data|inbox|logs)$/.test(path.slice(src.length)),
+  });
 }
 
 export async function waitFor<T>(

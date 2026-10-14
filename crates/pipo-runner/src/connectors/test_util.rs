@@ -56,6 +56,7 @@ pub async fn wait_for(mut f: impl FnMut() -> bool, ms: u64, what: &str) {
 pub struct Call {
     pub method: String,
     pub path: String,
+    pub query: String,
     pub headers: hyper::HeaderMap,
     pub body: Vec<u8>,
 }
@@ -76,14 +77,16 @@ pub struct Reply {
     pub status: u16,
     pub content_type: &'static str,
     pub body: Vec<u8>,
+    /// Extra response headers.
+    pub headers: Vec<(&'static str, String)>,
 }
 
 impl Reply {
     pub fn text(status: u16, body: &str) -> Reply {
-        Reply { status, content_type: "text/plain", body: body.as_bytes().to_vec() }
+        Reply { status, content_type: "text/plain", body: body.as_bytes().to_vec(), headers: vec![] }
     }
     pub fn json(status: u16, body: &Value) -> Reply {
-        Reply { status, content_type: "application/json", body: body.to_string().into_bytes() }
+        Reply { status, content_type: "application/json", body: body.to_string().into_bytes(), headers: vec![] }
     }
 }
 
@@ -116,18 +119,17 @@ pub async fn server(handler: Handler) -> Server {
                         let call = Call {
                             method: parts.method.to_string(),
                             path: parts.uri.path().to_string(),
+                            query: parts.uri.query().unwrap_or("").to_string(),
                             headers: parts.headers,
                             body,
                         };
                         calls.borrow_mut().push(call.clone());
                         let r = handler(call).await;
-                        Ok::<_, std::convert::Infallible>(
-                            Response::builder()
-                                .status(r.status)
-                                .header("content-type", r.content_type)
-                                .body(Full::new(Bytes::from(r.body)))
-                                .unwrap(),
-                        )
+                        let mut res = Response::builder().status(r.status).header("content-type", r.content_type);
+                        for (k, v) in r.headers {
+                            res = res.header(k, v);
+                        }
+                        Ok::<_, std::convert::Infallible>(res.body(Full::new(Bytes::from(r.body))).unwrap())
                     }
                 });
                 let io = hyper_util::rt::TokioIo::new(stream);
@@ -168,4 +170,26 @@ pub fn accepted(n: usize) -> IntakeResult {
 pub fn runtime(dir: &TempDir) -> InputRuntime {
     let j = crate::journal::Journal::open(dir.join("journal.db")).unwrap();
     InputRuntime { journal: Rc::new(RefCell::new(j)), await_terminal: Rc::new(|_, _| Box::pin(async { None })) }
+}
+
+/// An intake that journals like the runner: each packet's commit runs in its own transaction, unless `open` is false,
+/// when it answers `Unavailable` (a full buffer) and commits nothing.
+pub fn journaling_intake(rt: &InputRuntime, open: Rc<std::cell::Cell<bool>>) -> (Intake, Got) {
+    let got: Got = Rc::default();
+    let g = got.clone();
+    let journal = rt.journal.clone();
+    let intake: Intake = Rc::new(move |payload, origin, commit: Option<super::Commit>| {
+        let open = open.get();
+        if open {
+            g.borrow_mut().push((payload, origin));
+            if let Some(c) = commit {
+                journal.borrow_mut().atomically(|j| c(j)).unwrap();
+            }
+        }
+        let n = g.borrow().len();
+        Box::pin(
+            async move { if open { accepted(n) } else { IntakeResult::Unavailable { reason: "buffer full".into() } } },
+        )
+    });
+    (intake, got)
 }

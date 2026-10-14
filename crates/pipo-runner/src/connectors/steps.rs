@@ -140,7 +140,12 @@ mod tests {
                 Box::pin(async move {
                     match c.path.as_str() {
                         "/json" => Reply::json(200, &json!({"enriched": true})),
-                        "/bad" => Reply { status: 200, content_type: "application/json", body: b"nope".to_vec() },
+                        "/bad" => Reply {
+                            status: 200,
+                            content_type: "application/json",
+                            body: b"nope".to_vec(),
+                            headers: vec![],
+                        },
                         _ => Reply::text(200, "plain"),
                     }
                 })

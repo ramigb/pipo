@@ -45,7 +45,7 @@ agent:
 - **Required:** `pipo: 1`, `name`, `output`, and exactly one of `input` or `inputs`. Unknown keys are errors.
 - **Wiring:** each node says where its packets come from with `from` (an input, a node id, a list, or a route branch `triage.urgent`). Exactly one `output`; its `from` may be a list.
 - **Node kinds** (exactly one per node): `tap` (side effect; `log`, `http`, `file`, `emit`, `telegram`, `exec`, `fn.<name>`), `transform` (replaces `data`; `map`, `http`, `exec`, `fn.<name>`), `filter` (an expression), `route` (branch → expression, the last may be `else`), `agent` (`claude_api`, `claude_code`, …; needs a schema and a budget).
-- **Inputs** (`via`): `http`, `schedule` (`cron` or `every`), `watch`, `push`, `system`, `telegram`, `pipeline`. **Outputs** (`to`): `sqlite`, `file`, `http`, `stdout`, `telegram`, `pipeline`.
+- **Inputs** (`via`): `http`, `schedule` (`cron` or `every`), `watch`, `push`, `system`, `telegram`, `pipeline`, and active ones that fetch on their own: `poll` (a URL on a timer; `items`, `key` and `emit: new|changed|all` send only what is new; `parse: feed|html`), `tail` (a file's new lines), `command` (a long-running program's stdout lines), `crawl` (a site's new or changed pages). **Outputs** (`to`): `sqlite`, `file`, `http`, `stdout`, `telegram`, `pipeline`.
 - **Expressions** (`filter`, `route`, `validate`) are a safe JavaScript subset: `data.age >= 18 && exists(data.email)`. **Templates** are `"${expr}"` strings in `with:`; a value that is just `"${expr}"` keeps its type.
 - **Secrets** are never literal: declare `secrets: { api_key: env:API_KEY }` (or `op://vault/item/field`) and use `${secrets.api_key}` inside `with:` only.
 - **Paths** are relative to the `.pipo` file's folder.

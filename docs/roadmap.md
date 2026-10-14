@@ -91,6 +91,7 @@ Done:
 - The test suite runs on macOS.
 - Agents that build pipelines (§9.4, D81, D82, D83): an `author` MCP scope with `create_pipeline`, `test_pipeline` and `start_pipeline`, human approval on a 🔑 Agents page (or auto-approve), OAuth so an MCP client connects with a browser approval, the engine on port 4747 by default, and a Claude Code plugin with a Pipo skill.
 - One owner per Pipo home (D84, D85, D86): a dashboard login with first-run setup, the engine key for the CLI, `pipo owner reset` and reset links by email, and an engine that can listen beyond loopback (`engine.host`, `engine.public_url`), where http inputs take requests from the network only with `auth` or `public: true`.
+- Active inputs (§3.3.2, D87): `poll` (a URL on a timer, sending new or changed elements, with cursors, pages, feeds and page parts), `tail` (a file's new lines, across rotation), `command` (a long-running program's output) and `crawl` (a site's new or changed pages, obeying robots.txt), each keeping its position in the journal.
 
 Next:
 

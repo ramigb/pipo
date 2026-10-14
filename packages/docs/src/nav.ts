@@ -33,6 +33,7 @@ export const NAV: Section[] = [
     pages: [
       guide("pipo-file", "The .pipo file"),
       guide("inputs", "Inputs"),
+      guide("active-inputs", "Active inputs"),
       guide("nodes", "Nodes and the graph"),
       guide("outputs", "Outputs"),
       guide("delivery", "Delivery checks"),

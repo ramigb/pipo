@@ -38,9 +38,46 @@ pub struct ScheduleOptions {
     pub log: Option<Log>,
 }
 
-enum When {
+/// When a timed input runs: a cron expression (UTC) or a fixed interval. Shared with `poll` and `crawl` (§3.3.2).
+pub enum When {
     Cron(String, Cron),
     Every(i64),
+}
+
+impl When {
+    /// Exactly one of `cron` and `every`; `what` names the input in errors.
+    pub fn parse(cron: Option<String>, every: Option<String>, what: &str) -> Result<When, String> {
+        match (cron, every) {
+            (Some(c), None) => {
+                let parsed = parse_cron(&c)?;
+                Ok(When::Cron(c, parsed))
+            }
+            (None, Some(e)) => {
+                let ms = parse_duration(&e)?;
+                if ms < 1 {
+                    return Err(format!("{what} `every` must be at least 1ms"));
+                }
+                Ok(When::Every(ms as i64))
+            }
+            _ => Err(format!("{what} needs exactly one of `cron` or `every`")),
+        }
+    }
+
+    /// The next run: `every` after the `last` one (at once when there was none or it is overdue), or the next cron
+    /// tick after `now`.
+    pub fn next_run(&self, last: Option<i64>, now: i64) -> Option<i64> {
+        match self {
+            When::Every(every) => Some(last.map(|l| (l + every).max(now)).unwrap_or(now)),
+            When::Cron(_, c) => next_cron(c, now),
+        }
+    }
+
+    pub fn describe(&self) -> String {
+        match self {
+            When::Cron(text, _) => format!("cron '{text}' (UTC)"),
+            When::Every(ms) => format!("every {}", format_duration(*ms as u64)),
+        }
+    }
 }
 
 struct Inner {
@@ -59,20 +96,7 @@ pub struct ScheduleInput {
 
 impl ScheduleInput {
     pub fn new(o: ScheduleOptions, clock: Rc<dyn Clock>) -> Result<ScheduleInput, String> {
-        let when = match (o.cron, o.every) {
-            (Some(c), None) => {
-                let parsed = parse_cron(&c)?;
-                When::Cron(c, parsed)
-            }
-            (None, Some(e)) => {
-                let ms = parse_duration(&e)?;
-                if ms < 1 {
-                    return Err("schedule `every` must be at least 1ms".into());
-                }
-                When::Every(ms as i64)
-            }
-            _ => return Err("schedule needs exactly one of `cron` or `every`".into()),
-        };
+        let when = When::parse(o.cron, o.every, "schedule")?;
         let inner = Inner {
             when,
             payload: o.payload.filter(|p| !p.is_null()).unwrap_or_else(|| Value::Object(Map::new())),
@@ -169,10 +193,7 @@ impl InputAdapter for ScheduleInput {
     }
 
     fn describe(&self) -> String {
-        let what = match &self.inner.when {
-            When::Cron(text, _) => format!("cron '{text}' (UTC)"),
-            When::Every(ms) => format!("every {}", format_duration(*ms as u64)),
-        };
+        let what = self.inner.when.describe();
         let next = self.inner.next_tick.get().map(|t| format!(", next at {}", iso(t))).unwrap_or_default();
         format!("schedule {what}{next}")
     }

@@ -134,6 +134,59 @@ describe("examples", () => {
     expect(await r.stop()).toBe(0);
   });
 
+  test("release-watch sends each release the feed adds, once", async () => {
+    const { box, dir, file } = copyExample("release-watch");
+    let entries = ["v1.0.0"];
+    const feed = () =>
+      `<feed xmlns="http://www.w3.org/2005/Atom"><title>Bun releases</title>${entries
+        .map(
+          (v) =>
+            `<entry><id>tag:${v}</id><title>${v}</title><link href="https://example/${v}"/><updated>2026-01-01T00:00:00Z</updated></entry>`,
+        )
+        .join("")}</feed>`;
+    const server = Bun.serve({
+      port: 0,
+      fetch: () => new Response(feed(), { headers: { "content-type": "application/atom+xml" } }),
+    });
+    cleanups.push(() => server.stop(true));
+    // The shipped file, pointed at a local feed and polled faster.
+    const shipped = readFileSync(file, "utf8");
+    writeFileSync(
+      file,
+      shipped
+        .replace("https://github.com/oven-sh/bun/releases.atom", `http://127.0.0.1:${server.port}/releases.atom`)
+        .replace("every: 30m", "every: 200ms"),
+    );
+    const r = await open(box, file, "release-watch");
+    await waitFor(
+      () => r.query("SELECT 1 FROM input_state WHERE key = 'primed'").length > 0,
+      10_000,
+      "the first fetch",
+    );
+    entries = ["v1.1.0", "v1.0.0"];
+    const recs = await jsonl(join(dir, "out", "releases.jsonl"), 1, "the new release");
+    await Bun.sleep(500);
+    expect(
+      readFileSync(join(dir, "out", "releases.jsonl"), "utf8")
+        .trim()
+        .split("\n"),
+    ).toHaveLength(1);
+    expect(recs[0].data).toEqual({ release: "v1.1.0", link: "https://example/v1.1.0", at: "2026-01-01T00:00:00.000Z" });
+  });
+
+  test("error-tail keeps the errors of a JSON-lines log", async () => {
+    const { box, dir, file } = copyExample("error-tail");
+    mkdirSync(join(dir, "logs"));
+    const log = join(dir, "logs", "app.log");
+    writeFileSync(
+      log,
+      '{"time":"t1","level":"info","msg":"started"}\n{"time":"t2","level":"error","msg":"disk full"}\n',
+    );
+    await open(box, file, "error-tail");
+    const recs = await jsonl(join(dir, "out", "errors.jsonl"), 1, "the error");
+    expect(recs[0].data).toEqual({ at: "t2", message: "disk full", where: `${log}:45` });
+  });
+
   test("signup-intake hands each form sign-up to signup-store, which writes it once (a chain, D77)", async () => {
     const box = sandbox();
     cleanups.push(() => box.cleanup());

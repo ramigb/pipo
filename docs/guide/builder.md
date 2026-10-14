@@ -21,7 +21,7 @@ You can also open a running pipeline's file from its page with **✏️ Edit**, 
 
 The palette has three groups:
 
-- **📥 Inputs**: `http`, `schedule`, `watch`, `push`, `system`, `telegram` and `pipeline`.
+- **📥 Inputs**: `http`, `schedule`, `watch`, `push`, `system`, `telegram`, `pipeline`, and the active inputs `poll`, `tail`, `command` and `crawl`.
 - **🪄 Steps**: `map`, `http call`, `run program` (exec), `filter`, `route`, a tap for each tap connector (`log`, `http`, `file`, `telegram`, `emit`, `exec`), and **🤖 Agents**, a row that folds open in place with Claude API, Claude Code, Codex, pi and opencode.
 - **📤 Outputs**: `sqlite`, `file`, `http`, `telegram`, `pipeline` and `stdout`.
 
@@ -45,7 +45,7 @@ Every block's inspector shows **📦 data**: an example of `data` as it reaches 
 
 The examples come from what the builder knows:
 
-- the input's `schema` file (an example generated from it), else the input connector's built-in sample (`watch`, `system`, `telegram`), else a `schedule`'s `payload`;
+- the input's `schema` file (an example generated from it), else the input connector's built-in sample (`watch`, `system`, `telegram`, `tail` and `command` with `parse: text`, `crawl`), else a `schedule`'s `payload`;
 - taps, filters and routes pass the shape on; `map` renders its template against it; an agent node gives an example of its schema file;
 - `fn` and `http` transforms make the shape unknown. A **🧪 test run** shows the real data.
 

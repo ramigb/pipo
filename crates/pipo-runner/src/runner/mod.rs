@@ -398,6 +398,7 @@ impl Runner {
             bots: bots.clone(),
             redact: redactor,
             input: None,
+            vars: Value::Null,
         };
         let output = connectors::make_output(&ctx).map_err(|e| StartError::new(e.0))?;
         let (finished, _) = watch::channel(None);
@@ -1195,9 +1196,16 @@ impl Runner {
         let ctx_vars = json!({ "env": self.env, "secrets": self.secrets.values });
         let mut rendered = vec![];
         for (name, input) in p.inputs() {
-            let with = crate::expr::render(&Value::Object(input.with.clone().unwrap_or_default()), &ctx_vars)
+            let mut raw = input.with.clone().unwrap_or_default();
+            let late: Vec<(String, Value)> = connectors::late_fields(&input.via)
+                .iter()
+                .filter_map(|k| raw.remove(*k).map(|v| (k.to_string(), v)))
+                .collect();
+            let with = crate::expr::render(&Value::Object(raw), &ctx_vars)
                 .map_err(|e| format!("{}.with: {e}", p.input_path(name)))?;
-            rendered.push((name.to_string(), input.clone(), with.as_object().cloned().unwrap_or_default()));
+            let mut with = with.as_object().cloned().unwrap_or_default();
+            with.extend(late);
+            rendered.push((name.to_string(), input.clone(), with));
         }
         let shared_port = self.opts.listen.or_else(|| {
             rendered
@@ -1227,6 +1235,7 @@ impl Runner {
                 bots: self.bots.clone(),
                 redact: self.redactor(),
                 input: Some((name.clone(), input)),
+                vars: ctx_vars.clone(),
             };
             let named = |e: connectors::ConnectorError| if many { format!("input '{name}': {}", e.0) } else { e.0 };
             if http {

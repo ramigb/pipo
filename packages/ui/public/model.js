@@ -161,6 +161,10 @@ export const starterInput = (via) =>
     system: { via: "system", with: { every: "30s", metrics: ["cpu", "memory"] } },
     telegram: { via: "telegram" },
     pipeline: { via: "pipeline", with: { from: ["other-pipeline"] } },
+    poll: { via: "poll", with: { url: "https://example.com/feed.xml", every: "10m" } },
+    tail: { via: "tail", with: { path: "./app.log" } },
+    command: { via: "command", with: { command: "journalctl", args: ["-f"] } },
+    crawl: { via: "crawl", with: { start: "https://example.com/", every: "1d" } },
   })[via] ?? { via };
 
 export function starterOutput(to, name = "pipeline") {
@@ -545,6 +549,8 @@ export function shapeOut(p, id, ctx, seen = new Set()) {
     if (schema) return exampleOf(schema);
     if (input.via === "schedule") return input.with?.payload ?? {};
     const sample = ctx.inputs?.[input.via]?.sample ?? null;
+    // A line read as JSON is whatever the line holds (tail, command, §3.3.2).
+    if ((input.via === "tail" || input.via === "command") && input.with?.parse === "json") return null;
     // A watch packet carries `content` only with `read: content`; the default is `read: path`.
     if (input.via === "watch" && sample && input.with?.read !== "content") {
       const { content: _, ...rest } = sample;

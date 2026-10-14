@@ -152,7 +152,7 @@ Every pipeline has at least one input. An input defines how packets arrive, how 
 
 ```yaml
 input:
-  via: http                 # http | schedule | watch | push | system | telegram | (phase 2: mqtt, queue)
+  via: http                 # http | schedule | watch | push | system | telegram | pipeline | poll | tail | command | crawl
   with: {...}               # connector settings
   format: json              # json | text | csv | form | bytes
   schema: ./person.schema.json   # optional JSON Schema check, run before `validate`
@@ -173,8 +173,12 @@ input:
 | `system` | Sampling the operating system | `every`, `metrics: [cpu, memory, disk, battery, network]` |
 | `telegram` | A message to a Telegram bot (§3.13) | `bot` or `token`, `allow`, `poll_every`, `download` |
 | `pipeline` | Another pipeline's output (`to: pipeline`, §3.14) | `from`: the pipelines allowed to feed this input (required) |
+| `poll` | A timer: fetches a URL and emits what is new (§3.3.2) | `url`, `every` or `cron`, `parse`, `items`, `key`, `emit`, `cursor`, `next` |
+| `tail` | Lines appended to a file (§3.3.2) | `path`, `parse`, `from` |
+| `command` | Lines a long-running program prints (§3.3.2) | `command`, `args`, `cwd`, `env`, `parse`, `restart` |
+| `crawl` | A timer: crawls a site and emits the pages that changed (§3.3.2) | `start`, `every` or `cron`, `within`, `depth`, `max_pages`, `delay`, `select` |
 
-Each input's manifest carries a `sample`: what one packet's `data` looks like (`watch`, `system`, `telegram`; `schedule` sends its `payload`). `http` and `push` have none, since the sender decides, unless `schema` names a file (D70).
+Each input's manifest carries a `sample`: what one packet's `data` looks like (`watch`, `system`, `telegram`, `tail`, `command`, `crawl`; `schedule` sends its `payload`; `poll` sends what the URL answers). `http` and `push` have none, since the sender decides, unless `schema` names a file (D70).
 
 By default, `http` answers `202 {"packet_id": "..."}` once the packet is in the journal. With `respond: delivered`, it waits for delivery up to `timeout` and returns the final state.
 
@@ -211,6 +215,87 @@ output:
 - **http inputs share the runner's one listener** (`/in/<pipeline><path>`), so two of them need different `path`s or `method`s, and `listen`, if set on more than one, must be the same port. Two telegram inputs of one pipeline can't poll the same bot. Either clash is P062.
 - **`push`** (`pipo push`, MCP, the dashboard) names the input with `input`; it may be left out when there is one input, or exactly one `via: push` input.
 - A pipeline has at most 16 inputs.
+
+#### 3.3.2 Active inputs: `poll`, `tail`, `command`, `crawl`
+
+Most inputs wait for something to arrive. These four go and get data themselves while the runner runs, and they remember where they got to in the journal (like `watch` and `telegram`), so a restart neither repeats nor loses what they already handed over (D87).
+
+**Exactly once, through the cursor.** Each packet commits the input's position (the keys seen, the cursor, the byte offset) in the packet's own journal transaction. After a crash, an active input starts again from the last committed position: whatever wasn't journaled is fetched again, and whatever was is not. `command` is the exception: a program's output has no position Pipo can return to (see below).
+
+**Backpressure.** When the runner can't take a packet (buffer full, draining), `poll` and `crawl` stop the current fetch or crawl and leave the rest for the next one, `tail` waits and reads the same line again, and `command` stops reading the program's output, so the program blocks on its next write.
+
+##### `poll`
+
+```yaml
+input:
+  via: poll
+  with:
+    url: https://api.github.com/repos/acme/app/releases
+    every: 10m                     # or cron: "*/10 * * * *" (exactly one, P038)
+    headers: { Authorization: "Bearer ${secrets.github}" }
+    items: data                    # the list in the response; each element is one packet
+    key: item.id                   # what identifies an element
+    emit: new                      # new | changed | all
+```
+
+- **When.** `every` fetches at start and then every interval; the time of the last fetch is kept, so a restart waits out the rest of the interval rather than fetching again. `cron` fetches at each tick (UTC). Ticks missed while a fetch runs or the runner is down are skipped. An answer of `429` or `503` with `Retry-After` postpones the next fetch until then.
+- **The request.** `url` (required, http or https), `method` (default `GET`), `headers`, `body`, `timeout` (default `30s`) and `success` (statuses that count as success; default `200-299`; `304 Not Modified` is always "nothing new"). `url`, `headers` and `body` are templates rendered **for each request**, with `env`, `secrets` and `cursor` (below). The input sends `If-None-Match` and `If-Modified-Since` when the last answer had an `ETag` or `Last-Modified`, and `User-Agent: pipo/<version>` unless `headers` sets one.
+- **`parse`** decides what `data` is: `json`, `text`, `feed` (RSS 2.0, RSS 1.0, Atom or JSON Feed: `{title, link, entries}`, the entries normalized as below), `html` (a page, below) or `auto` (default: by `Content-Type`; a JSON Feed or an RSS/Atom document is a `feed`). A body that doesn't parse as asked is an error for that fetch, logged with a hint.
+- **`items`** is an expression over `data`, `response` (`{status, url, headers}`) and `cursor` that yields the list to split into packets. Each element becomes one packet. Without `items`, the whole answer is one element (with `parse: feed`, the entries are). A value that isn't a list is one element; `null` or `undefined` is none.
+- **`key`** is an expression over `item` (the element) and `data` that names an element. The default is `item.id` for a feed, the `url` as written for a whole answer (the template, so a secret or the cursor in it never becomes the key; a later page's own URL), and a hash of the element's content otherwise. `meta.source` is the key, and `meta.trigger` is `poll`.
+- **`emit`**: `new` sends an element whose key hasn't been seen before; `changed` also sends one whose content differs from the last time its key was seen; `all` sends every element of every fetch (no dedupe; after a crash during a fetch, its elements may be sent again). The default is `changed` for a whole answer and `new` otherwise, so a plain `url` + `every` emits the answer each time it changes.
+- **`backfill`** (default `true`): on the first fetch, emit what is already there. `false` records it as seen and emits only what appears later (a notifier, not an import).
+- **`remember`** (default 10000) caps the keys kept. Every fetch refreshes the keys it sees, so only keys that stopped appearing are forgotten, oldest first (keys last seen in the same fetch go in key order); if one comes back, it counts as new.
+- **When the runner can't take a packet**, the fetch stops there; what it didn't hand over counts as unseen and is fetched again 5 s later (`every`) or at the next tick (`cron`). A fetch that fails (unreachable, a status outside `success`, a body that doesn't parse) is logged with a hint and tried again at the next fetch.
+- **`cursor`** is an expression over `data`, `items`, `response` and `cursor` (the previous value) evaluated after each page. Its last value that isn't `null` or `undefined` is saved once the fetch's packets are journaled, and is `${cursor}` in `url`, `headers` and `body` of the next fetch (`null` before the first: write `${cursor ?? '1970-01-01T00:00:00Z'}`). Use it for "since" parameters; `items` is the page's list of elements.
+- **`next`** is an expression over `data` and `response` that yields the next page's URL (relative URLs resolve against the current one). The input follows it within the same fetch, up to `max_pages` pages (default 10), and stops at `null`, `undefined`, `""` or a URL it already fetched this time.
+- **`parse: html`** gives `data = {url, status, title, text, links, html}`: `text` is the visible text (scripts and styles removed, whitespace collapsed), `links` the page's absolute http(s) links. **`select`** (a CSS selector, html only, P065) narrows `text` and `html` to the matching elements, joined with a blank line; without `select`, `html` is `null`. `url` + `parse: html` + `select` + the default `emit: changed` watches one part of a page for changes.
+- **Feed entries** are `{id, title, link, published, updated, summary, content, author, feed: {title, link}}` (ISO 8601 dates; missing fields `null`; `id` falls back to `link`, then to a hash of the entry).
+- Bodies larger than 10 MiB are refused for that fetch.
+
+##### `tail`
+
+```yaml
+input:
+  via: tail
+  with: { path: /var/log/nginx/access.log, parse: text }
+```
+
+- Follows one file (`path`, relative to the pipeline file) and sends each complete line (ending in `\n`) as a packet; a final line without `\n` waits until it has one. `parse: text` (default) gives `data = {line, path}`; `parse: json` gives the line parsed as JSON (a line that isn't JSON is logged and skipped). `meta.trigger` is `tail`, `meta.source` is `<path>:<byte offset of the line>`.
+- **`from`**: where a first start begins, `end` (default: only lines written from now on) or `start` (the whole file). Later starts resume after the last line journaled.
+- **Rotation and truncation.** The file's identity (device and inode) is saved with the offset. When the path names a new file (rotated by rename), the old one is read to its end first, then the new one from its start; when the file shrinks below the offset (truncated), it is read again from the start. A file rotated while the runner was down is read from the start; the end of the old one is lost.
+- The file is checked every 250 ms. A missing file is waited for (and logged once). Lines longer than 1 MiB are cut there and sent with `truncated: true`.
+
+##### `command`
+
+```yaml
+input:
+  via: command
+  with: { command: journalctl, args: [-f, -o, json, -u, nginx], parse: json }
+```
+
+- Runs `command` with `args` (no shell, like an `exec` step: P058 warns about spaces, and an untrusted pipeline file can't run one, P052), `cwd` (relative to the pipeline file; default its folder) and `env` (added to the runner's environment), from the runner's start to its stop, in its own process group (SIGTERM, then SIGKILL 2 s later).
+- Each line the program writes to stdout is one packet: `parse: text` (default) gives `data = {line}`; `parse: json` gives the line parsed as JSON (a line that isn't JSON is logged and skipped). stderr lines go to the runner's log as warnings. `meta.trigger` is `command`, `meta.source` is the command.
+- **`restart`**: `always` (default) starts the program again whenever it exits, `on-failure` only when it exits with an error or a signal, `never` leaves the input idle. Restarts wait 1 s, doubling to 60 s, and reset to 1 s once the program has run for a minute. Each exit is logged with its code and the program's last stderr line.
+- **At most once.** A line the program printed but the runner hadn't journaled when it crashed is lost, and a restarted program starts over. Where it matters, use the program's own position (`journalctl --cursor-file`, `kubectl get --watch --resource-version`).
+
+##### `crawl`
+
+```yaml
+input:
+  via: crawl
+  with:
+    start: https://docs.example.com/
+    every: 1d
+    within: https://docs.example.com/guide/
+    depth: 3
+```
+
+- Each crawl starts at `start` (a URL or a list), follows links breadth first to `depth` (default 3; `start` is depth 0), and fetches at most `max_pages` pages (default 500), one at a time, `delay` apart (default `1s`). Only URLs that start with one of `within` (a URL prefix or a list; default each start URL's origin) are followed, minus any matching one of `exclude` (regular expressions). URLs are normalized (fragment removed, scheme and host lower-cased).
+- `every` crawls at start and then every interval after the last crawl ended; `cron` at each tick. A crawl that is cut short by a crash or a stop is crawled again at the next start.
+- Each HTML page (`text/html`, up to 10 MiB) becomes `data = {url, status, title, text, links, html, depth}` as with `poll`'s `parse: html`, including `select`. Other content types are skipped. `meta.trigger` is `crawl`, `meta.source` is the page URL (after redirects).
+- **`emit`**: `changed` (default) sends a page that is new or whose `title`, `text` or `links` changed since the last crawl; `all` sends every page of every crawl. `remember` (default 10000) caps the pages kept, as in `poll`.
+- **Manners.** `robots.txt` is read once per host per crawl and obeyed (`User-agent: pipo` or `*`, `Allow`/`Disallow` with `*` and `$`, the longest match wins; `Crawl-delay` raises `delay`); `robots: false` turns that off, for your own sites. Requests carry `User-Agent: pipo/<version>` and `headers`. A `429` or `503` waits for `Retry-After` (up to 5 minutes) once, then skips the page. JavaScript isn't run, so pages that build their content in the browser crawl as what their HTML says.
 
 ### 3.4 `nodes`
 
@@ -730,13 +815,13 @@ Every finding is reported as `file:line:col severity code message`. The validato
 
 | Group | Rules |
 |---|---|
-| **Schema** | The YAML is well-formed. Required keys are present. Each connector's `with:` matches its schema. Durations and cron expressions parse (`schedule` needs exactly one of `cron` or `every`, P038). `agent.verify` is `last N` with *N* from 1 to 1000 (P055). |
+| **Schema** | The YAML is well-formed. Required keys are present. Each connector's `with:` matches its schema. Durations and cron expressions parse (`schedule`, `poll` and `crawl` need exactly one of `cron` or `every`, P038). `agent.verify` is `last N` with *N* from 1 to 1000 (P055). |
 | **References** | Every `from` target exists. Route branches exist. `fn.<name>` is exported by the `fn` module. Schema files exist and are valid JSON Schema (P054). `${secrets.x}` names are declared. |
-| **Inputs** | Exactly one of `input` and `inputs`, and at most 16 inputs (P060). An input name is not a node id or `output` (P061). Two inputs of one pipeline don't share an http method and path, a different `listen` port, or a telegram bot (P062). A `via: pipeline` input lists other pipelines, each in one input only, and `to: pipeline` names another pipeline (P063). Across a multi-file `pipo check`, a chain link declared at one end only, or a cycle of chains, is a warning (P064, §3.14). |
+| **Inputs** | Exactly one of `input` and `inputs`, and at most 16 inputs (P060). An input name is not a node id or `output` (P061). Two inputs of one pipeline don't share an http method and path, a different `listen` port, or a telegram bot (P062). A `via: pipeline` input lists other pipelines, each in one input only, and `to: pipeline` names another pipeline (P063). A `poll` input's `select` needs `parse: html` or `auto` (P065). A `poll` `url` and a `crawl`'s `start` and `within` are http or https URLs (P066, when they hold no template). Across a multi-file `pipo check`, a chain link declared at one end only, or a cycle of chains, is a warning (P064, §3.14). |
 | **Graph** | Every node can be reached from an input, and every input leads somewhere. Every node leads to `output` (no dead ends). The only cycles are declared `loop.back_to` edges, and each has a `max`. `back_to` points upstream. |
 | **Compatibility** | A telegram send without `chat_id` needs every input that reaches it to be `via: telegram` (P057, §3.13). `delivered.check` is supported by `output.to` (§3.10). `batch` is supported by `output.to` (§3.5.1). `then: continue` appears only on taps, and an input's `on_invalid` takes only `then: agent` (P033). `then: agent`, `delivered.stall.then: agent` and `agent.on_stall: handle` require `agent.control` (P034). `respond` is used only with `via: http`. `delivered.check: downstream` is used only with `to: pipeline` (P031). When a fan-out sends more than one copy to the output, an explicit key (the sqlite `columns` key, an http `Idempotency-Key` header) or a `delivered.with` lookup by `meta.packet_id` that doesn't use `meta.branch` is a warning (P026, D22). |
-| **Expressions** | Expressions parse, use only allowed helpers, and use only the context variables available at that position. |
-| **Safety** | Warns about literal credential-like strings. Warns when an exec `command` holds spaces, since it is probably a whole command line that belongs in `args` (P058). `secrets` may not appear outside `with:`. Agent nodes must have a `schema`. Warns when there are agent nodes but no `agent_budget`. Untrusted `fn` modules, and exec nodes in an untrusted pipeline file, are refused (P052). An `fn` module must bundle into one self-contained module that runs without Bun or Node APIs: an import of `node:*`/`bun:*` or a Node built-in, a use of a host global (`Bun`, `process`, `require`, `Buffer`, `fetch`, …, other than in `typeof`), or a failed bundle is an error (P059, §3.6; checked by the CLI's `pipo check` and `pipo compile` once the file has no other errors). Across a multi-file `pipo check` (a folder, or several files), warns when two http inputs declare the same `input.with.listen` port (P039; `listen` is a bare port on the runner's loopback, so equal ports always collide; a single-file check never warns), and when two telegram inputs poll the same bot (P056). |
+| **Expressions** | Expressions parse, use only allowed helpers, and use only the context variables available at that position. That includes the active inputs' expressions (§3.3.2): `poll`'s `items` (`data`, `response`, `cursor`), `key` (`item`, `data`), `cursor` (`data`, `items`, `response`, `cursor`) and `next` (`data`, `response`), and its `url`, `headers` and `body` templates, which may use `cursor` besides `env` and `secrets`. |
+| **Safety** | Warns about literal credential-like strings. Warns when an exec step's or a `command` input's `command` holds spaces, since it is probably a whole command line that belongs in `args` (P058). `secrets` may not appear outside `with:`. Agent nodes must have a `schema`. Warns when there are agent nodes but no `agent_budget`. Untrusted `fn` modules, and exec nodes and `command` inputs in an untrusted pipeline file, are refused (P052). An `fn` module must bundle into one self-contained module that runs without Bun or Node APIs: an import of `node:*`/`bun:*` or a Node built-in, a use of a host global (`Bun`, `process`, `require`, `Buffer`, `fetch`, …, other than in `typeof`), or a failed bundle is an error (P059, §3.6; checked by the CLI's `pipo check` and `pipo compile` once the file has no other errors). Across a multi-file `pipo check` (a folder, or several files), warns when two http inputs declare the same `input.with.listen` port (P039; `listen` is a bare port on the runner's loopback, so equal ports always collide; a single-file check never warns), and when two telegram inputs poll the same bot (P056). |
 
 ---
 
@@ -843,7 +928,7 @@ Each runner owns the clocks of its pipeline: schedules, `lifetime` (`ttl`, `max_
 
 A pipeline's `ttl` is anchored to the first `pipeline.started` since the last clean `pipeline.stopped`, `pipeline.completed` or halt (`pipeline.failed`). A deliberate stop or `pipo restart` resets it; a crash or a new version does not. A start's `--ttl` (D57) counts from the same anchor. After a crash restart the runner arms only the time that is left, and ends at once if it is already over, so a crashing pipeline can't run past its TTL.
 
-`schedule` inputs (§3.3) use a 5-field cron expression (`*`, lists, ranges, steps; when both day fields are restricted, either may match) or an `every` duration. Cron is evaluated in UTC. `every` counts from when the runner starts. Each tick becomes one packet with `meta.trigger: schedule` and `meta.source` set to the tick time (ISO 8601). The packet is journaled before the next tick is armed. Ticks missed while the runner was down or suspended are skipped, not replayed.
+`schedule` inputs (§3.3) use a 5-field cron expression (`*`, lists, ranges, steps; when both day fields are restricted, either may match) or an `every` duration. Cron is evaluated in UTC. `every` counts from when the runner starts. Each tick becomes one packet with `meta.trigger: schedule` and `meta.source` set to the tick time (ISO 8601). The packet is journaled before the next tick is armed. Ticks missed while the runner was down or suspended are skipped, not replayed. `poll` and `crawl` (§3.3.2) time their fetches and crawls the same way, except that `every` counts from the last fetch's start (the last crawl's end), which they keep in the journal, so a restart doesn't fetch early.
 
 ### 7.5 Engine lifetime
 
@@ -1031,6 +1116,7 @@ The dashboard's test run uses the same machinery with a trace: each unit also li
 
 **Phase 2**
 - The visual editor in the UI (built: the builder, §8, D62).
+- Active inputs that fetch on their own: `poll`, `tail`, `command`, `crawl` (built: §3.3.2, D87).
 - Agents through local coding-agent CLIs: `claude_code`, `codex`, `pi`, `opencode` (built: §3.4, D67).
 - More connectors: `postgres`, `mqtt` (sensors), `s3`, queues.
 - Join and window nodes, and batch mode for `http` and `pipeline` outputs. (Multiple outputs are not planned: a pipeline has one output by design, and chains carry data further, D78.)
@@ -1134,6 +1220,7 @@ The dashboard's test run uses the same machinery with a trace: each unit also li
 | D84 | One owner, and `engine.auth` (human, 2026-10-11) | **Why.** Anyone who reached the dashboard could approve an MCP consent or drive the engine, so it could never leave loopback. **What.** One owner, no roles: a username, an argon2id password (`Bun.password`) and an optional, unverified email, in `<home>/owner.json` (0600, atomic) with an `epoch` that grows on every password change, reset or "log out everywhere". `engine.auth: owner` (default) or `open`. In owner mode `/api` and `/events` need a session cookie (`pipo_session`, HttpOnly, SameSite=Strict, Secure with an https `public_url`; 32 random bytes; 14 days, extended at most once a minute; SHA-256 digests in `<home>/sessions.json`, 0600; at most 50) or the engine key (`Authorization: Bearer`, `<home>/engine.key`, 0600, made at engine start, re-read every 2 s): reading the home makes you the owner, so the CLI sends the key and needs no login. A session from another epoch is dead; the engine re-reads owner.json when its inode, mtime or size changes, so a reset written while it runs takes effect on the next request. Without either: `401 login_required`, or `owner_setup_required` while there is no owner. **First run.** With no owner the engine logs a setup code (16 characters of a 32-letter alphabet, 80 bits, in memory, until the owner exists); `POST /api/auth/setup {code, username, password, email?}` needs it, and `GET /api/auth` returns it only to the engine key, so `pipo ui` opens `/ui/#/setup/<code>`. **Routes.** `/api/auth` (state), `setup`, `login`, `logout`, `logout-all`, `password {current, password}` (ends other sessions, gives the caller a new cookie), `email`, `test-mail`, `forgot`, `reset` (D86); they need no session, and the ones that change the account need the owner. In open mode they answer `409`. A wrong username costs a hash verification too. **Rate limit.** Failed logins, setup codes and reset tokens, per client address: 5 free, then 30 s doubling to 15 min; plus 30 failures a minute in total; `429` with `Retry-After`. Every `forgot` counts against a limiter of its own (3 free, 10 a minute), so asking for links never locks the owner out of logging in. **Identity.** A human `/api` action without `by` is recorded as the owner's username (session) or `cli` (key). **CLI.** `pipo owner` shows the owner; `pipo owner reset [--username] [--password-stdin] [--rotate-key]` writes owner.json directly (with or without an engine), bumps the epoch and clears sessions.json; with no owner it creates one. The store lives in `@pipo/runner` (`owner.ts`) so both the engine and the CLI use it. | §7.1, §8, §11 |
 | D85 | Exposing the engine (human, 2026-10-11) | `engine.host` (or `pipod`/`pipo engine start --host`) is `127.0.0.1` (default), `localhost`, `::1`, `0.0.0.0` or `::`: loopback or every interface, never one other address, since the CLI reaches the engine on 127.0.0.1. `engine.public_url` is an http(s) origin without a path. A non-loopback host needs `auth: owner` and `public_url`, checked when the config is parsed and again when the engine opens (flags applied); otherwise the engine refuses to start. The Host check of `/api`, `/events`, `/mcp` and the OAuth routes accepts loopback names and `public_url`'s host; an `Origin` on `/api`, `/events` and the OAuth routes must be the engine's own (`http://<loopback>:<its port>` or `public_url`), and `/mcp` accepts `public_url`'s origin besides loopback. OAuth metadata, the issuer, the accepted `resource` and the `/mcp` challenge use `public_url` for requests addressed to it. TLS is a reverse proxy's job. **Inputs from the network.** The gateway drops any incoming `x-pipo-remote` and sets `x-pipo-remote: 1` on an `/in` request from an address other than loopback, addressed to a name other than loopback, or carrying `X-Forwarded-For`/`Forwarded`. The runner answers such a request with `403` and a hint when the http input has neither `auth.header` nor `auth.hmac` nor `public: true` (new `with.public`). The runner enforces it, so it follows version changes; local callers are never affected. A dashboard restart (D65) passes `--host` on. | §3.3, §7.1, §11 |
 | D86 | Password reset: CLI, or a link by email (human, 2026-10-11) | `pipo owner reset` always works (D84). With `engine.mail` (`host`, `port` (587, or 465 for `tls`), `secure: tls\|starttls\|none` (default `tls` on 465, else `starttls`; `none` only for a loopback host), `user` and `password` together or neither, `password` an `op://`/`env:` reference resolved once at start within 30 s, `from`), the engine sends mail through its own SMTP client (`smtp.ts`: implicit TLS or STARTTLS (required when chosen; never a fallback to plain), EHLO, AUTH PLAIN else LOGIN, MAIL FROM, RCPT TO, DATA with dot-stuffing and CRLF, QUIT; 30 s per reply; plain text, base64 when not ASCII; errors name the step and the server's answer, never the password). An unresolvable password is logged and mail is off; the engine still starts. `POST /api/auth/forgot {login}` answers `202` the same way whatever `login` is; when it is the owner's username or email (case-insensitive), the owner has an email and mail works, it emails `<public_url or the loopback URL>/ui/#/reset/<token>` (never from the request's Host): 32 random bytes, SHA-256 in memory, 30 minutes, single use, at most 3 live. `POST /api/auth/reset {token, password}` sets the password (epoch + 1), forgets every reset token and logs in. `POST /api/auth/test-mail` sends to the owner's address, so a typo is found before it matters. No new dependency. | §8, §11 |
+| D87 | Active inputs (human, 2026-10-14) | **Why.** Pipo waited for data: a `schedule` tick into an http transform fetched an API, but every tick sent the whole answer again, with no memory of what it had sent. Inputs that fetch and remember make "tell me what's new" and "keep this in sync" one input instead of a pipeline of workarounds. **What.** `poll` (a URL on a timer, split into elements, deduped by key, with a cursor and pagination; feeds and page-part change detection are `parse` modes, not inputs of their own), `tail` (lines appended to a file), `command` (lines a long-running program prints) and `crawl` (a site on a timer, pages that changed) (§3.3.2). **Exactly once** comes from the cursor: seen keys, cursors and offsets are input state (spec §14.3) committed in each packet's transaction, as `watch` and `telegram` already did. A poll's seen keys are `seen:<key>` entries (`{h, at}`: a content hash and when the key was last seen), refreshed in one transaction per fetch and pruned oldest first past `remember`. The state scope is `poll:<url template>`, `tail:<path>`, `crawl:<start URLs>`, so changing what the input points at starts afresh. `command` is at most once, since a program's output has no position to return to. **Per-request templates.** An input's `with:` is rendered once at start; `poll`'s `url`, `headers` and `body` are the exception (rendered for each request, with `cursor`), and `items`, `key`, `cursor` and `next` are expressions, not templates. **Fields named for what they do**: `parse` (not the http input's `format`, which reads a request body), `emit`, `backfill`. **Dependencies.** `scraper` (HTML parsing and CSS selectors) and `roxmltree` (RSS and Atom) join the runner's crate. **Not done.** JavaScript rendering, sitemaps, a crawl's frontier surviving a restart (a cut-short crawl starts over; unchanged pages are skipped by hash), `tail` globs, and `before`/`after` in a changed element's data. | §3.3, §3.3.2, §5 |
 
 ## 14. Open questions
 

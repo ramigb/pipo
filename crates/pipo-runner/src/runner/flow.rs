@@ -1560,6 +1560,7 @@ impl Runner {
             bots: self.bots.clone(),
             redact: self.redactor(),
             input: None,
+            vars: Value::Null,
         };
         let adapter: Rc<dyn StepAdapter> = Rc::from(connectors::make_step(kind, action, &ctx).map_err(|e| e.0)?);
         self.steps.borrow_mut().insert(key, adapter.clone());

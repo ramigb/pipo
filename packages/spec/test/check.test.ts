@@ -265,6 +265,79 @@ describe("schedule input (P038)", () => {
   });
 });
 
+describe("active inputs (§3.3.2: P038, P065, P066, P058, P052)", () => {
+  const one = (via: string, withBlock: string) =>
+    `pipo: 1\nname: a\nsecrets: { gh: "env:GH" }\ninput: { via: ${via}, with: ${withBlock} }\noutput: { from: input, to: stdout }\n`;
+
+  test("valid poll, tail, command and crawl inputs pass", () => {
+    const poll =
+      '{ url: "https://api.example.com/items?since=${cursor ?? 0}", every: 5m, items: data.items, key: item.id, cursor: "data.items[len(data.items) - 1].ts", next: data.next, headers: { Authorization: "Bearer ${secrets.gh}" } }';
+    expect(run(one("poll", poll))).toEqual([]);
+    expect(
+      run(one("poll", '{ url: "https://example.com/", cron: "0 * * * *", parse: html, select: "#price" }')),
+    ).toEqual([]);
+    expect(run(one("tail", "{ path: ./app.log, parse: json, from: start }"))).toEqual([]);
+    expect(run(one("command", "{ command: journalctl, args: [-f], restart: on-failure }"))).toEqual([]);
+    expect(
+      run(one("crawl", '{ start: ["https://a.example/"], every: 1d, within: https://a.example/docs/, depth: 2 }')),
+    ).toEqual([]);
+  });
+
+  test("poll and crawl need exactly one of cron or every (P038)", () => {
+    expect(codes(errors(one("poll", '{ url: "https://e.com/" }')))).toEqual(["P038"]);
+    expect(errors(one("crawl", '{ start: "https://e.com/", every: 1d, cron: "* * * * *" }'))[0]?.message).toBe(
+      "crawl needs exactly one of `cron` or `every`",
+    );
+    expect(codes(errors(one("poll", '{ url: "https://e.com/", cron: "61 * * * *" }')))).toEqual(["P038"]);
+  });
+
+  test("select needs parse: html (P065); URLs must be http(s) (P066)", () => {
+    expect(codes(errors(one("poll", '{ url: "https://e.com/", every: 1m, parse: json, select: p }')))).toEqual([
+      "P065",
+    ]);
+    expect(codes(errors(one("poll", '{ url: "ftp://e.com/", every: 1m }')))).toEqual(["P066"]);
+    expect(codes(errors(one("poll", '{ url: "${env.FEED}", every: 1m }')))).toEqual([]);
+    const d = errors(one("crawl", '{ start: ["https://e.com/", e.com], within: /docs, every: 1d }'));
+    expect(d.map((x) => [x.code, x.path])).toEqual([
+      ["P066", ["input", "with", "start", 1]],
+      ["P066", ["input", "with", "within"]],
+    ]);
+  });
+
+  test("poll expressions see the answer, its templates the cursor (P040, P041, P051)", () => {
+    expect(codes(errors(one("poll", '{ url: "https://e.com/", every: 1m, items: "data.items[" }')))).toEqual(["P040"]);
+    const d = errors(one("poll", '{ url: "https://e.com/", every: 1m, key: "meta.id", next: "item.next" }'));
+    expect(d.map((x) => [x.code, x.message])).toEqual([
+      ["P041", "'meta' is not available here"],
+      ["P041", "'item' is not available here"],
+    ]);
+    expect(codes(errors(one("poll", '{ url: "https://e.com/", every: 1m, items: "secrets.gh" }')))).toEqual(["P051"]);
+    // Elsewhere `cursor` means nothing: only a poll's request is rendered per fetch.
+    expect(codes(errors(one("schedule", '{ every: 1m, payload: "${cursor}" }')))).toEqual(["P041"]);
+    expect(codes(errors(one("poll", '{ url: "https://e.com/", every: 1m, body: { since: "${cursor}" } }')))).toEqual(
+      [],
+    );
+  });
+
+  test("a command input runs no shell (P058) and needs a trusted file (P052)", () => {
+    const [w] = run(one("command", '{ command: "tail -f x.log" }'));
+    expect(w).toMatchObject({ code: "P058", severity: "warning", path: ["input", "with", "command"] });
+    expect(w?.message).toBe("command input command 'tail -f x.log' looks like a whole command line");
+    const dir = mkdtempSync(join(tmpdir(), "pipo-p052-command-"));
+    const file = join(dir, "a.pipo");
+    const src = one("command", "{ command: journalctl }");
+    writeFileSync(file, src);
+    writeFileSync(
+      join(dir, ORIGIN_FILE),
+      JSON.stringify({ template: "t", template_hash: "h1", modules: { "a.pipo": sha256(src) } }),
+    );
+    const [d] = check(src, { file, home: join(dir, "home") });
+    expect(d).toMatchObject({ code: "P052", severity: "error", path: ["input", "via"] });
+    expect(d?.message).toContain("command input 'input': pipeline 'a.pipo' comes from template 't'");
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
 describe("agent.verify (P055, D48)", () => {
   const withVerify = (v: string) =>
     `pipo: 1\nname: v\ninput: { via: push }\noutput: { from: input, to: stdout }\nagent: { control: true, edit: [errors], verify: "${v}" }\n`;

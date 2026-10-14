@@ -4,21 +4,26 @@
 // The runner is single-threaded (a current-thread tokio runtime with a LocalSet), so connectors use `Rc`,
 // `RefCell` and non-`Send` futures, the way the TS version relies on one event loop.
 
+pub mod command;
+pub mod crawl;
 pub mod exec;
 pub mod file_out;
 pub mod http_input;
 pub mod http_out;
 pub mod pipeline_out;
+pub mod poll;
 pub mod push;
 pub mod schedule;
 pub mod sqlite_out;
 pub mod stdout;
 pub mod steps;
 pub mod system;
+pub mod tail;
 pub mod telegram;
 #[cfg(test)]
 pub(crate) mod test_util;
 pub mod watch;
+pub mod web;
 
 use crate::bots::Bots;
 use crate::journal::Journal;
@@ -164,6 +169,16 @@ pub struct ConnectorContext {
     pub redact: Rc<dyn Fn(&str) -> String>,
     /// Inputs only: the input's name and block (D76).
     pub input: Option<(String, crate::pipeline::Input)>,
+    /// `{env, secrets}`, for what an input renders itself (a poll's request, §3.3.2).
+    pub vars: Value,
+}
+
+/// `with:` fields an input renders for itself instead of at start (§3.3.2, D87).
+pub fn late_fields(via: &str) -> &'static [&'static str] {
+    match via {
+        "poll" => &["url", "headers", "body"],
+        _ => &[],
+    }
 }
 
 impl ConnectorContext {
@@ -182,7 +197,8 @@ impl ConnectorContext {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConnectorError(pub String);
 
-pub const INPUTS: &[&str] = &["http", "pipeline", "push", "schedule", "system", "telegram", "watch"];
+pub const INPUTS: &[&str] =
+    &["command", "crawl", "http", "pipeline", "poll", "push", "schedule", "system", "tail", "telegram", "watch"];
 pub const OUTPUTS: &[&str] = &["file", "http", "pipeline", "sqlite", "stdout", "telegram"];
 pub const TAPS: &[&str] = &["emit", "exec", "file", "http", "telegram"];
 pub const TRANSFORMS: &[&str] = &["exec", "http"];
@@ -224,6 +240,79 @@ pub fn make_input(ctx: &ConnectorContext) -> Result<Box<dyn InputAdapter>, Conne
             })
             .scoped(ctx.scope("")),
         )),
+        "poll" => poll::PollOptions::from_with(w, ctx.vars.clone(), Some(ctx.log.clone()))
+            .and_then(|o| poll::PollInput::new(o, &ctx.scope("")))
+            .map(|i| Box::new(i) as Box<dyn InputAdapter>)
+            .map_err(|e| ConnectorError(format!("poll input: {e}"))),
+        "command" => {
+            let command = w.get("command").map(string_of).unwrap_or_default();
+            let at = ctx.pipeline.input_path(ctx.input_name());
+            let program = find_command(&command, &ctx.dir).ok_or_else(|| {
+                ConnectorError(format!(
+                    "{at}.with.command: '{command}' is not installed or not on PATH; install it, or set the full path to the program"
+                ))
+            })?;
+            let cwd = match w.get("cwd").filter(|c| truthy(c)) {
+                Some(c) => resolve_path(&ctx.dir, &string_of(c)),
+                None => ctx.dir.clone(),
+            };
+            if !cwd.is_dir() {
+                return Err(ConnectorError(format!(
+                    "{at}.with.cwd '{}' is not a folder; create it or fix the path",
+                    cwd.display()
+                )));
+            }
+            let parse = tail::LineParse::from_with(w.get("parse"), "command").map_err(ConnectorError)?;
+            let restart = match w.get("restart").and_then(|r| r.as_str()) {
+                None | Some("always") => command::Restart::Always,
+                Some("on-failure") => command::Restart::OnFailure,
+                Some("never") => command::Restart::Never,
+                Some(other) => {
+                    return Err(ConnectorError(format!(
+                        "command restart '{other}' is not one of always, on-failure, never"
+                    )));
+                }
+            };
+            Ok(Box::new(command::CommandInput::new(command::CommandOptions {
+                program,
+                command,
+                args: w
+                    .get("args")
+                    .and_then(|a| a.as_array())
+                    .map(|a| a.iter().map(string_of).collect())
+                    .unwrap_or_default(),
+                cwd,
+                env: w
+                    .get("env")
+                    .and_then(|e| e.as_object())
+                    .map(|e| e.iter().map(|(k, v)| (k.clone(), string_of(v))).collect())
+                    .unwrap_or_default(),
+                parse,
+                restart,
+                log: Some(ctx.log.clone()),
+                first_wait_ms: None,
+            })))
+        }
+        "crawl" => crawl::CrawlOptions::from_with(w, Some(ctx.log.clone()))
+            .and_then(|o| crawl::CrawlInput::new(o, &ctx.scope("")))
+            .map(|i| Box::new(i) as Box<dyn InputAdapter>)
+            .map_err(|e| ConnectorError(format!("crawl input: {e}"))),
+        "tail" => tail::LineParse::from_with(w.get("parse"), "tail")
+            .and_then(|parse| {
+                tail::TailInput::new(
+                    tail::TailOptions {
+                        path: w.get("path").map(string_of).unwrap_or_default(),
+                        dir: ctx.dir.clone(),
+                        parse,
+                        from_start: w.get("from").and_then(|f| f.as_str()) == Some("start"),
+                        poll_ms: None,
+                        log: Some(ctx.log.clone()),
+                    },
+                    &ctx.scope(""),
+                )
+            })
+            .map(|i| Box::new(i) as Box<dyn InputAdapter>)
+            .map_err(|e| ConnectorError(format!("tail input: {e}"))),
         "system" => system::SystemInput::new(system::SystemOptions {
             every: w.get("every").map(string_of).unwrap_or_default(),
             metrics: w.get("metrics").and_then(|m| m.as_array()).map(|a| a.iter().map(string_of).collect()),

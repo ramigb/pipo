@@ -141,7 +141,11 @@
             "push",
             "pipeline",
             "system",
-            "telegram"
+            "telegram",
+            "poll",
+            "tail",
+            "command",
+            "crawl"
           ]
         },
         "with": {
@@ -499,6 +503,328 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "via": {
+                "const": "poll"
+              }
+            },
+            "required": [
+              "via"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "cron": {
+                    "type": "string"
+                  },
+                  "every": {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$"
+                  },
+                  "method": {
+                    "enum": [
+                      "GET",
+                      "POST",
+                      "PUT",
+                      "PATCH",
+                      "DELETE"
+                    ]
+                  },
+                  "headers": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "body": {},
+                  "timeout": {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$"
+                  },
+                  "success": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "integer",
+                        "string"
+                      ]
+                    }
+                  },
+                  "parse": {
+                    "enum": [
+                      "auto",
+                      "json",
+                      "text",
+                      "feed",
+                      "html"
+                    ]
+                  },
+                  "select": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "key": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "emit": {
+                    "enum": [
+                      "new",
+                      "changed",
+                      "all"
+                    ]
+                  },
+                  "backfill": {
+                    "type": "boolean"
+                  },
+                  "remember": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "cursor": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "next": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "max_pages": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000
+                  }
+                },
+                "required": [
+                  "url"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "via": {
+                "const": "tail"
+              }
+            },
+            "required": [
+              "via"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "parse": {
+                    "enum": [
+                      "text",
+                      "json"
+                    ]
+                  },
+                  "from": {
+                    "enum": [
+                      "end",
+                      "start"
+                    ]
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "via": {
+                "const": "command"
+              }
+            },
+            "required": [
+              "via"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {
+                  "command": {
+                    "type": "string",
+                    "minLength": 1,
+                    "examples": [
+                      "journalctl"
+                    ]
+                  },
+                  "args": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "cwd": {
+                    "type": "string"
+                  },
+                  "env": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "parse": {
+                    "enum": [
+                      "text",
+                      "json"
+                    ]
+                  },
+                  "restart": {
+                    "enum": [
+                      "always",
+                      "on-failure",
+                      "never"
+                    ]
+                  }
+                },
+                "required": [
+                  "command"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "via": {
+                "const": "crawl"
+              }
+            },
+            "required": [
+              "via"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "type": "object",
+                "properties": {
+                  "start": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    ]
+                  },
+                  "cron": {
+                    "type": "string"
+                  },
+                  "every": {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$"
+                  },
+                  "within": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    ]
+                  },
+                  "exclude": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "depth": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "max_pages": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100000
+                  },
+                  "delay": {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$"
+                  },
+                  "select": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "headers": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "timeout": {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$"
+                  },
+                  "emit": {
+                    "enum": [
+                      "changed",
+                      "all"
+                    ]
+                  },
+                  "remember": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "robots": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "start"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
         }
       ]
     },
@@ -520,7 +846,11 @@
               "push",
               "pipeline",
               "system",
-              "telegram"
+              "telegram",
+              "poll",
+              "tail",
+              "command",
+              "crawl"
             ]
           },
           "with": {
@@ -874,6 +1204,328 @@
                     }
                   },
                   "required": [],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "via": {
+                  "const": "poll"
+                }
+              },
+              "required": [
+                "via"
+              ]
+            },
+            "then": {
+              "properties": {
+                "with": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "cron": {
+                      "type": "string"
+                    },
+                    "every": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$"
+                    },
+                    "method": {
+                      "enum": [
+                        "GET",
+                        "POST",
+                        "PUT",
+                        "PATCH",
+                        "DELETE"
+                      ]
+                    },
+                    "headers": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string"
+                      }
+                    },
+                    "body": {},
+                    "timeout": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$"
+                    },
+                    "success": {
+                      "type": "array",
+                      "items": {
+                        "type": [
+                          "integer",
+                          "string"
+                        ]
+                      }
+                    },
+                    "parse": {
+                      "enum": [
+                        "auto",
+                        "json",
+                        "text",
+                        "feed",
+                        "html"
+                      ]
+                    },
+                    "select": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "key": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "emit": {
+                      "enum": [
+                        "new",
+                        "changed",
+                        "all"
+                      ]
+                    },
+                    "backfill": {
+                      "type": "boolean"
+                    },
+                    "remember": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "cursor": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "next": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "max_pages": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "via": {
+                  "const": "tail"
+                }
+              },
+              "required": [
+                "via"
+              ]
+            },
+            "then": {
+              "properties": {
+                "with": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "parse": {
+                      "enum": [
+                        "text",
+                        "json"
+                      ]
+                    },
+                    "from": {
+                      "enum": [
+                        "end",
+                        "start"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "via": {
+                  "const": "command"
+                }
+              },
+              "required": [
+                "via"
+              ]
+            },
+            "then": {
+              "properties": {
+                "with": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string",
+                      "minLength": 1,
+                      "examples": [
+                        "journalctl"
+                      ]
+                    },
+                    "args": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "cwd": {
+                      "type": "string"
+                    },
+                    "env": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string"
+                      }
+                    },
+                    "parse": {
+                      "enum": [
+                        "text",
+                        "json"
+                      ]
+                    },
+                    "restart": {
+                      "enum": [
+                        "always",
+                        "on-failure",
+                        "never"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "via": {
+                  "const": "crawl"
+                }
+              },
+              "required": [
+                "via"
+              ]
+            },
+            "then": {
+              "properties": {
+                "with": {
+                  "type": "object",
+                  "properties": {
+                    "start": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "minItems": 1
+                        }
+                      ]
+                    },
+                    "cron": {
+                      "type": "string"
+                    },
+                    "every": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$"
+                    },
+                    "within": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "minItems": 1
+                        }
+                      ]
+                    },
+                    "exclude": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "depth": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 100
+                    },
+                    "max_pages": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100000
+                    },
+                    "delay": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$"
+                    },
+                    "select": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "headers": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string"
+                      }
+                    },
+                    "timeout": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)?(ms|s|m|h|d)$"
+                    },
+                    "emit": {
+                      "enum": [
+                        "changed",
+                        "all"
+                      ]
+                    },
+                    "remember": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "robots": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "start"
+                  ],
                   "additionalProperties": false
                 }
               }

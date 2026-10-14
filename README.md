@@ -109,7 +109,7 @@ Phase 1 (the MVP in spec §12) is done, and Phase 2 has started: the visual buil
 
 - The `.pipo` language, validated by `pipo check` (P001–P064).
 - The runner: durable journal, crash recovery, error policies, batching, fan-out, loops, lifetime and stall detection, retention clean-up, version pinning.
-- Inputs `http`, `schedule`, `watch` (a glob, or a plain folder for every file below it), `system`, `push`, `telegram`; taps, transforms and outputs for `http`, `file`, `sqlite`, `stdout`, `telegram`; delivery checks including `external`.
+- Inputs `http`, `schedule`, `watch` (a glob, or a plain folder for every file below it), `system`, `push`, `telegram`, and active inputs that fetch on their own and remember where they got to: `poll` (an API, a feed or part of a page, sending what is new or changed), `tail` (a log file), `command` (a long-running program's output) and `crawl` (a site's changed pages); taps, transforms and outputs for `http`, `file`, `sqlite`, `stdout`, `telegram`; delivery checks including `external`.
 - Exec steps that run a program installed on the machine, such as `ffmpeg` or `pandoc` (see [Running programs](#running-programs)).
 - Telegram bots as an input, a tap and an output (see [Telegram bots](#telegram-bots)).
 - Several inputs per pipeline (`inputs:`, spec §3.3.1), and chains: one pipeline's output (`to: pipeline`) feeds another's `via: pipeline` input exactly once, with an end-to-end `downstream` delivery check (spec §3.14; see `examples/signup-intake`).

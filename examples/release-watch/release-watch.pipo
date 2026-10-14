@@ -1,0 +1,25 @@
+# Every new Bun release, once: poll its GitHub releases feed and append the new entries to a file
+# (docs/spec.md §3.3.2). `backfill: false` skips the releases already out when the pipeline first starts.
+pipo: 1
+name: release-watch
+description: New Bun releases from GitHub's Atom feed, each one once
+input:
+  via: poll
+  with:
+    url: https://github.com/oven-sh/bun/releases.atom
+    every: 30m
+    parse: feed
+    backfill: false
+nodes:
+  note:
+    from: input
+    transform: map
+    with:
+      data:
+        release: "${data.title}"
+        link: "${data.link}"
+        at: "${data.updated}"
+output:
+  from: note
+  to: file
+  with: { path: ./out/releases.jsonl, format: jsonl }

@@ -76,7 +76,7 @@ Using a variable where it isn't available is an error with its exact position: P
 | `pipeline`, `version` | The pipeline's name and the version the packet is pinned to. |
 | `node` | The step running now. |
 | `input` | The name of the input the packet came from (`input` when the file has one `input:`). |
-| `trigger` | The input's kind: `http`, `schedule`, `watch`, `push`, `system`, `telegram`, `pipeline`. |
+| `trigger` | The input's kind: `http`, `schedule`, `watch`, `push`, `system`, `telegram`, `pipeline`, `poll`, `tail`, `command`, `crawl`. |
 | `source` | Where it came from, per input: a schedule's tick time, a chat id, a sending pipeline's name, … |
 | `received_at` | When it was accepted, in epoch milliseconds. |
 | `attempt` | The current attempt of this step, from 1. |

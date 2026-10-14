@@ -85,7 +85,7 @@ delivered:
 
 | Block | Verb | Connectors |
 |---|---|---|
-| Input | `via` | `http`, `schedule`, `watch`, `push`, `system`, `telegram`, `pipeline` |
+| Input | `via` | `http`, `schedule`, `watch`, `push`, `system`, `telegram`, `pipeline`, `poll`, `tail`, `command`, `crawl` |
 | Node | `tap` | `log`, `http`, `file`, `emit`, `telegram`, `exec`, `fn.<name>` |
 | Node | `transform` | `map`, `http`, `exec`, `fn.<name>` |
 | Node | `agent` | `claude_api`, `claude_code`, `codex`, `pi`, `opencode` |

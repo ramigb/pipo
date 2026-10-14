@@ -55,6 +55,56 @@ const FIELDS: Record<string, string> = {
   "input.telegram.poll_every":
     "How long one long-poll waits for messages; default the bot's, else `25s`, at least `1s`.",
   "input.telegram.download": "Download attached files into the pipeline's folder; default `true`.",
+  // Active inputs (§3.3.2)
+  "input.poll.url":
+    "The URL to fetch (http or https), a template rendered for each fetch with `env`, `secrets` and `cursor`.",
+  "input.poll.cron": "5-field cron expression, evaluated in UTC. Exactly one of `cron` and `every` (P038).",
+  "input.poll.every": "Fetch at start, then this long after each fetch; a restart waits out the rest.",
+  "input.poll.method": "HTTP method; default `GET`.",
+  "input.poll.headers": "Request headers, templates rendered for each fetch (`env`, `secrets`, `cursor`).",
+  "input.poll.body": "Request body for methods other than GET and DELETE: a string as text, anything else as JSON.",
+  "input.poll.timeout": "How long one request may take; default `30s`.",
+  "input.poll.success": 'Status codes that count as success, as `204`, `"2xx"` or `"200-299"`; default `2xx`.',
+  "input.poll.parse":
+    "How the answer becomes `data`: `auto` (default, by content type), `json`, `text`, `feed` (RSS, Atom, JSON Feed) or `html`.",
+  "input.poll.select": "A CSS selector (`parse: html`): `text` and `html` hold only the matching elements.",
+  "input.poll.items":
+    "Expression over `data`, `response` and `cursor` giving the list to split into packets; default the whole answer (a feed's entries).",
+  "input.poll.key":
+    "Expression over `item` and `data` naming an element; default a feed entry's `id`, the URL for a whole answer, else a hash.",
+  "input.poll.emit":
+    "`new`: unseen keys; `changed`: also changed content; `all`: everything. Default `changed` for a whole answer, else `new`.",
+  "input.poll.backfill":
+    "`false`: take what the first fetch finds as seen and send only what comes later; default `true`.",
+  "input.poll.remember": "How many keys are kept; keys that stopped appearing are forgotten first. Default `10000`.",
+  "input.poll.cursor":
+    "Expression over `data`, `items`, `response` and `cursor`, saved after each fetch and available as `${cursor}` in the next request.",
+  "input.poll.next": "Expression over `data` and `response` giving the next page's URL, followed in the same fetch.",
+  "input.poll.max_pages": "The most pages one fetch follows through `next`; default `10`.",
+  "input.tail.path": "The file to follow, relative to the pipeline file.",
+  "input.tail.parse": "`text` (default): `{line, path}`; `json`: the line parsed as JSON (others are skipped).",
+  "input.tail.from": "Where a first start begins: `end` (default, only new lines) or `start` (the whole file).",
+  "input.command.command": "The program to run (no shell), on PATH or a path relative to the pipeline file.",
+  "input.command.args": "Arguments, one string each, passed as they are.",
+  "input.command.cwd": "Where the program runs, relative to the pipeline file; default its folder.",
+  "input.command.env": "Environment variables added for the program.",
+  "input.command.parse": "`text` (default): `{line}`; `json`: each stdout line parsed as JSON (others are skipped).",
+  "input.command.restart":
+    "When the program exits: `always` (default), `on-failure` (an error exit or a signal) or `never`.",
+  "input.crawl.start": "The URL, or list of URLs, each crawl starts from.",
+  "input.crawl.cron": "5-field cron expression, evaluated in UTC. Exactly one of `cron` and `every` (P038).",
+  "input.crawl.every": "Crawl at start, then this long after each crawl ended.",
+  "input.crawl.within": "URL prefixes a link must start with to be followed; default each start URL's origin.",
+  "input.crawl.exclude": "Regular expressions; a URL matching one is not followed.",
+  "input.crawl.depth": "How many links deep to follow from `start` (depth 0); default `3`.",
+  "input.crawl.max_pages": "The most pages one crawl fetches; default `500`.",
+  "input.crawl.delay": "The wait between requests; default `1s` (a `Crawl-delay` in robots.txt can raise it).",
+  "input.crawl.select": "A CSS selector: each page's `text` and `html` hold only the matching elements.",
+  "input.crawl.headers": "Headers sent with every request (templates rendered at start).",
+  "input.crawl.timeout": "How long one request may take; default `30s`.",
+  "input.crawl.emit": "`changed` (default): pages that are new or changed since the last crawl; `all`: every page.",
+  "input.crawl.remember": "How many pages are kept; pages that stopped appearing are forgotten first. Default `10000`.",
+  "input.crawl.robots": "Obey robots.txt; default `true`. Turn it off only for your own sites.",
 
   // Shared: http calls (tap, transform, output)
   "*.http.method": "HTTP method; default `POST`.",

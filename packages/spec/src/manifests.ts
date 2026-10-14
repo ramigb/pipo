@@ -11,6 +11,21 @@ const HTTP_METHOD = { enum: ["GET", "POST", "PUT", "PATCH", "DELETE"] };
 // Chat bots (§3.13, D69): `bot` names one in `<home>/bots.json` (default: its default bot), `token` sets one inline.
 const TELEGRAM_BOT = { bot: { type: "string", pattern: "^[a-z0-9][a-z0-9_-]*$" }, token: { type: "string" } };
 
+const EXPR = { type: "string", minLength: 1 };
+const STRING_OR_LIST = { anyOf: [{ type: "string" }, { type: "array", items: { type: "string" }, minItems: 1 }] };
+const PARSE_LINE = { enum: ["text", "json"] };
+const SCHEDULE_WHEN = { cron: { type: "string" }, every: DURATION };
+
+// A sample page, as `poll` (`parse: html`) and `crawl` send it (§3.3.2).
+const PAGE_SAMPLE = {
+  url: "https://docs.example.com/guide/intro",
+  status: 200,
+  title: "Introduction",
+  text: "Welcome to the guide.",
+  links: ["https://docs.example.com/guide/install"],
+  html: null,
+};
+
 function obj(properties: Record<string, JsonSchema>, required: string[] = []): JsonSchema {
   return { type: "object", properties, required, additionalProperties: false };
 }
@@ -127,6 +142,76 @@ export const INPUTS: Record<string, InputManifest> = {
         path: "/home/me/.pipo/pipelines/bot/files/report.pdf",
       },
     },
+  },
+  // Active inputs (§3.3.2, D87): they fetch on their own and keep their position in the journal.
+  poll: {
+    description: "Fetch a URL on a timer and emit what is new or changed",
+    with: obj(
+      {
+        url: { type: "string", minLength: 1 },
+        ...SCHEDULE_WHEN,
+        method: HTTP_METHOD,
+        headers: { type: "object", additionalProperties: { type: "string" } },
+        body: {},
+        timeout: DURATION,
+        success: { type: "array", items: { type: ["integer", "string"] } },
+        parse: { enum: ["auto", "json", "text", "feed", "html"] },
+        select: { type: "string", minLength: 1 },
+        items: EXPR,
+        key: EXPR,
+        emit: { enum: ["new", "changed", "all"] },
+        backfill: { type: "boolean" },
+        remember: { type: "integer", minimum: 1 },
+        cursor: EXPR,
+        next: EXPR,
+        max_pages: { type: "integer", minimum: 1, maximum: 1000 },
+      },
+      ["url"],
+    ),
+  },
+  tail: {
+    description: "Lines appended to a file",
+    with: obj({ path: { type: "string", minLength: 1 }, parse: PARSE_LINE, from: { enum: ["end", "start"] } }, [
+      "path",
+    ]),
+    sample: { line: '127.0.0.1 - - [01/Jan/2026:09:00:00 +0000] "GET / HTTP/1.1" 200 512', path: "/var/log/app.log" },
+  },
+  command: {
+    description: "Lines a long-running program prints",
+    with: obj(
+      {
+        command: { type: "string", minLength: 1, examples: ["journalctl"] },
+        args: { type: "array", items: { type: "string" } },
+        cwd: { type: "string" },
+        env: { type: "object", additionalProperties: { type: "string" } },
+        parse: PARSE_LINE,
+        restart: { enum: ["always", "on-failure", "never"] },
+      },
+      ["command"],
+    ),
+    sample: { line: "Jan 01 09:00:00 host nginx[42]: started" },
+  },
+  crawl: {
+    description: "Crawl a site on a timer and emit the pages that changed",
+    with: obj(
+      {
+        start: STRING_OR_LIST,
+        ...SCHEDULE_WHEN,
+        within: STRING_OR_LIST,
+        exclude: { type: "array", items: { type: "string", minLength: 1 } },
+        depth: { type: "integer", minimum: 0, maximum: 100 },
+        max_pages: { type: "integer", minimum: 1, maximum: 100000 },
+        delay: DURATION,
+        select: { type: "string", minLength: 1 },
+        headers: { type: "object", additionalProperties: { type: "string" } },
+        timeout: DURATION,
+        emit: { enum: ["changed", "all"] },
+        remember: { type: "integer", minimum: 1 },
+        robots: { type: "boolean" },
+      },
+      ["start"],
+    ),
+    sample: { ...PAGE_SAMPLE, depth: 1 },
   },
 };
 

@@ -124,7 +124,7 @@ pipo stop heartbeat       # stops it, through its socket if the engine is down
 ```
 
 - The runner runs in its own session, so a Ctrl-C in the engine's terminal or the engine's death doesn't reach it.
-- Schedules, `watch`, `system` and `telegram` inputs fire from the runner itself. So do lifetime limits and stall detection: the runner owns its clocks whether the engine is there or not.
+- Schedules, `watch`, `system` and `telegram` inputs, and the active inputs (`poll`, `tail`, `command`, `crawl`), fire from the runner itself. So do lifetime limits and stall detection: the runner owns its clocks whether the engine is there or not.
 - The runner's log goes to `<home>/logs/<name>.log`.
 - When an engine starts again, it **reattaches** the runner and replays the journal events it missed. Nothing fires twice.
 

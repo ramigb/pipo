@@ -66,8 +66,11 @@ export function effectsOf(source: string): Record<string, string[]> {
     out[kind] = [...(out[kind] ?? []), where];
   };
   for (const [name, i] of inputsOf(p)) {
-    if (i.via === "http") add("listens", p.inputs ? `inputs.${name}` : "input");
-    if (i.via === "watch") add("reads_files", p.inputs ? `inputs.${name}` : "input");
+    const at = p.inputs ? `inputs.${name}` : "input";
+    if (i.via === "watch" || i.via === "tail") add("reads_files", at);
+    if (i.via === "poll" || i.via === "crawl") add("calls_out", at);
+    if (i.via === "command") add("runs_programs", at);
+    if (i.via === "http") add("listens", at);
   }
   for (const [id, n] of Object.entries(p.nodes ?? {})) {
     const step = n.tap ?? n.transform;

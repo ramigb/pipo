@@ -302,6 +302,17 @@ const VARS = {
   lifetime: ["env", "stats"],
 };
 
+/** `poll` fields rendered or evaluated per fetch, not at start (§3.3.2): the variables each one sees. */
+const POLL_LATE: Record<string, { vars: string[]; expr?: boolean }> = {
+  url: { vars: [...VARS.inputWith, "cursor"] },
+  headers: { vars: [...VARS.inputWith, "cursor"] },
+  body: { vars: [...VARS.inputWith, "cursor"] },
+  items: { vars: ["data", "response", "cursor", "env"], expr: true },
+  key: { vars: ["item", "data", "env"], expr: true },
+  cursor: { vars: ["data", "items", "response", "cursor", "env"], expr: true },
+  next: { vars: ["data", "response", "env"], expr: true },
+};
+
 const SECRET_KEY = /(token|secret|password|passwd|api[_-]?key|authorization|credential)/i;
 const SECRET_VALUE =
   /^(Bearer\s+[A-Za-z0-9._~+/-]{12,}|sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abpr]-[A-Za-z0-9-]{10,}|AKIA[A-Z0-9]{16})$/;
@@ -486,13 +497,8 @@ function semantics(p: Pipeline, report: Report, file: string | undefined, home?:
       });
 
     if (node.tap !== undefined) checkAction(node.tap, TAPS, [...at, "tap"], "tap", p, report);
-    const command = (node.tap === "exec" || node.transform === "exec") && node.with?.command;
-    if (typeof command === "string" && !command.includes("${") && /\s/.test(command.trim())) {
-      report([...at, "with", "command"], "P058", `exec command '${command}' looks like a whole command line`, {
-        severity: "warning",
-        hint: `exec runs no shell: set command to the program only and put each argument in args, for example command: ${command.trim().split(/\s+/)[0]}`,
-      });
-    }
+    if (node.tap === "exec" || node.transform === "exec")
+      checkCommand(node.with?.command, [...at, "with", "command"], report, "exec");
     if (node.transform !== undefined)
       checkAction(node.transform, TRANSFORMS, [...at, "transform"], "transform", p, report);
     if (node.agent !== undefined && !(node.agent in AGENTS)) {
@@ -665,10 +671,38 @@ function semantics(p: Pipeline, report: Report, file: string | undefined, home?:
         hint: `remove \`respond\`, or set ${p.inputs ? `inputs.${name}` : "input"}.via to http`,
       });
     }
-    if (input.via !== "schedule") continue;
-    const w = (input.with ?? {}) as { cron?: unknown; every?: unknown };
+    const w = (input.with ?? {}) as Record<string, unknown>;
+    if (input.via === "command") checkCommand(w.command, [...at(name), "with", "command"], report, "command input");
+    if (input.via === "poll") {
+      const parse = w.parse ?? "auto";
+      if (w.select !== undefined && parse !== "html" && parse !== "auto") {
+        report([...at(name), "with", "select"], "P065", `select needs parse: html, not parse: ${String(parse)}`, {
+          key: true,
+          hint: "set parse: html (or leave parse out), or remove select",
+        });
+      }
+    }
+    const urls: [Path, unknown][] =
+      input.via === "poll"
+        ? [[[...at(name), "with", "url"], w.url]]
+        : input.via === "crawl"
+          ? (["start", "within"] as const).flatMap((k): [Path, unknown][] =>
+              Array.isArray(w[k])
+                ? (w[k] as unknown[]).map((u, i): [Path, unknown] => [[...at(name), "with", k, i], u])
+                : [[[...at(name), "with", k], w[k]]],
+            )
+          : [];
+    for (const [path, url] of urls) {
+      if (typeof url !== "string" || url.includes("${")) continue;
+      if (!/^https?:\/\/[^/\s]+/i.test(url)) {
+        report(path, "P066", `'${url}' is not an http or https URL`, {
+          hint: "write the whole URL, e.g. https://example.com/feed.xml",
+        });
+      }
+    }
+    if (input.via !== "schedule" && input.via !== "poll" && input.via !== "crawl") continue;
     if ((w.cron === undefined) === (w.every === undefined)) {
-      report([...at(name), "with"], "P038", "schedule needs exactly one of `cron` or `every`", {
+      report([...at(name), "with"], "P038", `${input.via} needs exactly one of \`cron\` or \`every\``, {
         key: true,
         hint: "e.g. `every: 5m` or `cron: '0 9 * * 1-5'`",
       });
@@ -771,7 +805,18 @@ function semantics(p: Pipeline, report: Report, file: string | undefined, home?:
   };
   for (const [name, input] of inputs) {
     for (const [i, v] of (input.validate ?? []).entries()) exprAt([...at(name), "validate", i], v, VARS.input);
-    templatesIn([...at(name), "with"], input.with, VARS.inputWith);
+    const w = (input.with ?? {}) as Record<string, unknown>;
+    // A poll's request is rendered for each fetch, with its cursor, and its `items`, `key`, `cursor` and `next` are
+    // expressions over the answer (§3.3.2, D87).
+    const late = input.via === "poll" ? POLL_LATE : {};
+    for (const [k, v] of Object.entries(w)) {
+      const path = [...at(name), "with", k];
+      const scope = late[k];
+      if (!scope) templatesIn(path, v, VARS.inputWith);
+      else if (scope.expr) {
+        if (typeof v === "string") exprAt(path, v, scope.vars);
+      } else templatesIn(path, v, scope.vars);
+    }
     templatesIn([...at(name), "on_invalid", "message"], input.on_invalid?.message, [...VARS.input, "error"]);
   }
   templatesIn(["errors", "message"], p.errors?.message, [...VARS.node, "error"]);
@@ -815,6 +860,15 @@ function semantics(p: Pipeline, report: Report, file: string | undefined, home?:
 
   // Files the pipeline refers to
   if (file) checkFiles(p, nodes, resolve(file), report, home);
+}
+
+/** P058: a program to run (an exec step, a `command` input) that looks like a whole command line. */
+function checkCommand(command: unknown, path: Path, report: Report, what: string) {
+  if (typeof command !== "string" || command.includes("${") || !/\s/.test(command.trim())) return;
+  report(path, "P058", `${what} command '${command}' looks like a whole command line`, {
+    severity: "warning",
+    hint: `${what === "exec" ? "exec" : "a command input"} runs no shell: set command to the program only and put each argument in args, for example command: ${command.trim().split(/\s+/)[0]}`,
+  });
 }
 
 function checkAction(
@@ -924,7 +978,8 @@ function checkFiles(p: Pipeline, nodes: Record<string, Node>, file: string, repo
   const base = dirname(file);
   // An exec step runs a program as you, so a .pipo file from a template you didn't write is untrusted like an fn module (D71).
   const execs = Object.entries(nodes).filter(([, n]) => n.tap === "exec" || n.transform === "exec");
-  if (execs.length && existsSync(file)) {
+  const commands = inputsOf(p).filter(([, i]) => i.via === "command");
+  if ((execs.length || commands.length) && existsSync(file)) {
     const untrusted = untrustedReason(base, relative(base, file), readFileSync(file, "utf8"), home, "pipeline");
     for (const [id, n] of untrusted ? execs : []) {
       report(
@@ -935,6 +990,11 @@ function checkFiles(p: Pipeline, nodes: Record<string, Node>, file: string, repo
           hint: untrusted?.hint,
         },
       );
+    }
+    for (const [name] of untrusted ? commands : []) {
+      report([...inputPath(p, name), "via"], "P052", `command input '${name}': ${untrusted?.message}`, {
+        hint: untrusted?.hint,
+      });
     }
   }
   if (p.fn) {

@@ -206,7 +206,7 @@ export const DIAGNOSTICS: DiagnosticDoc[] = [
     severity: "error",
     title: "Bad schedule",
     detail:
-      "A `schedule` input has both or neither of `cron` and `every`, or its `cron` doesn't parse. Cron has 5 fields (minute, hour, day of month, month, day of week) and runs in UTC.",
+      "A `schedule`, `poll` or `crawl` input has both or neither of `cron` and `every`, or its `cron` doesn't parse. Cron has 5 fields (minute, hour, day of month, month, day of week) and runs in UTC.",
     fix: "Use exactly one, e.g. `every: 5m` or `cron: '0 9 * * 1-5'`.",
   },
   {
@@ -253,7 +253,7 @@ export const DIAGNOSTICS: DiagnosticDoc[] = [
     severity: "error",
     title: "Untrusted code",
     detail:
-      "The `fn` module, or a pipeline file with `exec` nodes, came from a template you didn't write and that isn't trusted, or it was edited since it was trusted.",
+      "The `fn` module, or a pipeline file with `exec` nodes or a `command` input, came from a template you didn't write and that isn't trusted, or it was edited since it was trusted.",
     fix: "Read it, then run `pipo trust <template>` (or `pipo trust <project-folder>` after your own edit).",
   },
   {
@@ -300,7 +300,7 @@ export const DIAGNOSTICS: DiagnosticDoc[] = [
     severity: "warning",
     title: "exec `command` holds spaces",
     detail:
-      "An exec step's `command` looks like a whole command line (`ffmpeg -i in.mp3`). Exec runs no shell, so it would look for a program with that whole name.",
+      "An exec step's or a `command` input's `command` looks like a whole command line (`ffmpeg -i in.mp3`). Neither runs a shell, so it would look for a program with that whole name.",
     fix: "Put only the program in `command` and each argument in `args`.",
   },
   {
@@ -349,5 +349,21 @@ export const DIAGNOSTICS: DiagnosticDoc[] = [
     detail:
       "In one multi-file `pipo check`: a pipeline sends `to: pipeline` a receiver whose `via: pipeline` input doesn't list it (the receiver would refuse its packets), a receiver lists a sender that doesn't send to it, or chains form a cycle. Pipelines not in the same check aren't looked at.",
     fix: "Declare the link at both ends; break a cycle, or make sure a filter ends it (a packet is refused after 16 hand-offs).",
+  },
+  {
+    code: "P065",
+    severity: "error",
+    title: "`select` without `parse: html`",
+    detail:
+      "A `poll` input sets `select` (a CSS selector) but reads its answer as `json`, `text` or `feed`, where there is no HTML to select from.",
+    fix: "Set `parse: html` (or leave `parse` out, so an HTML answer is read as a page), or remove `select`.",
+  },
+  {
+    code: "P066",
+    severity: "error",
+    title: "Not an http or https URL",
+    detail:
+      "A `poll` input's `url`, or a `crawl` input's `start` or `within`, isn't a whole http or https URL. Values with a `${…}` template are checked when they are rendered instead.",
+    fix: "Write the whole URL, scheme and host included, e.g. `https://example.com/feed.xml`.",
   },
 ];

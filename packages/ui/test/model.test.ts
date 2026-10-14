@@ -134,7 +134,7 @@ describe("model", () => {
   });
 
   test("starter inputs and outputs pass pipo check", () => {
-    for (const via of ["push", "http", "schedule", "watch", "system"]) {
+    for (const via of ["push", "http", "schedule", "watch", "system", "poll", "tail", "command", "crawl"]) {
       for (const to of ["stdout", "file", "sqlite", "http"]) {
         const p = M.setOutput(M.setInput(M.blankPipeline("ends"), via), to);
         expect({ via, to, errors: errors(p) }).toEqual({ via, to, errors: [] });
@@ -360,6 +360,15 @@ describe("data shapes (D70)", () => {
     expect(M.shapeOut({ input: { via: "schedule", with: { payload: { job: "x" } } } }, "input", ctx())).toEqual({
       job: "x",
     });
+  });
+
+  test("a line read as JSON has no known shape (tail, command)", () => {
+    const c = { inputs: { tail: { sample: { line: "x", path: "/a" } } }, schemaOf: () => null };
+    expect(M.shapeOut({ input: { via: "tail", with: { path: "./a" } } }, "input", c)).toEqual({
+      line: "x",
+      path: "/a",
+    });
+    expect(M.shapeOut({ input: { via: "tail", with: { path: "./a", parse: "json" } } }, "input", c)).toBeNull();
   });
 
   test("a watch input's sample has content only with read: content", () => {

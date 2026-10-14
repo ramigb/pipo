@@ -1238,6 +1238,26 @@ impl Journal {
         Ok(())
     }
 
+    /// Upsert (or, with None, delete) several entries of `scope` in one transaction: a poll refreshing the keys it saw.
+    pub fn input_put_many(&mut self, scope: &str, entries: &[(String, Option<Value>)]) -> Result<()> {
+        self.tx("BEGIN", |j| {
+            for (k, v) in entries {
+                j.input_put(scope, k, v.as_ref())?;
+            }
+            Ok(())
+        })
+    }
+
+    /// Keep the `keep` entries of `scope` under `prefix` with the latest `at` (a field of each value) and delete the
+    /// rest; returns how many went (§3.3.2 `remember`).
+    pub fn input_prune(&self, scope: &str, prefix: &str, keep: u64) -> Result<usize> {
+        let n = self.db.execute(
+            "DELETE FROM input_state WHERE scope = ?1 AND key IN (SELECT key FROM input_state WHERE scope = ?1 AND substr(key, 1, ?2) = ?3 ORDER BY json_extract(value, '$.at') DESC, key LIMIT -1 OFFSET ?4)",
+            params![scope, prefix.len() as i64, prefix, keep as i64],
+        )?;
+        Ok(n)
+    }
+
     /// Apply a patch and log an event in one transaction. `ms`, a step's duration, goes on that event when the
     /// transition completes the step (§7.6 latency, D54), so the sample commits with the transition, exactly once.
     #[allow(clippy::too_many_arguments)]

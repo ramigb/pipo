@@ -1,0 +1,21 @@
+# Follow a JSON-lines log and keep its errors (docs/spec.md §3.3.2). The position in the file is saved with each
+# packet, so a restart picks up exactly where it stopped, even after a crash.
+pipo: 1
+name: error-tail
+description: Errors from a JSON-lines application log
+input:
+  via: tail
+  with: { path: ./logs/app.log, parse: json, from: start }
+nodes:
+  errors:
+    from: input
+    filter: data.level == "error"
+  shape:
+    from: errors
+    transform: map
+    with:
+      data: { at: "${data.time}", message: "${data.msg}", where: "${meta.source}" }
+output:
+  from: shape
+  to: file
+  with: { path: ./out/errors.jsonl, format: jsonl }

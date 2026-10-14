@@ -4,7 +4,7 @@ An input defines how packets arrive, how their bodies are parsed and what makes 
 
 ```yaml
 input:
-  via: http                      # http | schedule | watch | push | system | telegram | pipeline
+  via: http                      # http | schedule | watch | push | system | telegram | pipeline | poll | tail | command | crawl
   with: {...}                    # connector settings
   format: json                   # json | text | csv | form | bytes (http only)
   schema: ./person.schema.json   # optional JSON Schema check, run before `validate`
@@ -25,8 +25,12 @@ input:
 | [`system`](#system) | Sampling the operating system | `every`, `metrics` |
 | [`telegram`](#telegram) | A message to a Telegram bot | `bot` or `token`, `allow`, `poll_every`, `download` |
 | [`pipeline`](#pipeline) | Another pipeline's `to: pipeline` output | `from` |
+| [`poll`](active-inputs.md#poll) | A timer: fetches a URL and sends what is new or changed | `url`, `every` or `cron`, `parse`, `items`, `key`, `emit`, `cursor`, `next` |
+| [`tail`](active-inputs.md#tail) | Lines appended to a file | `path`, `parse`, `from` |
+| [`command`](active-inputs.md#command) | Lines a long-running program prints | `command`, `args`, `parse`, `restart` |
+| [`crawl`](active-inputs.md#crawl) | A timer: crawls a site and sends the pages that changed | `start`, `every` or `cron`, `within`, `depth`, `select` |
 
-Every field of every input is listed in the [Connectors reference](../reference/connectors.md#inputs).
+The last four are [active inputs](active-inputs.md): they fetch, follow or run something on their own, and remember where they got to. Every field of every input is listed in the [Connectors reference](../reference/connectors.md#inputs).
 
 ## How a packet is accepted
 
@@ -350,7 +354,7 @@ output:
 `input:` is shorthand for `inputs:` with one input named `input`, so `from: input` keeps working.
 
 - **Names** follow node ids (`[A-Za-z_][A-Za-z0-9_-]*`) and share their namespace. An input can't have a node's name or be called `output` (P061). A file has exactly one of `input` and `inputs` (P060).
-- **Each input is its own edge.** It has its own `format`, `schema`, `validate`, `on_invalid` and `respond`, and its own durable state (a watch snapshot, a Telegram offset), so adding a second input never resets the first. `meta.input` says which input a packet came from, so a `route` can tell them apart. To give packets from different inputs one shape, put a transform after each before they meet.
+- **Each input is its own edge.** It has its own `format`, `schema`, `validate`, `on_invalid` and `respond`, and its own durable state (a watch snapshot, a Telegram offset, a poll's seen keys, a tail's offset), so adding a second input never resets the first. `meta.input` says which input a packet came from, so a `route` can tell them apart. To give packets from different inputs one shape, put a transform after each before they meet.
 - **The rest is shared**: one journal, one `buffer.max`, one `concurrency`, one `lifetime` (`max_packets` counts packets from every input) and one pause.
 - **HTTP inputs share one listener.** Two of them need different `path`s or `method`s, and if more than one sets `listen`, it must be the same port. Two Telegram inputs can't poll the same bot. Either clash is P062.
 - **Pushing** to a pipeline with several inputs needs `--input <name>`, unless exactly one of them is `via: push`.
@@ -362,7 +366,9 @@ Accepted packets wait in the journal until a worker takes them. `buffer.max` (de
 | Input | When the buffer is full |
 |---|---|
 | `http` | Answers `503` with `Retry-After: 5`. |
-| `telegram`, `watch` | Wait and try again; nothing is lost. |
+| `telegram`, `watch`, `tail` | Wait and try again; nothing is lost. |
+| `poll`, `crawl` | Stop the current fetch or crawl; the rest is fetched again shortly. |
+| `command` | Stop reading, so the program blocks on its next write. |
 | `schedule`, `system` | Skip that tick or sample. |
 | `push`, `pipeline` | Answer `unavailable`; a sending pipeline retries under its output's `on_error`. |
 

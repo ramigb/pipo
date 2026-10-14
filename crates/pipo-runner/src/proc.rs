@@ -37,7 +37,7 @@ fn temp_dir() -> std::io::Result<PathBuf> {
     Ok(dir)
 }
 
-fn signal_group(pid: Option<u32>, sig: libc::c_int) {
+pub fn signal_group(pid: Option<u32>, sig: libc::c_int) {
     if let Some(pid) = pid.filter(|p| *p > 0) {
         // SAFETY: a negative pid signals the child's own process group, created with process_group(0).
         unsafe {
@@ -46,7 +46,7 @@ fn signal_group(pid: Option<u32>, sig: libc::c_int) {
     }
 }
 
-fn signal_name(sig: i32) -> String {
+pub fn signal_name(sig: i32) -> String {
     match sig {
         libc::SIGTERM => "SIGTERM".into(),
         libc::SIGKILL => "SIGKILL".into(),
