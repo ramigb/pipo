@@ -9,6 +9,7 @@ pipo engine start --listen 8787   # optional: start it now, with a fixed gateway
 pipo engine status
 pipo start examples/heartbeat/heartbeat.pipo
 pipo engine stop                  # drains its pipelines; detached runners keep running
+pipo engine restart               # hands over to a new engine running the code on disk
 ```
 
 ## Architecture
@@ -41,8 +42,9 @@ The checker is written once, in TypeScript. When a runner starts, applies a chan
 | Command | Effect |
 |---|---|
 | `pipo engine start [--ttl 8h] [--listen <port>]` | Starts `pipod` in the background. With an engine already running, says `already running` and changes nothing. |
-| `pipo engine status` | Pid, gateway address, uptime, number of pipelines, whether it's idle and its TTL. Prints `engine: down` when none runs. |
+| `pipo engine status` | Pid, gateway address, uptime, number of pipelines, whether it's idle and its TTL, and whether Pipo was updated since it started. Prints `engine: down` when none runs. |
 | `pipo engine stop` | Graceful shutdown: pipelines drain, detached runners keep running. |
+| `pipo engine restart` | Hands over to a new engine on the same port, running the code on disk. See [Restarting the engine](#restarting-the-engine). |
 | `pipo ui` | Starts the engine if needed, then opens the dashboard. See [Dashboard](dashboard.md). |
 
 ```text
@@ -121,7 +123,9 @@ A runner started with `--detached` (or every runner, with `engine.detached: true
 
 ## Restarting the engine
 
-After you update Pipo, a running engine still runs the old code. `pipo ui` warns about it, and the dashboard shows a banner with **🔄 Restart now**. A restart hands over to a fresh engine on the same address: the old one drains its pipelines and exits, and the new one reattaches detached runners and starts the handed-over pipelines again. From a terminal, the same is `pipo engine stop`, then `pipo ui` (or any other command).
+After you update Pipo, a running engine still runs the old code. `pipo ui` and `pipo engine status` warn about it, the dashboard shows a banner with **🔄 Restart now**, and the [install script](install.md#install-script) offers a restart after it updates. A restart hands over to a fresh engine on the same address: the old one drains its pipelines and exits, and the new one reattaches detached runners and starts the handed-over pipelines again. From a terminal, run `pipo engine restart`. It waits until the new engine is ready.
+
+A handed-over pipeline starts again active, even if it was paused, and without the options it was started with (`--listen`, `--ttl`). An engine `--ttl` isn't carried over either. The new engine inherits the old one's environment, so after changing environment variables, run `pipo engine stop` and then `pipo engine start` from a shell that has them.
 
 Runners are separate processes, so each picks up new code when it next starts.
 

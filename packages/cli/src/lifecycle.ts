@@ -26,7 +26,7 @@ import { renderAgentBudget, renderDetail, renderStatus, type StatusRow } from ".
 import { done, flourish, say, spinner, spinning } from "./tty";
 
 const ENGINE_MAIN = new URL("../../engine/src/main.ts", import.meta.url).pathname;
-const ENGINE_START_TIMEOUT = 20_000;
+export const ENGINE_START_TIMEOUT = 20_000;
 /**
  * The gateway port of an engine the CLI starts when `engine.listen` is unset (§7.1, D83): a stable URL for MCP
  * clients and their OAuth tokens. `PIPO_ENGINE_PORT` overrides it (0: any free port).

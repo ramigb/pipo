@@ -1,5 +1,5 @@
-// `pipo runners`, `pipo attach [name]` and `pipo engine start|stop|status` (docs/spec.md §6, §7.2, §7.5, D27, D30,
-// D31, D35). `runners` and `engine status|stop` never start the engine; `attach` and `engine start` do. Without the
+// `pipo runners`, `pipo attach [name]` and `pipo engine start|stop|restart|status` (docs/spec.md §6, §7.2, §7.5, D27,
+// D30, D31, D35, D65). `runners` and `engine status|stop|restart` never start the engine; `attach` and `engine start` do. Without the
 // engine, `runners` reads the registry and asks each runner's socket for `hello` itself.
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -11,6 +11,7 @@ import {
   alive,
   COMMON,
   context,
+  ENGINE_START_TIMEOUT,
   type EngineEntry,
   engineAuth,
   findEngine,
@@ -179,10 +180,12 @@ export async function cmdEngine(args: string[]): Promise<number> {
       return engineStart(rest);
     case "stop":
       return engineStop(rest);
+    case "restart":
+      return engineRestart(rest);
     case "status":
       return engineStatus(rest);
     default:
-      return usage("pipo engine start|stop|status [--ttl 8h] [--listen <port>] [--host <addr>]");
+      return usage("pipo engine start|stop|restart|status [--ttl 8h] [--listen <port>] [--host <addr>]");
   }
 }
 
@@ -314,6 +317,92 @@ async function engineStop(args: string[]): Promise<number> {
   return 0;
 }
 
+/**
+ * Hand over to a fresh engine running the code on disk (D65), as the dashboard's Restart now does: the old engine drains
+ * its pipelines and exits, the new one comes up on the same port, home and workspace, reattaches detached runners and
+ * starts the handed-over pipelines again. Waits until an engine with another pid is ready.
+ */
+async function engineRestart(args: string[]): Promise<number> {
+  const { values, positionals } = parseArgs({ args, allowPositionals: true, options: COMMON });
+  if (positionals.length) return usage("pipo engine restart");
+  const home = resolveHome(values.home);
+  const entry = readEngineEntry(home);
+  if (!entry) {
+    if (values.json) console.log(JSON.stringify({ ok: true, engine: "down", restarted: false }));
+    else console.log("engine: down (nothing to restart; any pipo command starts it)");
+    return 0;
+  }
+  if (!entry.listen) {
+    throw new CliError(
+      `the engine (pid ${entry.pid}) has no gateway, so it can't hand over to a new one`,
+      "stop it (pipo engine stop), then start it again (pipo engine start)",
+      "unavailable",
+    );
+  }
+  let answer: { pipelines?: string[] };
+  try {
+    answer = await new Api(entry.listen, home).call("POST", "/api/engine/restart");
+  } catch (e) {
+    // An engine from before D65 has no restart route.
+    if (e instanceof CliError && /^no API route/.test(e.message)) {
+      throw new CliError(
+        `the engine (pid ${entry.pid}) is too old to hand over to a new one`,
+        "stop it (pipo engine stop), then start it again (pipo engine start)",
+        "engine_outdated",
+      );
+    }
+    throw e;
+  }
+  const deadline = Date.now() + ENGINE_STOP_TIMEOUT + ENGINE_START_TIMEOUT;
+  const spin = spinner(`restarting the engine: the old one (pid ${entry.pid}) drains its pipelines`);
+  let next: ReturnType<typeof findEngine> = null;
+  try {
+    while (Date.now() < deadline) {
+      const e = findEngine(home);
+      if (e && e.pid !== entry.pid) {
+        const state = await probe(e);
+        if (state === "ready") {
+          next = e;
+          break;
+        }
+        if (state === "starting") spin.text(`the new engine (pid ${e.pid}) is reattaching its runners`);
+      }
+      await Bun.sleep(100);
+    }
+  } finally {
+    spin.stop();
+  }
+  if (!next) {
+    throw new CliError(
+      `the new engine did not come up within ${(ENGINE_STOP_TIMEOUT + ENGINE_START_TIMEOUT) / 1000}s`,
+      `see ${join(home, "logs", "engine.log")}; any pipo command starts an engine again`,
+      "timeout",
+    );
+  }
+  const pipelines = answer.pipelines ?? [];
+  if (values.json) {
+    console.log(
+      JSON.stringify({
+        ok: true,
+        engine: "up",
+        restarted: true,
+        from: entry.pid,
+        pid: next.pid,
+        listen: next.port,
+        pipelines,
+      }),
+    );
+  } else {
+    const again = pipelines.length ? `; started again: ${pipelines.join(", ")}` : "";
+    console.log(
+      done(
+        `engine restarted ${paint(process.stdout).dim(`(pid ${entry.pid} → ${next.pid}, gateway 127.0.0.1:${next.port})`)}${again}`,
+      ),
+    );
+  }
+  return 0;
+}
+
 async function engineStatus(args: string[]): Promise<number> {
   const { values, positionals } = parseArgs({ args, allowPositionals: true, options: COMMON });
   if (positionals.length) return usage("pipo engine status");
@@ -363,6 +452,7 @@ async function engineStatus(args: string[]): Promise<number> {
         ttl_expires_at: info.ttl_expires_at ?? null,
         idle: info.idle ?? null,
         pipelines: info.pipelines ?? null,
+        code_changed: info.code_changed === true,
         home: info.home,
       }),
     );
@@ -376,6 +466,9 @@ async function engineStatus(args: string[]): Promise<number> {
       p.dim(
         `pipelines ${info.pipelines ?? "-"} · idle ${info.idle === undefined ? "-" : info.idle ? "yes" : "no"} · ttl ${info.ttl_expires_at ? `expires ${info.ttl_expires_at}` : "none"}`,
       ),
+      ...(info.code_changed === true
+        ? [p.yellow("Pipo was updated since this engine started: pipo engine restart runs the new code")]
+        : []),
     ].join("\n"),
   );
   return 0;

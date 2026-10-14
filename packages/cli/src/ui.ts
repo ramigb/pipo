@@ -81,7 +81,7 @@ export async function cmdUi(args: string[]): Promise<number> {
     if (outdated) {
       say(
         "warn",
-        `the running engine (pid ${info.pid}${info.started_at ? `, started ${info.started_at}` : ""}) is older than Pipo's code here, so the dashboard may miss features; restart it: pipo engine stop, then pipo ui`,
+        `the running engine (pid ${info.pid}${info.started_at ? `, started ${info.started_at}` : ""}) is older than Pipo's code here, so the dashboard may miss features; restart it: pipo engine restart`,
       );
     }
     if (elsewhere) {

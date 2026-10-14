@@ -1,5 +1,5 @@
-// `pipo runners`, `pipo attach`, `pipo engine start|stop|status` and the --json error shape (docs/spec.md §6, §7.2,
-// D35) in-process against a real engine in a sandbox home (found through run/engine.json). The engine and its
+// `pipo runners`, `pipo attach`, `pipo engine start|stop|restart|status` and the --json error shape (docs/spec.md §6,
+// §7.2, D35, D88) in-process against a real engine in a sandbox home (found through run/engine.json). The engine and its
 // detached runner are killed by pid at the end. Subprocess output goes to files, never a pipe.
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -28,7 +28,7 @@ const procsWithHome = (root: string): number[] => pidsWith(root);
 afterAll(async () => {
   await direct?.kill().catch(() => {});
   for (const home of [sb.home, join(sb.root, "up-home")]) {
-    for (const name of ["engine", "dlive"]) {
+    for (const name of ["engine", "dlive", "handed"]) {
       const pid = entryPid(home, name);
       if (pid) pids.push(pid);
     }
@@ -119,6 +119,7 @@ test("without an engine: runners reads the registry and sockets, engine status a
     engine: "down",
     stopped: false,
   });
+  expect(json(await pipo("engine", "restart", "--json", ...H))).toEqual({ ok: true, engine: "down", restarted: false });
   expect((await pipo("engine", "bogus")).code).toBe(64);
 });
 
@@ -132,7 +133,7 @@ test("engine start, status, runners, attach and stop; a detached runner survives
   }
   expect(started.code).toBe(0);
   expect(json(started)).toMatchObject({ ok: true, engine: "up", result: "started" });
-  const enginePid = json(started).pid as number;
+  let enginePid = json(started).pid as number;
   pids.push(enginePid);
 
   const again = await pipo("engine", "start", "--ttl", "1h", ...H);
@@ -140,7 +141,15 @@ test("engine start, status, runners, attach and stop; a detached runner survives
   expect(again.stdout).toContain("stop it first");
 
   const status = json(await pipo("engine", "status", "--json", ...H));
-  expect(status).toMatchObject({ ok: true, engine: "up", pid: enginePid, state: "ready", pipelines: 0, idle: true });
+  expect(status).toMatchObject({
+    ok: true,
+    engine: "up",
+    pid: enginePid,
+    state: "ready",
+    pipelines: 0,
+    idle: true,
+    code_changed: false,
+  });
   expect(Date.parse(status.ttl_expires_at) - Date.parse(status.started_at)).toBe(8 * 3600_000);
   const text = await pipo("engine", "status", ...H);
   expect(text.stdout).toMatch(/^engine: up \(ready\)\npid \d+ · gateway 127\.0\.0\.1:\d+ · uptime \d+s\n/);
@@ -181,6 +190,32 @@ test("engine start, status, runners, attach and stop; a detached runner survives
   const missing = await pipo("attach", "nope", ...H);
   expect(missing.code).toBe(1);
   expect(missing.stderr).toContain("no runner registered for 'nope'");
+
+  // restart hands over (D65, D88): the attached pipeline starts again under the new engine, the detached runner stays.
+  expect((await pipo("start", pipe("handed"), "--json", ...H)).code).toBe(0);
+  const dlivePid = entryPid(home, "dlive");
+  const handedPid = entryPid(home, "handed");
+  const restarted = await pipo("engine", "restart", "--json", ...H);
+  expect(restarted.code).toBe(0);
+  const r = json(restarted);
+  expect(r).toMatchObject({ ok: true, engine: "up", restarted: true, from: enginePid, pipelines: ["handed"] });
+  expect(r.pid).not.toBe(enginePid);
+  pids.push(r.pid);
+  enginePid = r.pid;
+  expect(alive(r.from)).toBe(false);
+  expect(json(await pipo("engine", "status", "--json", ...H))).toMatchObject({ pid: r.pid, state: "ready" });
+  await waitFor(
+    async () => {
+      const p = json(await pipo("status", "handed", "--json", ...H)).pipelines?.[0];
+      return p?.state === "running" && entryPid(home, "handed") !== handedPid;
+    },
+    20_000,
+    "handed started again under the new engine",
+  );
+  expect(entryPid(home, "dlive")).toBe(dlivePid);
+  expect(alive(dlivePid as number)).toBe(true);
+  const stopHanded = await pipo("stop", "handed", ...H);
+  expect(stopHanded).toMatchObject({ code: 0, stderr: "" });
 
   const ui = await pipo("ui", "--no-open", ...H);
   expect(ui.code).toBe(0);

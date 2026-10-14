@@ -1393,7 +1393,7 @@ function noRoute(path: string): HttpError {
   return new HttpError(
     404,
     `no API route ${path}`,
-    "see `routes`; if the dashboard or the CLI sent this, the engine may be older than them: restart it (pipo engine stop, then pipo ui)",
+    "see `routes`; if the dashboard or the CLI sent this, the engine may be older than them: restart it (pipo engine restart)",
     "not_found",
     { routes: ROUTES },
   );

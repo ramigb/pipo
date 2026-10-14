@@ -121,8 +121,9 @@ linked_checkout() {
 # The checkout's commit, for messages: "ae329db, 2026-10-12".
 at() { git -C "$DIR" log -1 --format='%h, %cd' --date=short "${1:-HEAD}"; }
 
-# Git never asks for credentials here: an unreachable or private remote fails instead of hanging the install.
-qgit() { GIT_TERMINAL_PROMPT=0 git -C "$DIR" "$@"; }
+# Git never asks for credentials here: an unreachable or private remote fails instead of hanging the install. File
+# modes don't count as local changes: `bun link` marks the CLI's entry point executable.
+qgit() { GIT_TERMINAL_PROMPT=0 git -C "$DIR" -c core.fileMode=false "$@"; }
 
 # Bun and cargo may be installed but not on PATH yet (a fresh install, a shell profile not reloaded).
 find_bun() {
@@ -273,7 +274,7 @@ get_checkout() {
 # changes or local commits. When the update changes install.sh, the new install.sh finishes the install.
 update_checkout() {
   local branch upstream behind ahead before dirty=""
-  [ -n "$(git -C "$DIR" status --porcelain)" ] && dirty=1
+  [ -n "$(qgit status --porcelain)" ] && dirty=1
   branch="$(git -C "$DIR" symbolic-ref -q --short HEAD || true)"
   if [ -z "$branch" ] && [ -z "$BRANCH" ]; then
     warn "it's on a detached HEAD, so it can't be updated"
@@ -289,7 +290,7 @@ update_checkout() {
       warn "it has local changes, so it wasn't switched to $BRANCH"
       return
     fi
-    git -C "$DIR" checkout -q "$BRANCH" || {
+    qgit checkout -q "$BRANCH" || {
       warn "couldn't switch to $BRANCH"
       return
     }
@@ -323,7 +324,7 @@ update_checkout() {
     has_tty || hint "no terminal to ask on: rerun with --yes to update"
   else
     before="$(git -C "$DIR" rev-parse HEAD)"
-    if ! git -C "$DIR" merge -q --ff-only '@{u}'; then
+    if ! qgit merge -q --ff-only '@{u}'; then
       warn "the fast-forward failed, so it stays at $(at)"
       return
     fi
@@ -498,6 +499,47 @@ verify() {
   done
 }
 
+# running_engine: the engine running from this checkout in the Pipo home, if it predates the code on disk (it says
+# code_changed), and offer to restart it onto the new code (`pipo engine restart`: a hand-over on the same port and home,
+# spec D65). With --check, only say so.
+running_engine() {
+  local home="${PIPO_HOME:-$HOME/.pipo}" status pid port pipelines cmd
+  [ -f "$home/run/engine.json" ] && [ -n "$BUN" ] || return 0
+  local pipo=("$BUN" "$DIR/packages/cli/src/main.ts")
+  status="$("${pipo[@]}" engine status --home "$home" --json 2>/dev/null || true)"
+  [[ "$status" == *'"engine":"up"'* ]] || return 0
+  pid="$(sed -n 's/.*"pid":\([0-9]*\).*/\1/p' <<<"$status")"
+  port="$(sed -n 's/.*"listen":\([0-9]*\).*/\1/p' <<<"$status")"
+  pipelines="$(sed -n 's/.*"pipelines":\([0-9]*\).*/\1/p' <<<"$status")"
+  cmd="$(ps -o args= -p "$pid" 2>/dev/null || true)"
+  [[ "$cmd" == *"$(cd -P "$DIR" && pwd)/packages/engine/"* || "$cmd" == *"$DIR/packages/engine/"* ]] || return 0
+
+  step "Running engine"
+  local what="the engine in $home (pid $pid${port:+, port $port}, ${pipelines:-0} pipeline(s))"
+  if [ -z "$port" ]; then
+    warn "$what has no gateway, so it can't be checked for old code"
+    hint "if Pipo was updated, restart it: pipo engine stop, then pipo engine start"
+  elif [[ "$status" != *'"code_changed":true'* ]]; then
+    ok "$what runs the current code"
+  elif [ "$CHECK" = 1 ]; then
+    note "$what still runs the code from before the last update"
+    hint "restart it: pipo engine restart"
+  else
+    note "$what still runs the code from before this update"
+    info "a restart hands over to a new engine on the same port: its pipelines drain and start again (a paused one"
+    info "starts active), detached runners keep running"
+    if ask "Restart the engine now?"; then
+      if "${pipo[@]}" engine restart --home "$home"; then ok "the engine runs the new code"; else
+        bad "the engine didn't restart"
+        hint "see $home/logs/engine.log; then pipo engine restart, or pipo engine stop and any pipo command"
+      fi
+    else
+      info "not restarted: it runs the old code until it restarts"
+      hint "pipo engine restart, or Restart now in the dashboard"
+    fi
+  fi
+}
+
 cleanup() {
   if [ -n "${ENGINE_HOME:-}" ] && [ -n "${BUN:-}" ]; then
     "$BUN" "$DIR/packages/cli/src/main.ts" engine stop --home "$ENGINE_HOME" >/dev/null 2>&1 || true
@@ -557,6 +599,7 @@ main() {
     [ "$NO_LINK" = 1 ] || link_cli
   fi
   verify
+  [ "$FAILED" -gt 0 ] || running_engine
 
   printf '\n'
   if [ "$FAILED" -gt 0 ]; then

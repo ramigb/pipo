@@ -361,8 +361,9 @@ export const COMMANDS: CommandHelp[] = [
   },
   {
     name: "engine",
-    summary: "Start, stop or inspect the engine (detached runners keep running when it stops)",
-    usage: "pipo engine start|stop|status [--ttl 8h] [--listen <port>] [--host <addr>]",
+    summary:
+      "Start, stop, restart or inspect the engine (detached runners keep running when it stops; restart runs updated code)",
+    usage: "pipo engine start|stop|restart|status [--ttl 8h] [--listen <port>] [--host <addr>]",
     flags: [
       ["--ttl <duration>", "start: the engine drains its pipelines and stops after this long, e.g. 8h"],
       ["--listen <port>", "start: gateway port on 127.0.0.1 (0 picks a free one; default engine.listen, else 0)"],
