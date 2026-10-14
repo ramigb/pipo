@@ -11,20 +11,20 @@ curl -fsSL https://raw.githubusercontent.com/ramigb/pipo/main/install.sh | bash
 The script:
 
 1. Checks the platform (Linux or macOS) and the [prerequisites](#prerequisites). It offers to install Bun and Rust if they're missing or too old. It only gives you the command for a C compiler or Git, because those need `sudo`.
-2. Clones the repository into `~/.local/share/pipo`. If a checkout is already there, it updates it with `git pull --ff-only`, unless the checkout has local changes.
+2. Looks for an existing install: a checkout in `~/.local/share/pipo`, or the checkout your `pipo` command runs. If it finds none, it clones the repository into `~/.local/share/pipo`. If it finds one, it fetches. When the upstream branch has new commits, it lists them and asks before updating (a fast-forward only). It never updates a checkout with local changes or local commits. If the update changes the install script, the new script finishes the install.
 3. Runs `bun install`, which also builds the runner.
 4. Links the `pipo` command into Bun's global bin folder (`~/.bun/bin`).
 5. Verifies the install. It runs the runner binary and `pipo check examples`, runs `pipo test` on `examples/people-intake` through the runner, and starts an engine in a throwaway Pipo home, loads the dashboard, then stops the engine. It also lists the optional tools it finds.
 
-In a checkout you already have, run `./install.sh` there. It installs that checkout and doesn't pull.
+In a checkout you already have, run `./install.sh` there. It installs that checkout, and offers to update it the same way.
 
 | Option | Effect |
 |---|---|
 | `--dir <path>` | Put the checkout here instead (or set `PIPO_DIR`) |
 | `--branch <ref>` | Clone or update this branch |
-| `--yes`, `-y` | Install missing prerequisites without asking. Without a terminal and without `--yes`, the script installs nothing and stops with a hint. |
-| `--check` | Only verify an existing install. Changes nothing. |
-| `--no-update` | Use the existing checkout as it is |
+| `--yes`, `-y` | Install missing prerequisites and updates without asking. Without a terminal and without `--yes`, the script installs and updates nothing: it stops with a hint for a missing prerequisite, and leaves the checkout where it is. |
+| `--check` | Only verify an existing install, and say whether a newer version is available. Changes nothing. |
+| `--no-update` | Use the existing checkout as it is, without looking for updates |
 | `--no-link` | Don't link the `pipo` command |
 | `--skip-engine` | Skip the engine check |
 
@@ -147,7 +147,7 @@ git pull
 bun install
 ```
 
-Or run the install script again: it pulls, installs and checks.
+Or run the install script again. It shows what's new, asks before updating, then installs and checks. `./install.sh --check` only tells you whether an update is available.
 
 If an engine is running, restart it so it runs the new code: `pipo engine stop`, then any `pipo` command starts it again. The dashboard shows a banner when the running engine is older than the code on disk.
 

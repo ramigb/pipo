@@ -3,12 +3,14 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/ramigb/pipo/main/install.sh | bash
 #   ./install.sh                 # from a checkout: installs that checkout
-#   ./install.sh --check         # verify an existing install, change nothing
+#   ./install.sh --check         # verify an existing install and look for updates, change nothing
 #
 # It checks the prerequisites (Bun ≥ 1.3, Rust/cargo, a C compiler, git), offers to install Bun and Rust when they're
-# missing, clones or updates the checkout, runs `bun install` (which builds the Rust runner), links the `pipo` command,
-# and verifies the result end to end: the runner binary, `pipo check examples`, a `pipo test` run through the runner,
-# and an engine started and stopped in a throwaway Pipo home. Run with --help for the options.
+# missing, and finds an existing install (the checkout in --dir, or the one the `pipo` command runs). If there is one, it
+# fetches and, when the upstream branch has new commits, lists them and offers to update; otherwise it clones. Then it
+# runs `bun install` (which builds the Rust runner), links the `pipo` command, and verifies the result end to end: the
+# runner binary, `pipo check examples`, a `pipo test` run through the runner, and an engine started and stopped in a
+# throwaway Pipo home. Run with --help for the options.
 set -euo pipefail
 
 REPO_URL="${PIPO_REPO:-https://github.com/ramigb/pipo.git}"
@@ -25,12 +27,12 @@ Usage: install.sh [options]
 
 Options:
   --dir <path>     Where the checkout lives (default: this checkout when run from one,
-                   else $PIPO_DIR, else ~/.local/share/pipo)
+                   else $PIPO_DIR, else ~/.local/share/pipo, else the checkout `pipo` runs)
   --branch <ref>   Branch to clone or update (default: the repository's default branch)
-  --check          Verify an existing install only; change nothing
-  --yes, -y        Install missing prerequisites (Bun, Rust) without asking
+  --check          Verify an existing install and say whether an update is available; change nothing
+  --yes, -y        Install missing prerequisites (Bun, Rust) and updates without asking
   --no-link        Don't link the `pipo` command into Bun's global bin folder
-  --no-update      Use an existing checkout as it is (no git pull)
+  --no-update      Use an existing checkout as it is (don't look for updates)
   --skip-engine    Skip the engine start/stop check
   -h, --help       Show this help
 
@@ -57,6 +59,7 @@ bad() {
   FAILED=$((FAILED + 1))
   printf '  %s✗%s %s\n' "$RED" "$R" "$*"
 }
+note() { printf '  %s↑%s %s\n' "$YELLOW" "$R" "$*"; }
 hint() { printf '    %s→ %s%s\n' "$DIM" "$*" "$R"; }
 die() {
   printf '\n%serror:%s %s\n' "$RED" "$R" "$1" >&2
@@ -79,10 +82,13 @@ version_ge() {
   return 0
 }
 
+# has_tty: a terminal to ask on. /dev/tty exists even without one (cron, CI, setsid), so try to open it.
+has_tty() { { : </dev/tty >/dev/tty; } 2>/dev/null; }
+
 # ask "question": yes with --yes; otherwise ask on the terminal (works under `curl … | bash`); no terminal means no.
 ask() {
   [ "$YES" = 1 ] && return 0
-  [ -r /dev/tty ] && [ -w /dev/tty ] || return 1
+  has_tty || return 1
   local answer
   printf '  %s?%s %s [Y/n] ' "$BLUE" "$R" "$1" >/dev/tty
   read -r answer </dev/tty || return 1
@@ -100,6 +106,23 @@ resolve() {
 }
 
 is_checkout() { [ -f "$1/crates/pipo-runner/Cargo.toml" ] && [ -f "$1/packages/cli/src/main.ts" ]; }
+
+# linked_checkout: the checkout the `pipo` command runs (on PATH, or linked into Bun's bin folder), if there is one.
+linked_checkout() {
+  local cmd target
+  cmd="$(command -v pipo 2>/dev/null || true)"
+  [ -z "$cmd" ] && [ -e "$BUN_BIN/pipo" ] && cmd="$BUN_BIN/pipo"
+  [ -n "$cmd" ] || return 1
+  target="$(resolve "$cmd")"
+  target="${target%/packages/cli/src/main.ts}"
+  is_checkout "$target" && echo "$target"
+}
+
+# The checkout's commit, for messages: "ae329db, 2026-10-12".
+at() { git -C "$DIR" log -1 --format='%h, %cd' --date=short "${1:-HEAD}"; }
+
+# Git never asks for credentials here: an unreachable or private remote fails instead of hanging the install.
+qgit() { GIT_TERMINAL_PROMPT=0 git -C "$DIR" "$@"; }
 
 # Bun and cargo may be installed but not on PATH yet (a fresh install, a shell profile not reloaded).
 find_bun() {
@@ -232,26 +255,111 @@ check_prereqs() {
 get_checkout() {
   step "Checkout"
   if [ -d "$DIR/.git" ] && is_checkout "$DIR"; then
-    ok "found $DIR"
-    if [ "$UPDATE" = 1 ] && [ "$FROM_CHECKOUT" = 0 ]; then
-      if [ -n "$(git -C "$DIR" status --porcelain)" ]; then
-        warn "it has local changes, so it wasn't updated"
-      elif ! git -C "$DIR" symbolic-ref -q HEAD >/dev/null; then
-        warn "it's on a detached HEAD, so it wasn't updated"
-      else
-        [ -n "$BRANCH" ] && git -C "$DIR" checkout -q "$BRANCH"
-        if git -C "$DIR" pull --ff-only -q; then ok "updated to $(git -C "$DIR" rev-parse --short HEAD)"; else
-          warn "git pull --ff-only failed, so it stays at $(git -C "$DIR" rev-parse --short HEAD)"
-        fi
-      fi
+    if [ "$FOUND_BY_LINK" = 1 ]; then ok "Pipo is installed in $DIR (the checkout your pipo command runs), at $(at)"; else
+      ok "Pipo is installed in $DIR, at $(at)"
     fi
+    if [ "$UPDATE" = 1 ]; then update_checkout; else info "not looking for updates (--no-update)"; fi
   elif [ -e "$DIR" ] && [ -n "$(ls -A "$DIR" 2>/dev/null)" ]; then
     die "$DIR exists and isn't a Pipo checkout" "choose another folder with --dir, or empty that one"
   else
     info "cloning $REPO_URL into $DIR"
     mkdir -p "$(dirname "$DIR")"
     git clone -q ${BRANCH:+--branch "$BRANCH"} "$REPO_URL" "$DIR"
-    ok "cloned $(git -C "$DIR" rev-parse --short HEAD)"
+    ok "cloned $(at)"
+  fi
+}
+
+# update_checkout: fetch, list the upstream branch's new commits and offer to fast-forward to them. Never touches local
+# changes or local commits. When the update changes install.sh, the new install.sh finishes the install.
+update_checkout() {
+  local branch upstream behind ahead before dirty=""
+  [ -n "$(git -C "$DIR" status --porcelain)" ] && dirty=1
+  branch="$(git -C "$DIR" symbolic-ref -q --short HEAD || true)"
+  if [ -z "$branch" ] && [ -z "$BRANCH" ]; then
+    warn "it's on a detached HEAD, so it can't be updated"
+    hint "git -C $DIR checkout main, then run this script again"
+    return
+  fi
+  if ! qgit fetch -q 2>/dev/null; then
+    warn "couldn't reach $(git -C "$DIR" remote get-url origin 2>/dev/null || echo origin) to look for updates"
+    return
+  fi
+  if [ -n "$BRANCH" ] && [ "$branch" != "$BRANCH" ]; then
+    if [ -n "$dirty" ]; then
+      warn "it has local changes, so it wasn't switched to $BRANCH"
+      return
+    fi
+    git -C "$DIR" checkout -q "$BRANCH" || {
+      warn "couldn't switch to $BRANCH"
+      return
+    }
+    branch=$BRANCH
+    ok "switched to $BRANCH, at $(at)"
+  fi
+  upstream="$(git -C "$DIR" rev-parse -q --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
+  if [ -z "$upstream" ]; then
+    warn "branch $branch has no upstream branch, so it can't be checked for updates"
+    hint "git -C $DIR branch --set-upstream-to origin/main"
+    return
+  fi
+  behind="$(git -C "$DIR" rev-list --count 'HEAD..@{u}')"
+  ahead="$(git -C "$DIR" rev-list --count '@{u}..HEAD')"
+  if [ "$behind" = 0 ]; then
+    ok "up to date with $upstream"
+    return
+  fi
+
+  note "a newer version is available: $behind new commit(s) on $upstream, up to $(at '@{u}')"
+  git -C "$DIR" log --format='%h %s' 'HEAD..@{u}' | head -n 8 | sed "s/^/      ${DIM}/; s/\$/${R}/"
+  [ "$behind" -gt 8 ] && info "${DIM}  … and $((behind - 8)) more${R}"
+  if [ -n "$dirty" ]; then
+    warn "it has local changes, so it wasn't updated"
+    hint "commit or stash them, then run this script again (or: git -C $DIR pull --ff-only)"
+  elif [ "$ahead" != 0 ]; then
+    warn "$branch has $ahead local commit(s) that aren't on $upstream, so it can't fast-forward"
+    hint "git -C $DIR pull --rebase, then run this script again"
+  elif ! ask "Update Pipo to $(git -C "$DIR" rev-parse --short '@{u}')?"; then
+    info "not updated: it stays at $(at)"
+    has_tty || hint "no terminal to ask on: rerun with --yes to update"
+  else
+    before="$(git -C "$DIR" rev-parse HEAD)"
+    if ! git -C "$DIR" merge -q --ff-only '@{u}'; then
+      warn "the fast-forward failed, so it stays at $(at)"
+      return
+    fi
+    ok "updated to $(at)"
+    if ! git -C "$DIR" diff --quiet "$before" HEAD -- install.sh; then
+      info "install.sh changed in this update: continuing with the new one"
+      cleanup
+      trap - EXIT
+      exec bash "$DIR/install.sh" ${ARGS[@]+"${ARGS[@]}"} --dir "$DIR" --no-update
+    fi
+  fi
+}
+
+# report_updates: for --check, whether the upstream branch has commits this checkout lacks. Asks the remote with
+# ls-remote, so it fetches nothing and changes nothing.
+report_updates() {
+  step "Updates"
+  if ! [ -d "$DIR/.git" ] || ! is_checkout "$DIR"; then
+    info "no checkout in $DIR to check"
+    return
+  fi
+  local branch remote merge sha
+  branch="$(git -C "$DIR" symbolic-ref -q --short HEAD || true)"
+  remote="$(git -C "$DIR" config "branch.$branch.remote" 2>/dev/null || true)"
+  merge="$(git -C "$DIR" config "branch.$branch.merge" 2>/dev/null || true)"
+  if [ -z "$branch" ]; then
+    info "$DIR is on a detached HEAD at $(at), so it wasn't checked"
+  elif [ -z "$remote" ] || [ -z "$merge" ]; then
+    info "branch $branch has no upstream branch, so it wasn't checked"
+  elif ! sha="$(qgit ls-remote -q "$remote" "$merge" 2>/dev/null | awk 'NR == 1 {print $1}')" || [ -z "$sha" ]; then
+    warn "couldn't reach $remote to look for updates"
+  elif git -C "$DIR" merge-base --is-ancestor "$sha" HEAD 2>/dev/null; then
+    ok "up to date with $remote/${merge#refs/heads/} ($(at))"
+  else
+    note "a newer version is available on $remote/${merge#refs/heads/} (this checkout is at $(at))"
+    hint "run $DIR/install.sh to update"
   fi
 }
 
@@ -398,7 +506,8 @@ cleanup() {
 }
 
 main() {
-  DIR="" BRANCH="" CHECK=0 YES=0 NO_LINK=0 UPDATE=1 SKIP_ENGINE=0 ENGINE_HOME="" BUN="" CARGO=""
+  ARGS=("$@")
+  DIR="" BRANCH="" CHECK=0 YES=0 NO_LINK=0 UPDATE=1 SKIP_ENGINE=0 ENGINE_HOME="" BUN="" CARGO="" FOUND_BY_LINK=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --dir) DIR="${2:?--dir needs a path}" && shift ;;
@@ -416,13 +525,15 @@ main() {
     shift
   done
 
-  # Run from a checkout (./install.sh), install that checkout; piped from curl, BASH_SOURCE isn't a file.
-  FROM_CHECKOUT=0
-  local here=""
+  # Run from a checkout (./install.sh), install that checkout; piped from curl, BASH_SOURCE isn't a file. Otherwise the
+  # default folder, unless Pipo is already installed elsewhere and the `pipo` command runs that checkout.
+  local here="" linked=""
   [ -f "${BASH_SOURCE[0]:-}" ] && here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   if [ -z "$DIR" ]; then
     if [ -n "$here" ] && is_checkout "$here"; then
-      DIR="$here" FROM_CHECKOUT=1
+      DIR="$here"
+    elif [ -z "${PIPO_DIR:-}" ] && ! is_checkout "$DEFAULT_DIR" && linked="$(linked_checkout)"; then
+      DIR="$linked" FOUND_BY_LINK=1
     else
       DIR="$DEFAULT_DIR"
     fi
@@ -438,6 +549,7 @@ main() {
   if [ "$CHECK" = 1 ]; then
     find_bun
     find_cargo
+    report_updates
   else
     check_prereqs 1
     get_checkout
