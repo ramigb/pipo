@@ -14,7 +14,7 @@
 import { spawn } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { entryAlive, procStart, readRegistryEntry, ulid } from "@pipo/runner";
+import { bunPath, entryAlive, procStart, readRegistryEntry, ulid } from "@pipo/runner";
 import { formatDuration, inputsOf, type Pipeline, parseDuration } from "@pipo/spec";
 import { Approvals } from "./approvals";
 import { checkExposure, type EngineConfig, loadConfig } from "./config";
@@ -501,7 +501,7 @@ export class Supervisor extends SupervisorDiscovery {
     const log = openSync(join(this.home, "logs", "engine.log"), "a");
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(process.execPath, args, { detached: true, stdio: ["ignore", log, log] });
+      child = spawn(bunPath, args, { detached: true, stdio: ["ignore", log, log] });
       child.unref();
     } finally {
       closeSync(log);

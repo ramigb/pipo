@@ -30,3 +30,7 @@ serde_json = { version = "1.0.151", features = ["preserve_order"] }
 sha1 = "0.11.0"
 sha2 = "0.11.0"
 tokio = { version = "1.53.2", features = ["full"] }
+
+# rquickjs ships no prebuilt bindings for Android (Termux); generate them there (needs libclang: pkg install clang).
+[target.'cfg(target_os = "android")'.dependencies]
+rquickjs = { version = "0.14.0", features = ["bindgen"] }

@@ -53,7 +53,7 @@ export function claimEngineEntry(entry: EngineEntry): void {
   try {
     for (let tries = 0; ; tries++) {
       try {
-        linkSync(tmp, path);
+        linkOrCreate(tmp, path);
         claimed.add(entry.home);
         return;
       } catch (e) {
@@ -66,6 +66,20 @@ export function claimEngineEntry(entry: EngineEntry): void {
     }
   } finally {
     rmSync(tmp, { force: true });
+  }
+}
+
+/**
+ * Hard-link `tmp` to `path`, failing with EEXIST when `path` exists. Android forbids hard links (EACCES), so there
+ * it falls back to an exclusive create: still only one winner, but a reader can briefly see the file before it's
+ * written, and a second engine starting in that instant could treat it as stale.
+ */
+function linkOrCreate(tmp: string, path: string): void {
+  try {
+    linkSync(tmp, path);
+  } catch (e) {
+    if (!["EACCES", "EPERM"].includes((e as NodeJS.ErrnoException).code ?? "")) throw e;
+    writeFileSync(path, readFileSync(tmp), { flag: "wx" });
   }
 }
 

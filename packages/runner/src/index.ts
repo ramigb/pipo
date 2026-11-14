@@ -11,6 +11,7 @@ export {
   readAgentSettings,
 } from "./agents";
 export {
+  bunPath,
   compilerArgv,
   ensureRunnerBuilt,
   ensureRunnerBuiltAsync,

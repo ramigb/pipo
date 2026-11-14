@@ -142,9 +142,12 @@ export async function ensureRunnerBuiltAsync(repo: string): Promise<string> {
   return finish(p, await Bun.spawn([p.cargo, ...BUILD], { cwd: repo, ...CARGO_IO }).exited);
 }
 
+/** This Bun's executable. On Android (Termux), process.execPath is the system linker that loads Bun, not Bun. */
+export const bunPath: string = process.execPath.endsWith("/linker64") ? process.argv0 : process.execPath;
+
 /** `pipo compile` as the runner should call it: this Bun and this workspace's CLI, unless PIPO_COMPILE is set. */
 export function compilerArgv(): string {
-  return process.env.PIPO_COMPILE || JSON.stringify([process.execPath, CLI_MAIN, "compile"]);
+  return process.env.PIPO_COMPILE || JSON.stringify([bunPath, CLI_MAIN, "compile"]);
 }
 
 /** The environment a runner process gets: the caller's, plus PIPO_COMPILE. */

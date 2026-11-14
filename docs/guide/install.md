@@ -36,7 +36,7 @@ The script exits with status 1 if a check fails, and prints what to do for each 
 
 | Need | Why |
 |---|---|
-| **Linux or macOS** | Pipo uses Unix sockets and process sessions. Windows isn't supported. |
+| **Linux or macOS** | Pipo uses Unix sockets and process sessions. Windows isn't supported. Android works in [Termux](https://termux.dev): `pkg install bun rust git clang` first (clang builds the runner's QuickJS bindings there). |
 | **[Bun](https://bun.sh) 1.3 or newer** | The CLI, the engine, the checker and the dashboard are TypeScript, run directly by Bun with no build step. |
 | **A stable [Rust](https://rustup.rs) toolchain** (`cargo`) | The runner is a Rust binary, built from `crates/pipo-runner` on your machine. |
 | **Git** | To clone the repository. |

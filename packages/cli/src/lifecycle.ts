@@ -10,6 +10,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import {
+  bunPath,
   ControlClient,
   ControlError,
   type EngineSpend,
@@ -159,7 +160,7 @@ async function launchEngine(
   const log = openSync(logFile, "a");
   let child: ReturnType<typeof spawn>;
   try {
-    child = spawn(process.execPath, args, { detached: true, stdio: ["ignore", log, log] });
+    child = spawn(bunPath, args, { detached: true, stdio: ["ignore", log, log] });
     child.unref();
   } finally {
     closeSync(log);

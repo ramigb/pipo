@@ -47,7 +47,7 @@ The file fits Git, diffs, pull requests and CI. The visual builder loads and sav
 
 ## Quick start
 
-Runs on Linux and macOS. The install script checks for [Bun](https://bun.sh) ≥ 1.3, [Rust](https://rustup.rs) and Git, offers to install the ones you don't have, builds Pipo, links the `pipo` command and checks the install:
+Runs on Linux, macOS and Android ([see below](#runs-on-a-phone)). The install script checks for [Bun](https://bun.sh) ≥ 1.3, [Rust](https://rustup.rs) and Git, offers to install the ones you don't have, builds Pipo, links the `pipo` command and checks the install:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ramigb/pipo/main/install.sh | bash
@@ -69,6 +69,17 @@ curl -X POST localhost:8787/in/people-intake/people \
 ```
 
 `pipo run` runs one pipeline in the foreground until Ctrl-C (it drains; a second Ctrl-C stops). A pipeline that fails `pipo check` refuses to start and says why.
+
+### Runs on a phone
+
+Pipo is light enough to live in your pocket. An old Android phone in a drawer can be an always-on pipeline box: on a 2019 budget phone (2 GB of RAM), an idle engine takes about 80 MB of memory and about 1% of one core. Install [Termux](https://termux.dev), then:
+
+```sh
+pkg install bun rust git clang
+curl -fsSL https://raw.githubusercontent.com/ramigb/pipo/main/install.sh | bash
+```
+
+The first build of the runner takes a while on a phone. To reach the dashboard from other devices on your network, see [Owner and remote access](docs/guide/owner.md#exposing-the-engine).
 
 ### Let Claude Code build pipelines
 
