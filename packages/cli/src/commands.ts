@@ -387,6 +387,19 @@ export const COMMANDS: CommandHelp[] = [
     ],
   },
   {
+    name: "update",
+    summary:
+      "Update this install: pull new commits (never over local changes), rebuild, relink pipo to this checkout, verify, offer to restart an outdated engine (also: pipo --update)",
+    usage: "pipo update [--yes] [--check] [--no-update] [--skip-engine] [--branch <ref>]",
+    flags: [
+      ["--yes, -y", "Update and restart an outdated engine without asking"],
+      ["--check", "Only verify the install and say whether an update is available; change nothing"],
+      ["--no-update", "Don't pull: rebuild, relink and verify the checkout as it is"],
+      ["--skip-engine", "Skip the engine start/stop check"],
+      ["--branch <ref>", "Update to this branch"],
+    ],
+  },
+  {
     name: "compile",
     summary:
       "Advanced, used by the runner: check a pipeline and print its compiled form as JSON (diagnostics, definition, bundled fn module, schemas, file hashes)",

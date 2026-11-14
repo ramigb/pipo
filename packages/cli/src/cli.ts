@@ -22,6 +22,7 @@ import { cmdTest } from "./test-cmd";
 import { trust } from "./trust";
 import { clearSpinner, say, setPlain } from "./tty";
 import { cmdUi } from "./ui";
+import { cmdUpdate } from "./update";
 import { cmdDiff, cmdHistory, cmdRollback } from "./versions";
 
 /** `main`, with a thrown error reported: text on stderr, or `{ok:false,error,hint,code}` on stdout under `--json`. */
@@ -40,7 +41,8 @@ export async function runCli(argv: string[]): Promise<number> {
 }
 
 export async function main(argv: string[]): Promise<number> {
-  const [command, ...rest] = argv;
+  // `pipo --update` is `pipo update`.
+  const [command, ...rest] = argv[0] === "--update" ? ["update", ...argv.slice(1)] : argv;
   setJsonMode(argv.includes("--json"));
   setCommand(command);
   if (command === undefined || command === "--help" || command === "-h") return showHelp();
@@ -128,6 +130,8 @@ async function dispatch(command: string, rest: string[]): Promise<number> {
       return cmdTest(rest);
     case "ui":
       return cmdUi(rest);
+    case "update":
+      return cmdUpdate(rest);
     default:
       console.log(JSON.stringify(buildSchema(), null, 2));
       return 0;

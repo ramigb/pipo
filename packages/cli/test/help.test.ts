@@ -186,3 +186,19 @@ test("a missing path is a Pipo error with a hint, not an ENOENT", async () => {
   expect((err as Error).message).toContain(missing);
   expect((err as { hint?: string }).hint).toContain(".pipo");
 });
+
+test("pipo --update is pipo update, which runs this checkout's install.sh with the flags it knows", async () => {
+  const { installArgs, REPO } = await import("../src/update");
+  expect((await pipo("--update", "--help")).stdout).toContain("pipo update [--yes]");
+  expect(installArgs(["-y", "--no-update", "--branch", "dev"])).toEqual([
+    join(REPO, "install.sh"),
+    "--dir",
+    REPO,
+    "--yes",
+    "--no-update",
+    "--branch",
+    "dev",
+  ]);
+  expect(existsSync(join(REPO, "install.sh"))).toBe(true);
+  expect((await pipo("update", "--bogus")).code).toBe(64);
+});

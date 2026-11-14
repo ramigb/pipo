@@ -31,6 +31,7 @@ In a checkout you already have, run `./install.sh` there. It installs that check
 
 The script exits with status 1 if a check fails, and prints what to do for each failure. Run `./install.sh --check` from the checkout at any time to check the install again.
 
+
 ## Prerequisites
 
 | Need | Why |
@@ -144,13 +145,14 @@ The VS Code extension in `packages/vscode` registers `.pipo` files, attaches the
 ## Updating
 
 ```sh
-git pull
-bun install
+pipo update        # or: pipo --update
 ```
 
-Or run the install script again. It shows what's new, asks before updating, then installs and checks. `./install.sh --check` only tells you whether an update is available.
+`pipo update` runs the install script on the checkout your `pipo` command runs from, passing through `--yes`, `--check`, `--no-update`, `--skip-engine` and `--branch`. It shows what's new and asks before a fast-forward (never over local changes or local commits), runs `bun install`, which rebuilds the runner, links `pipo` to that checkout again and verifies the install. If an engine from that checkout runs the old code, it offers `pipo engine restart`. `pipo update --check` only tells you whether an update is available.
 
-If an engine is running, restart it so it runs the new code: `pipo engine restart`. The dashboard shows a banner when the running engine is older than the code on disk. See [Restarting the engine](engine.md#restarting-the-engine).
+Run as `bun pipo update` from a development checkout, it points the global `pipo` at that checkout. Your local edits aren't pulled over, but are rebuilt and linked.
+
+By hand: `git pull`, `bun install`, then `pipo engine restart` if an engine is running. The dashboard shows a banner when the running engine is older than the code on disk. See [Restarting the engine](engine.md#restarting-the-engine).
 
 ## Uninstalling
 
